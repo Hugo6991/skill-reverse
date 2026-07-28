@@ -1,0 +1,245 @@
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { getOccupation } from "./occupations";
+import {
+  assembleReport,
+  captureUrl,
+  fetchSocialEvidence,
+  runPerplexityResearch,
+  type CapturedArtifact
+} from "./services";
+import type { AppEnv } from "./types";
+
+export interface ResearchWorkflowParams {
+  kind?: "research" | "health";
+  jobId?: string;
+  actorHash?: string;
+  targetUrl?: string;
+  supportUrls?: string[];
+  occupationCode?: string;
+  capabilityHash?: string;
+  reservedCents?: number;
+  day?: string;
+}
+
+async function updateJob(
+  db: D1Database,
+  jobId: string,
+  values: {
+    stage?: string;
+    status?: string;
+    progress?: number;
+    actualCents?: number;
+    reportId?: string;
+    degraded?: string[];
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }
+): Promise<void> {
+  const sets: string[] = ["updated_at = ?"];
+  const params: unknown[] = [new Date().toISOString()];
+  const add = (column: string, value: unknown) => {
+    sets.push(`${column} = ?`);
+    params.push(value);
+  };
+  if (values.stage !== undefined) add("stage", values.stage);
+  if (values.status !== undefined) add("status", values.status);
+  if (values.progress !== undefined) add("progress", values.progress);
+  if (values.actualCents !== undefined) add("actual_cents", values.actualCents);
+  if (values.reportId !== undefined) add("report_id", values.reportId);
+  if (values.degraded !== undefined) add("degraded_json", JSON.stringify(values.degraded));
+  if (values.errorCode !== undefined) add("error_code", values.errorCode);
+  if (values.errorMessage !== undefined) add("error_message", values.errorMessage);
+  params.push(jobId);
+  await db
+    .prepare(`UPDATE jobs SET ${sets.join(", ")} WHERE id = ?`)
+    .bind(...params)
+    .run();
+}
+
+export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflowParams> {
+  async run(event: WorkflowEvent<ResearchWorkflowParams>, step: WorkflowStep): Promise<unknown> {
+    if (event.payload.kind === "health") {
+      return step.do("health noop", async () => ({ ok: true, at: new Date().toISOString() }));
+    }
+
+    const params = event.payload;
+    const {
+      jobId,
+      actorHash,
+      targetUrl,
+      occupationCode,
+      capabilityHash,
+      day = new Date().toISOString().slice(0, 10),
+      reservedCents = 50
+    } = params;
+    if (!jobId || !actorHash || !targetUrl || !occupationCode || !capabilityHash) {
+      throw new Error("Invalid research workflow payload");
+    }
+
+    const actor = this.env.ACTOR_GATE.getByName(actorHash);
+    const budget = this.env.DAILY_BUDGET.getByName(day);
+    const degraded: string[] = [];
+    let actualCents = 0;
+
+    try {
+      await step.do("mark job running", async () => {
+        await updateJob(this.env.DB, jobId, {
+          stage: "capture",
+          status: "running",
+          progress: 12
+        });
+      });
+
+      const urls = [targetUrl, ...(params.supportUrls ?? [])].slice(0, 4);
+      const captured = await step.do(
+        "capture public artifacts",
+        { retries: { limit: 2, delay: "10 seconds", backoff: "linear" } },
+        async () => {
+          const results: CapturedArtifact[] = [];
+          for (let index = 0; index < urls.length; index += 1) {
+            try {
+              results.push(await captureUrl(this.env, jobId, urls[index], index + 1));
+            } catch (error) {
+              if (index === 0) throw error;
+              degraded.push(
+                `Supporting source skipped (${new URL(urls[index]).hostname}): ${
+                  error instanceof Error ? error.message : "capture error"
+                }`
+              );
+            }
+          }
+          return results;
+        }
+      );
+
+      const occupation = await step.do("load professional baseline", async () => {
+        await updateJob(this.env.DB, jobId, {
+          stage: "professional_baseline",
+          progress: 30,
+          degraded
+        });
+        const profile = await getOccupation(this.env.DB, occupationCode);
+        if (!profile) throw new Error(`Occupation ${occupationCode} is unavailable`);
+        return profile;
+      });
+
+      const social = await step.do(
+        "collect targeted social provenance",
+        { retries: { limit: 1, delay: "15 seconds" } },
+        async () => {
+          await updateJob(this.env.DB, jobId, {
+            stage: "research",
+            progress: 46,
+            degraded
+          });
+          const result = await fetchSocialEvidence(this.env, captured, targetUrl);
+          if (result.degraded) degraded.push(result.degraded);
+          actualCents += Math.ceil(result.posts.length * 0.015);
+          return result;
+        }
+      );
+
+      const researched = await step.do(
+        "reverse research with structured evidence",
+        { retries: { limit: 2, delay: "20 seconds", backoff: "exponential" } },
+        async () => {
+          await updateJob(this.env.DB, jobId, {
+            stage: "source_verification",
+            progress: 62,
+            degraded
+          });
+          return runPerplexityResearch(
+            this.env,
+            targetUrl,
+            occupation,
+            captured,
+            social.posts
+          );
+        }
+      );
+      actualCents += researched.estimatedCents;
+
+      const report = await step.do("assemble evidence graph", async () => {
+        await updateJob(this.env.DB, jobId, {
+          stage: "hypothesis_generation",
+          progress: 82,
+          actualCents,
+          degraded
+        });
+        return assembleReport({
+          id: crypto.randomUUID(),
+          targetUrl,
+          occupation,
+          model: researched.result,
+          captured,
+          posts: social.posts,
+          citations: researched.citations,
+          degraded
+        });
+      });
+
+      await step.do("persist report", async () => {
+        const now = new Date();
+        const expires = new Date(
+          now.getTime() + Number(this.env.REPORT_TTL_DAYS || 30) * 86_400_000
+        ).toISOString();
+        const statements = captured.map((artifact) =>
+          this.env.DB.prepare(
+            `INSERT OR REPLACE INTO source_artifacts
+             (id, job_id, url, kind, status, title, retrieved_at, r2_key, excerpt, metadata_json)
+             VALUES (?1, ?2, ?3, ?4, 'verified_at_retrieval', ?5, ?6, ?7, ?8, '{}')`
+          ).bind(
+            `${jobId}-${artifact.id}`,
+            jobId,
+            artifact.url,
+            artifact.url.includes("github.com") ? "github" : "website",
+            artifact.title,
+            now.toISOString(),
+            artifact.r2Key,
+            artifact.excerpt
+          )
+        );
+        await this.env.DB.batch(statements);
+        await this.env.DB.prepare(
+          `INSERT INTO reports
+           (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+        )
+          .bind(
+            report.id,
+            jobId,
+            capabilityHash,
+            report.title,
+            JSON.stringify(report),
+            now.toISOString(),
+            expires
+          )
+          .run();
+        await updateJob(this.env.DB, jobId, {
+          stage: "report",
+          status: "completed",
+          progress: 100,
+          actualCents,
+          reportId: report.id,
+          degraded
+        });
+      });
+
+      await step.do("settle gates", async () => {
+        await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
+      });
+      return { reportId: report.id, actualCents, degraded };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown workflow error";
+      await updateJob(this.env.DB, jobId, {
+        status: "failed",
+        actualCents,
+        degraded,
+        errorCode: "research_failed",
+        errorMessage: message.slice(0, 500)
+      });
+      await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
+      throw error;
+    }
+  }
+}

@@ -1,0 +1,137 @@
+import { describe, expect, it } from "vitest";
+import { demoReport } from "../worker/demo";
+import { resolveAppMode } from "../worker/index";
+import { pilotOccupation } from "../worker/occupations";
+import { modelResultSchema } from "../worker/schema";
+import { assertSafePublicUrl } from "../worker/security";
+import { assembleReport } from "../worker/services";
+import type { AppEnv } from "../worker/types";
+
+describe("public URL safety", () => {
+  it("accepts a public HTTPS URL", () => {
+    expect(assertSafePublicUrl("https://antfu.me").hostname).toBe("antfu.me");
+  });
+
+  it.each([
+    "http://example.com",
+    "https://localhost/admin",
+    "https://127.0.0.1",
+    "https://169.254.169.254/latest/meta-data",
+    "https://example.com:8443"
+  ])("blocks unsafe target %s", (url) => {
+    expect(() => assertSafePublicUrl(url)).toThrow();
+  });
+});
+
+describe("deployment lock", () => {
+  it("stays locked until the setup secret is explicitly true", () => {
+    expect(resolveAppMode({ APP_MODE: "locked" } as AppEnv)).toBe("locked");
+    expect(
+      resolveAppMode({ APP_MODE: "locked", SETUP_COMPLETE: "false" } as AppEnv)
+    ).toBe("locked");
+    expect(
+      resolveAppMode({ APP_MODE: "locked", SETUP_COMPLETE: "true" } as AppEnv)
+    ).toBe("public");
+    expect(resolveAppMode({ APP_MODE: "demo" } as AppEnv)).toBe("demo");
+  });
+});
+
+describe("evidence-aware report assembly", () => {
+  const baseModel = modelResultSchema.parse({
+    title: "A report",
+    verdict: "Useful with limits",
+    framework: {
+      name: "Conditional craft",
+      summary: "Turn observations into conditional rules.",
+      useWhen: "Evidence exists.",
+      avoidWhen: "Only screenshots exist.",
+      steps: [
+        { title: "Observe", instruction: "When repeated, record it.", failureType: "omission" },
+        {
+          title: "Condition",
+          instruction: "When context changes, state the predicate.",
+          failureType: "conditional"
+        }
+      ]
+    },
+    author: { name: "Unknown", background: "Unverified", context: "Limited sources" },
+    observations: [{ text: "A visible feature", sourceUrls: ["https://example.com"] }],
+    claims: [
+      {
+        text: "An uncited claim",
+        status: "verified",
+        confidence: 99,
+        evidenceUrls: ["https://third-party.example/story"],
+        score: {
+          directness: 30,
+          firstParty: 20,
+          corroboration: 20,
+          temporalFit: 15,
+          reproducibility: 15,
+          contradictionPenalty: 0
+        }
+      }
+    ],
+    professionalDelta: [],
+    adoption: [],
+    caveats: []
+  });
+
+  it("downgrades verified claims without first-party evidence", () => {
+    const report = assembleReport({
+      id: "test",
+      targetUrl: "https://example.com",
+      occupation: pilotOccupation,
+      model: baseModel,
+      captured: [
+        {
+          id: "source-1",
+          url: "https://example.com",
+          title: "Example",
+          markdown: "# Example",
+          excerpt: "Example",
+          r2Key: "jobs/test/source-1.md"
+        }
+      ],
+      posts: [],
+      citations: [],
+      degraded: []
+    });
+    expect(report.claims[0].status).toBe("supported_inference");
+    expect(report.claims[0].confidence).toBe(100);
+  });
+
+  it("defaults absent professional evidence to not observable", () => {
+    const report = assembleReport({
+      id: "test",
+      targetUrl: "https://example.com",
+      occupation: pilotOccupation,
+      model: baseModel,
+      captured: [
+        {
+          id: "source-1",
+          url: "https://example.com",
+          title: "Example",
+          markdown: "# Example",
+          excerpt: "Example",
+          r2Key: "jobs/test/source-1.md"
+        }
+      ],
+      posts: [],
+      citations: [],
+      degraded: []
+    });
+    expect(report.professionalDelta.every((item) => item.manifestation === "not_observable")).toBe(
+      true
+    );
+  });
+});
+
+describe("demo dossier", () => {
+  it("keeps every competency traceable to O*NET 30.3", () => {
+    for (const delta of demoReport.professionalDelta) {
+      expect(delta.competency.sourceUri).toMatch(/^https:\/\/www\.onetonline\.org\//);
+    }
+    expect(demoReport.occupation.version).toBe("30.3");
+  });
+});

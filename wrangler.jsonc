@@ -1,0 +1,82 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "skill-reverse",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-07-28",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "vars": {
+    "APP_MODE": "locked",
+    "JOB_USD_LIMIT": "0.50",
+    "DAILY_USD_LIMIT": "5.00",
+    "REPORT_TTL_DAYS": "30",
+    "ARTIFACT_TTL_DAYS": "7"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "skill-reverse-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "skill-reverse-artifacts"
+    }
+  ],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "workflows": [
+    {
+      "name": "skill-reverse-research",
+      "binding": "RESEARCH_WORKFLOW",
+      "class_name": "ResearchWorkflow"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACTOR_GATE",
+        "class_name": "ActorGate"
+      },
+      {
+        "name": "DAILY_BUDGET",
+        "class_name": "DailyBudget"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ActorGate", "DailyBudget"]
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "BURST_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 5,
+        "period": 60
+      }
+    }
+  ],
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  }
+}
