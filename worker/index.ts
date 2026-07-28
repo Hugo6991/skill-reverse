@@ -6,7 +6,8 @@ import { demoReport } from "./demo";
 import { historyPresentation } from "./history";
 import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import { getOccupation, searchOccupations } from "./occupations";
-import { createJobSchema, updateJobSourcesSchema } from "./schema";
+import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
+import { isRetryableJobError } from "./provider-ledger";
 import {
   assertSafePublicUrl,
   attachActorCookie,
@@ -41,6 +42,28 @@ class JobGateError extends Error {
     readonly status: 429 | 503 = 429
   ) {
     super(message);
+  }
+}
+
+const MAX_MANUAL_RETRIES = 2;
+
+function publicResearchError(code: string): string {
+  switch (code) {
+    case "provider_timeout":
+      return "The research provider timed out before completing this step";
+    case "provider_rate_limited":
+      return "The research provider is busy right now";
+    case "provider_unavailable":
+      return "The research provider is temporarily unavailable";
+    case "provider_empty_response":
+      return "The research provider returned an empty result";
+    case "provider_output_truncated":
+    case "provider_schema_invalid":
+      return "The research provider returned an incomplete result";
+    case "provider_authentication_failed":
+      return "The research service needs owner attention";
+    default:
+      return "Research could not be completed";
   }
 }
 
@@ -377,9 +400,259 @@ app.get("/api/jobs/:id", async (c) => {
       submittedCount: Number(row.submitted_count)
     },
     error: row.error_code
-      ? { code: row.error_code, message: row.error_message ?? "Research failed" }
-      : undefined
+      ? { code: row.error_code, message: publicResearchError(row.error_code) }
+      : undefined,
+    retry: {
+      allowed:
+        row.status === "failed" &&
+        isRetryableJobError(row.error_code) &&
+        row.retry_count < MAX_MANUAL_RETRIES &&
+        new Date(row.expires_at).getTime() > Date.now() &&
+        row.actual_cents < row.reserved_cents,
+      count: row.retry_count,
+      max: MAX_MANUAL_RETRIES
+    }
   });
+});
+
+app.post("/api/jobs/:id/retry", async (c) => {
+  if (resolveAppMode(c.env) !== "public") {
+    return c.json(
+      { error: { code: "setup_required", message: "Public research is not available" } },
+      503
+    );
+  }
+  const parsed = retryJobSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json(
+      { error: { code: "invalid_request", message: "Complete human verification first" } },
+      400
+    );
+  }
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json(
+      { error: { code: "setup_required", message: "Anonymous sessions are unavailable" } },
+      503
+    );
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+
+  const row = await c.env.DB.prepare(
+    `SELECT id, actor_hash, status, stage, progress, workflow_id, reserved_cents,
+            actual_cents, error_code, error_message, retry_count, expires_at, created_at
+     FROM jobs WHERE id = ?1`
+  )
+    .bind(c.req.param("id"))
+    .first<
+      Pick<
+        JobRow,
+        | "id"
+        | "actor_hash"
+        | "status"
+        | "stage"
+        | "progress"
+        | "workflow_id"
+        | "reserved_cents"
+        | "actual_cents"
+        | "error_code"
+        | "error_message"
+        | "retry_count"
+        | "expires_at"
+        | "created_at"
+      >
+    >();
+  if (!row || row.actor_hash !== actor.actorHash) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "Research job not found" } }, 404)
+    );
+  }
+  if (
+    row.status !== "failed" ||
+    !isRetryableJobError(row.error_code) ||
+    row.retry_count >= MAX_MANUAL_RETRIES ||
+    !row.workflow_id ||
+    new Date(row.expires_at).getTime() <= Date.now()
+  ) {
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: "retry_unavailable",
+            message: "This research can no longer be retried"
+          }
+        },
+        409
+      )
+    );
+  }
+  const remainingCents = Math.max(0, row.reserved_cents - row.actual_cents);
+  if (remainingCents <= 0) {
+    return attachActorCookie(
+      c,
+      c.json(
+        { error: { code: "job_budget_exhausted", message: "This research reached its cost limit" } },
+        409
+      )
+    );
+  }
+
+  const burst = await c.env.BURST_LIMITER.limit({ key: `retry:${actor.actorHash}` });
+  if (!burst.success) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "rate_limited", message: "Try again in a moment" } }, 429)
+    );
+  }
+  const turnstile = await verifyTurnstile(
+    parsed.data.turnstileToken,
+    c.req.raw,
+    c.env,
+    "retry_research_job"
+  );
+  if (!turnstile.success) {
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: turnstile.code,
+            message: "Human verification expired or could not be confirmed"
+          }
+        },
+        400
+      )
+    );
+  }
+
+  const budgetDay = row.created_at.slice(0, 10);
+  const actorDay = new Date().toISOString().slice(0, 10);
+  const dailyLimitCents = Math.round(Number(c.env.DAILY_USD_LIMIT || 5) * 100);
+  const configuredActorLimit = Number(c.env.ANON_DAILY_JOB_LIMIT || 20);
+  const actorDailyJobLimit =
+    Number.isFinite(configuredActorLimit) && configuredActorLimit > 0
+      ? Math.max(1, Math.min(100, Math.floor(configuredActorLimit)))
+      : 20;
+  const actorGate = c.env.ACTOR_GATE.getByName(actor.actorHash);
+  const dailyBudget = c.env.DAILY_BUDGET.getByName(budgetDay);
+  const actorReservation = await actorGate.reserve(row.id, actorDay, actorDailyJobLimit);
+  if (!actorReservation.ok) {
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: actorReservation.reason ?? "actor_limited",
+            message:
+              actorReservation.reason === "concurrent_job"
+                ? "One research job is already running"
+                : "This session reached its daily research limit"
+          }
+        },
+        429
+      )
+    );
+  }
+  const budgetReservation = await dailyBudget.reserve(
+    row.id,
+    remainingCents,
+    dailyLimitCents
+  );
+  if (!budgetReservation.ok) {
+    await actorGate.rollback(row.id);
+    return attachActorCookie(
+      c,
+      c.json(
+        { error: { code: "daily_budget_exhausted", message: "The research budget is unavailable" } },
+        503
+      )
+    );
+  }
+
+  const retriedAt = new Date().toISOString();
+  const claimed = await c.env.DB.prepare(
+    `UPDATE jobs
+     SET status = 'running', stage = 'source_verification', progress = 62,
+         error_code = NULL, error_message = NULL, retry_count = retry_count + 1,
+         last_retry_at = ?1, updated_at = ?1
+     WHERE id = ?2 AND actor_hash = ?3 AND status = 'failed'
+       AND retry_count = ?4 AND retry_count < ?5`
+  )
+    .bind(retriedAt, row.id, actor.actorHash, row.retry_count, MAX_MANUAL_RETRIES)
+    .run();
+  if (!claimed.meta.changes) {
+    await Promise.all([actorGate.rollback(row.id), dailyBudget.release(row.id)]);
+    return attachActorCookie(
+      c,
+      c.json(
+        { error: { code: "retry_in_progress", message: "This retry is already running" } },
+        409
+      )
+    );
+  }
+
+  try {
+    const workflow = await c.env.RESEARCH_WORKFLOW.get(row.workflow_id);
+    await workflow.restart({
+      from: { name: "reverse research with structured evidence" }
+    });
+  } catch (error) {
+    await c.env.DB.prepare(
+      `UPDATE jobs
+       SET status = 'failed', stage = ?1, progress = ?2, error_code = ?3,
+           error_message = ?4, retry_count = ?5, last_retry_at = NULL, updated_at = ?6
+       WHERE id = ?7 AND status = 'running' AND last_retry_at = ?8`
+    )
+      .bind(
+        row.stage,
+        row.progress,
+        row.error_code,
+        row.error_message,
+        row.retry_count,
+        new Date().toISOString(),
+        row.id,
+        retriedAt
+      )
+      .run();
+    await Promise.all([actorGate.rollback(row.id), dailyBudget.release(row.id)]);
+    console.error(
+      JSON.stringify({
+        event: "workflow_restart_failed",
+        jobId: row.id,
+        message: error instanceof Error ? error.message : "restart failed"
+      })
+    );
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: "retry_start_failed",
+            message: "The retry could not be started"
+          }
+        },
+        503
+      )
+    );
+  }
+
+  return attachActorCookie(
+    c,
+    c.json(
+      {
+        id: row.id,
+        status: "running",
+        stage: "source_verification",
+        progress: 62,
+        retry: { allowed: false, count: row.retry_count + 1, max: MAX_MANUAL_RETRIES }
+      },
+      202
+    )
+  );
 });
 
 app.put("/api/jobs/:id/sources", async (c) => {
@@ -695,7 +968,7 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-    checks.database = { ok: schema?.value === "3", detail: `schema ${schema?.value ?? "missing"}` };
+    checks.database = { ok: schema?.value === "4", detail: `schema ${schema?.value ?? "missing"}` };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }

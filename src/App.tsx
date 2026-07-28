@@ -202,6 +202,33 @@ export default function App() {
     await pollJob(route.id);
   }
 
+  async function retryResearch(turnstileToken: string) {
+    if (route.kind !== "job") return;
+    const result = await api<Partial<JobStatus>>(
+      `/api/jobs/${encodeURIComponent(route.id)}/retry`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ turnstileToken })
+      }
+    );
+    setJob((current) =>
+      current
+        ? {
+            ...current,
+            ...result,
+            status: "running",
+            stage: "source_verification",
+            progress: 62,
+            error: undefined
+          }
+        : current
+    );
+    setBusy(true);
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    await pollJob(route.id);
+  }
+
   function renderPage() {
     if (route.kind === "home") {
       return (
@@ -223,7 +250,10 @@ export default function App() {
       return (
         <JobProgress
           job={job}
+          turnstileSiteKey={config.turnstileSiteKey}
           onSubmitSources={submitSources}
+          onRetry={retryResearch}
+          onStartNew={() => navigate("/")}
           onBack={() => navigate("/history")}
         />
       );

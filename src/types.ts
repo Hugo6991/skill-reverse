@@ -142,6 +142,11 @@ export interface JobStatus {
     code: string;
     message: string;
   };
+  retry?: {
+    allowed: boolean;
+    count: number;
+    max: number;
+  };
 }
 
 export interface HistoryItem {

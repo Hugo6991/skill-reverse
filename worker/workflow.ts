@@ -3,12 +3,18 @@ import { getOccupation } from "./occupations";
 import {
   assembleReport,
   captureUrl,
+  draftToModelResult,
   fetchSocialEvidence,
   runOpenRouterSynthesis,
   runPerplexityResearch,
   type CapturedArtifact
 } from "./services";
 import { loadJobSources, selectCaptureSources } from "./job-sources";
+import {
+  addJobCost,
+  getJobCost,
+  providerErrorDetails
+} from "./provider-ledger";
 import type { AppEnv } from "./types";
 
 export interface ResearchWorkflowParams {
@@ -89,8 +95,6 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
     const actor = this.env.ACTOR_GATE.getByName(actorHash);
     const budget = this.env.DAILY_BUDGET.getByName(day);
     const degraded: string[] = [];
-    let actualCents = 0;
-
     try {
       await step.do("mark job running", async () => {
         await updateJob(this.env.DB, jobId, {
@@ -184,7 +188,11 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           });
           const result = await fetchSocialEvidence(this.env, captured, targetUrl);
           if (result.degraded) degraded.push(result.degraded);
-          actualCents += Math.ceil(result.posts.length * 0.015);
+          await addJobCost(
+            this.env.DB,
+            jobId,
+            Math.ceil(result.posts.length * 0.015)
+          );
           return result;
         }
       );
@@ -203,24 +211,23 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             targetUrl,
             occupation,
             captured,
-            social.posts
+            social.posts,
+            jobId
           );
         }
       );
-      actualCents += researched.estimatedCents;
 
       await updateJob(this.env.DB, jobId, {
         stage: "hypothesis_generation",
         progress: 76,
-        actualCents,
         degraded
       });
       let synthesized:
-        | { result: typeof researched.result; estimatedCents: number; degraded?: undefined }
-        | { result: typeof researched.result; estimatedCents: 0; degraded: string };
+        | { result: ReturnType<typeof draftToModelResult>; estimatedCents: number; degraded?: undefined }
+        | { result: ReturnType<typeof draftToModelResult>; estimatedCents: 0; degraded: string };
       if (!this.env.OPENROUTER_API_KEY) {
         synthesized = {
-          result: researched.result,
+          result: draftToModelResult(researched.result, targetUrl),
           estimatedCents: 0,
           degraded: "OpenRouter synthesis unavailable; Perplexity research draft was used"
         };
@@ -236,28 +243,27 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
               occupation,
               captured,
               researched.result,
-              researched.citations
+              researched.citations,
+              jobId
               )
           );
           synthesized = { ...result, degraded: undefined };
         } catch (error) {
           synthesized = {
-            result: researched.result,
+            result: draftToModelResult(researched.result, targetUrl),
             estimatedCents: 0,
             degraded: `OpenRouter synthesis unavailable: ${
-              error instanceof Error ? error.message : "provider error"
+              providerErrorDetails(error).publicMessage
             }`
           };
         }
       }
-      actualCents += synthesized.estimatedCents;
       if (synthesized.degraded) degraded.push(synthesized.degraded);
 
       const report = await step.do("assemble evidence graph", async () => {
         await updateJob(this.env.DB, jobId, {
           stage: "hypothesis_generation",
           progress: 82,
-          actualCents,
           degraded
         });
         return assembleReport({
@@ -313,25 +319,26 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           stage: "report",
           status: "completed",
           progress: 100,
-          actualCents,
           reportId: report.id,
           degraded
         });
       });
 
       await step.do("settle gates", async () => {
+        const actualCents = await getJobCost(this.env.DB, jobId);
         await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
       });
+      const actualCents = await getJobCost(this.env.DB, jobId);
       return { reportId: report.id, actualCents, degraded };
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown workflow error";
+      const details = providerErrorDetails(error);
       await updateJob(this.env.DB, jobId, {
         status: "failed",
-        actualCents,
         degraded,
-        errorCode: "research_failed",
-        errorMessage: message.slice(0, 500)
+        errorCode: details.code,
+        errorMessage: details.internalMessage.slice(0, 500)
       });
+      const actualCents = await getJobCost(this.env.DB, jobId);
       await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
       throw error;
     }

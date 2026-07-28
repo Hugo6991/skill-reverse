@@ -106,7 +106,8 @@ export function assertSafePublicUrl(value: string): URL {
 export async function verifyTurnstile(
   token: string,
   request: Request,
-  env: AppEnv
+  env: AppEnv,
+  expectedAction = "create_research_job"
 ): Promise<{ success: true } | { success: false; code: string }> {
   if (!env.TURNSTILE_SECRET_KEY) return { success: false, code: "turnstile_not_configured" };
 
@@ -136,7 +137,7 @@ export async function verifyTurnstile(
   if (!usingTestSecret && result.hostname && result.hostname !== expectedHost) {
     return { success: false, code: "turnstile_hostname_mismatch" };
   }
-  if (!usingTestSecret && result.action !== "create_research_job") {
+  if (!usingTestSecret && result.action !== expectedAction) {
     return { success: false, code: "turnstile_action_mismatch" };
   }
   return { success: true };

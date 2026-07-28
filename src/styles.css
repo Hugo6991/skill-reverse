@@ -917,6 +917,58 @@ input:focus {
   color: hsl(35 38% 38%);
 }
 
+.research-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-sm);
+}
+
+.research-failure > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.research-failure span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.research-failure .secondary-button {
+  flex: 0 0 auto;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+.retry-verification {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md);
+}
+
+.retry-verification .turnstile-shell {
+  min-height: 65px;
+}
+
+.retry-verification .text-button {
+  width: fit-content;
+}
+
+.retry-error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
 footer {
   display: flex;
   justify-content: space-between;

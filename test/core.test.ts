@@ -5,7 +5,11 @@ import { pilotOccupation } from "../worker/occupations";
 import { modelResultSchema } from "../worker/schema";
 import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
 import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
-import { assembleReport, runOpenRouterSynthesis } from "../worker/services";
+import {
+  assembleReport,
+  runOpenRouterSynthesis,
+  runPerplexityResearch
+} from "../worker/services";
 import type { AppEnv } from "../worker/types";
 import { withoutTerminalFullStop } from "../src/text";
 import { historyPresentation } from "../worker/history";
@@ -196,6 +200,20 @@ describe("evidence-aware report assembly", () => {
     adoption: [],
     caveats: []
   });
+  const researchDraft = {
+    researchSummary: baseModel.verdict,
+    frameworkHypothesis: baseModel.framework,
+    authorContext: baseModel.author,
+    observations: baseModel.observations,
+    candidateClaims: baseModel.claims.map((claim) => ({
+      text: claim.text,
+      confidence: "high" as const,
+      evidenceUrls: claim.evidenceUrls
+    })),
+    professionalSignals: baseModel.professionalDelta,
+    adoptionIdeas: baseModel.adoption,
+    caveats: baseModel.caveats
+  };
 
   it("downgrades verified claims without first-party evidence", () => {
     const report = assembleReport({
@@ -255,7 +273,7 @@ describe("evidence-aware report assembly", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
-          choices: [{ message: { content: JSON.stringify(synthesized) } }],
+          choices: [{ message: { content: JSON.stringify(synthesized) }, finish_reason: "stop" }],
           usage: { cost: 0.041 }
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -279,7 +297,7 @@ describe("evidence-aware report assembly", () => {
           r2Key: "jobs/test/source-1.md"
         }
       ],
-      baseModel,
+      researchDraft,
       ["https://example.com"]
     );
 
@@ -292,6 +310,49 @@ describe("evidence-aware report assembly", () => {
       model: "openai/gpt-5.6-terra",
       provider: { require_parameters: true },
       response_format: { type: "json_schema" }
+    });
+  });
+
+  it("classifies truncated Perplexity output before attempting JSON parsing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "pplx-request",
+          choices: [
+            {
+              message: { content: `{"researchSummary":"cut off` },
+              finish_reason: "length"
+            }
+          ],
+          usage: {
+            total_tokens: 4_000,
+            cost: { total_cost: 0.02 }
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    await expect(
+      runPerplexityResearch(
+        { PERPLEXITY_API_KEY: "test-only" } as AppEnv,
+        "https://example.com",
+        pilotOccupation,
+        [
+          {
+            id: "source-1",
+            url: "https://example.com",
+            title: "Example",
+            markdown: "# Example",
+            excerpt: "Example",
+            r2Key: "jobs/test/source-1.md"
+          }
+        ],
+        []
+      )
+    ).rejects.toMatchObject({
+      code: "provider_output_truncated",
+      retryable: true
     });
   });
 });

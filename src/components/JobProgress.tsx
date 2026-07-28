@@ -1,6 +1,8 @@
 import { ArrowLeft, Check, ExternalLink, LoaderCircle } from "lucide-react";
+import { useCallback, useState } from "react";
 import type { JobStage, JobStatus } from "../types";
 import { SourceCollection } from "./SourceCollection";
+import { Turnstile } from "./Turnstile";
 
 const stages: Array<{ id: JobStage; label: string }> = [
   { id: "validate", label: "Validate" },
@@ -16,14 +18,41 @@ const stages: Array<{ id: JobStage; label: string }> = [
 
 export function JobProgress({
   job,
+  turnstileSiteKey,
   onSubmitSources,
+  onRetry,
+  onStartNew,
   onBack
 }: {
   job: JobStatus;
+  turnstileSiteKey: string;
   onSubmitSources(urls: string[], finalize: boolean): Promise<void>;
+  onRetry(turnstileToken: string): Promise<void>;
+  onStartNew(): void;
   onBack(): void;
 }) {
   const currentIndex = stages.findIndex((stage) => stage.id === job.stage);
+  const [retryOpen, setRetryOpen] = useState(false);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryError, setRetryError] = useState("");
+  const handleRetryToken = useCallback(
+    async (token: string) => {
+      if (!token) return;
+      setRetryBusy(true);
+      setRetryError("");
+      try {
+        await onRetry(token);
+        setRetryOpen(false);
+      } catch (error) {
+        setRetryBusy(false);
+        setRetryError(error instanceof Error ? error.message : "The retry could not be started");
+      }
+    },
+    [onRetry]
+  );
+  const handleTurnstileError = useCallback((message: string) => {
+    setRetryError(message);
+  }, []);
   return (
     <main className="page-frame job-page">
       <button className="back-button" type="button" onClick={onBack}>
@@ -80,13 +109,58 @@ export function JobProgress({
           </div>
         )}
         {job.error && (
+          <div className="research-failure" role="alert">
+            <div>
+              <strong>Research needs another attempt</strong>
+              <span>{job.error.message}</span>
+            </div>
+            {job.retry?.allowed ? (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={retryBusy}
+                onClick={() => {
+                  setRetryError("");
+                  setRetryOpen(true);
+                }}
+              >
+                {retryBusy ? "Starting retry…" : "Try research again"}
+              </button>
+            ) : (
+              <button className="secondary-button" type="button" onClick={onStartNew}>
+                Start a new research
+              </button>
+            )}
+          </div>
+        )}
+        {retryOpen && job.retry?.allowed && (
+          <div className="retry-verification">
+            <span className="eyebrow">Confirm before retrying</span>
+            <Turnstile
+              siteKey={turnstileSiteKey}
+              action="retry_research_job"
+              onToken={handleRetryToken}
+              onError={handleTurnstileError}
+            />
+            {retryError && <span className="retry-error">{retryError}</span>}
+            <button
+              type="button"
+              className="text-button"
+              disabled={retryBusy}
+              onClick={() => setRetryOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+        {retryError && !retryOpen && (
           <div className="form-error" role="alert">
-            <strong>{job.error.code}</strong>
-            <span>{job.error.message}</span>
+            <strong>Retry unavailable</strong>
+            <span>{retryError}</span>
           </div>
         )}
       </section>
-      <SourceCollection job={job} onSubmit={onSubmitSources} />
+      {job.status !== "failed" && <SourceCollection job={job} onSubmit={onSubmitSources} />}
     </main>
   );
 }

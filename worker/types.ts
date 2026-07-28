@@ -12,6 +12,7 @@ export interface WorkflowInstance {
   id: string;
   status(): Promise<unknown>;
   sendEvent<T>(options: { type: string; payload: T }): Promise<void>;
+  restart(options?: { from?: { name: string } }): Promise<void>;
 }
 
 export interface WorkflowBinding<T> {
@@ -78,6 +79,8 @@ export interface JobRow {
   error_message: string | null;
   source_window_closes_at: string | null;
   sources_finalized_at: string | null;
+  retry_count: number;
+  last_retry_at: string | null;
   created_at: string;
   updated_at: string;
   expires_at: string;

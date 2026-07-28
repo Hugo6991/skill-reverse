@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { applyD1Migrations, SELF, type D1Migration } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { searchOccupations } from "../worker/occupations";
+import { recordProviderCall } from "../worker/provider-ledger";
 import { sha256 } from "../worker/security";
 import type { AppEnv } from "../worker/types";
 
@@ -31,7 +32,9 @@ describe("Cloudflare bindings in workerd", () => {
     });
     await actor.release("job-1");
     expect(await actor.reserve("job-2", "2026-07-28", 2)).toEqual({ ok: true });
-    await actor.release("job-2");
+    await actor.rollback("job-2");
+    expect(await actor.reserve("job-2b", "2026-07-28", 2)).toEqual({ ok: true });
+    await actor.release("job-2b");
     expect(await actor.reserve("job-3", "2026-07-28", 2)).toMatchObject({
       ok: false,
       reason: "daily_job_limit"
@@ -49,10 +52,15 @@ describe("Cloudflare bindings in workerd", () => {
       remainingCents: 50
     });
     await budget.settle("job-1", 12);
+    expect(await budget.reserve("job-1", 38, 100)).toMatchObject({
+      ok: true,
+      remainingCents: 50
+    });
+    await budget.settle("job-1", 20);
     expect(await budget.status(100)).toMatchObject({
       reservedCents: 0,
-      actualCents: 12,
-      remainingCents: 88
+      actualCents: 20,
+      remainingCents: 80
     });
   });
 
@@ -146,5 +154,59 @@ describe("Cloudflare bindings in workerd", () => {
     expect(
       await bindings.DB.prepare("SELECT id FROM jobs WHERE id = ?1").bind(jobId).first()
     ).toBeNull();
+  });
+
+  it("records provider usage and cost even when structured output parsing fails", async () => {
+    const jobId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 86_400_000).toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, degraded_json, created_at, updated_at, expires_at)
+       VALUES (?1, 'provider-ledger-test', 'https://example.com', '[]', '15-1255.00',
+        'source_verification', 'running', 62, 50, 0, '[]', ?2, ?2, ?3)`
+    )
+      .bind(jobId, now, expires)
+      .run();
+
+    await recordProviderCall(bindings, {
+      jobId,
+      provider: "perplexity",
+      model: "sonar-pro",
+      requestId: "request-1",
+      httpStatus: 200,
+      finishReason: "stop",
+      totalTokens: 3_200,
+      costMicrousd: 25_000,
+      outcome: "schema_error",
+      errorCode: "provider_schema_invalid",
+      errorMessage: "Invalid JSON"
+    });
+
+    expect(
+      await bindings.DB.prepare(
+        `SELECT provider, model, request_id, finish_reason, total_tokens,
+                cost_microusd, attempt, outcome, error_code
+         FROM provider_calls WHERE job_id = ?1`
+      )
+        .bind(jobId)
+        .first()
+    ).toMatchObject({
+      provider: "perplexity",
+      model: "sonar-pro",
+      request_id: "request-1",
+      finish_reason: "stop",
+      total_tokens: 3_200,
+      cost_microusd: 25_000,
+      attempt: 1,
+      outcome: "schema_error",
+      error_code: "provider_schema_invalid"
+    });
+    expect(
+      await bindings.DB.prepare("SELECT actual_cents FROM jobs WHERE id = ?1")
+        .bind(jobId)
+        .first()
+    ).toMatchObject({ actual_cents: 3 });
   });
 });

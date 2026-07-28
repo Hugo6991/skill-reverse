@@ -40,10 +40,12 @@ function loadTurnstile(): Promise<void> {
 
 export function Turnstile({
   siteKey,
+  action = "create_research_job",
   onToken,
   onError
 }: {
   siteKey: string;
+  action?: string;
   onToken(token: string): void;
   onError(message: string): void;
 }) {
@@ -59,7 +61,7 @@ export function Turnstile({
         if (!active || !window.turnstile) return;
         widgetId.current = window.turnstile.render(`#${elementId}`, {
           sitekey: siteKey,
-          action: "create_research_job",
+          action,
           theme: "light",
           size: "flexible",
           callback: onToken,
@@ -72,7 +74,7 @@ export function Turnstile({
       active = false;
       if (widgetId.current && window.turnstile) window.turnstile.remove(widgetId.current);
     };
-  }, [elementId, onError, onToken, siteKey]);
+  }, [action, elementId, onError, onToken, siteKey]);
 
   return <div className="turnstile-shell" id={elementId} aria-label="Human verification" />;
 }

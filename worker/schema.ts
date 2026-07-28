@@ -20,6 +20,67 @@ export const updateJobSourcesSchema = z.object({
   finalize: z.boolean().default(false)
 });
 
+export const retryJobSchema = z.object({
+  turnstileToken: z.string().min(1).max(2048)
+});
+
+export const researchDraftSchema = z.object({
+  researchSummary: z.string().min(1),
+  frameworkHypothesis: z.object({
+    name: z.string().min(1),
+    summary: z.string().min(1),
+    useWhen: z.string().min(1),
+    avoidWhen: z.string().min(1),
+    steps: z
+      .array(
+        z.object({
+          title: z.string().min(1),
+          instruction: z.string().min(1),
+          failureType: z.enum(["discipline", "shape", "omission", "conditional"])
+        })
+      )
+      .min(2)
+      .max(6)
+  }),
+  authorContext: z.object({
+    name: z.string(),
+    handle: z.string().optional(),
+    background: z.string(),
+    context: z.string()
+  }),
+  observations: z.array(
+    z.object({
+      text: z.string().min(1),
+      sourceUrls: z.array(z.string().url()).min(1)
+    })
+  ),
+  candidateClaims: z.array(
+    z.object({
+      text: z.string().min(1),
+      confidence: z.enum(["high", "medium", "low"]),
+      evidenceUrls: z.array(z.string().url())
+    })
+  ),
+  professionalSignals: z.array(
+    z.object({
+      competencyLabel: z.string().min(1),
+      manifestation: z.enum([
+        "evidenced",
+        "author_specific_extension",
+        "missing_but_expected",
+        "not_observable",
+        "contradicted"
+      ]),
+      rationale: z.string().min(1),
+      evidenceUrls: z.array(z.string().url())
+    })
+  ),
+  adoptionIdeas: z.array(z.string()).max(8),
+  caveats: z.array(z.string()).max(8)
+});
+
+export type ResearchDraft = z.infer<typeof researchDraftSchema>;
+
 export const modelResultSchema = z.object({
   title: z.string().min(1),
   verdict: z.string().min(1),

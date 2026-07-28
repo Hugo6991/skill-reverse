@@ -35,6 +35,17 @@ export class ActorGate extends DurableObject<AppEnv> {
     }
   }
 
+  async rollback(jobId: string): Promise<void> {
+    const current = await this.ctx.storage.get<ActorState>("state");
+    if (current?.activeJobId === jobId) {
+      await this.ctx.storage.put("state", {
+        ...current,
+        activeJobId: undefined,
+        jobsToday: Math.max(0, current.jobsToday - 1)
+      });
+    }
+  }
+
   async health(): Promise<{ ok: true }> {
     return { ok: true };
   }
@@ -44,6 +55,7 @@ interface BudgetState {
   reservedCents: number;
   actualCents: number;
   reservations: Record<string, number>;
+  settledByJob?: Record<string, number>;
 }
 
 export class DailyBudget extends DurableObject<AppEnv> {
@@ -55,7 +67,8 @@ export class DailyBudget extends DurableObject<AppEnv> {
     const state = (await this.ctx.storage.get<BudgetState>("budget")) ?? {
       reservedCents: 0,
       actualCents: 0,
-      reservations: {}
+      reservations: {},
+      settledByJob: {}
     };
     if (state.reservations[jobId]) {
       return {
@@ -82,11 +95,15 @@ export class DailyBudget extends DurableObject<AppEnv> {
     const state = (await this.ctx.storage.get<BudgetState>("budget")) ?? {
       reservedCents: 0,
       actualCents: 0,
-      reservations: {}
+      reservations: {},
+      settledByJob: {}
     };
     const reserved = state.reservations[jobId] ?? 0;
+    const previous = state.settledByJob?.[jobId] ?? 0;
+    const cumulative = Math.max(previous, Math.max(0, actualCents));
     state.reservedCents = Math.max(0, state.reservedCents - reserved);
-    state.actualCents += Math.max(0, actualCents);
+    state.actualCents += cumulative - previous;
+    state.settledByJob = { ...(state.settledByJob ?? {}), [jobId]: cumulative };
     delete state.reservations[jobId];
     await this.ctx.storage.put("budget", state);
   }
@@ -104,7 +121,8 @@ export class DailyBudget extends DurableObject<AppEnv> {
     const state = (await this.ctx.storage.get<BudgetState>("budget")) ?? {
       reservedCents: 0,
       actualCents: 0,
-      reservations: {}
+      reservations: {},
+      settledByJob: {}
     };
     return {
       ...state,
