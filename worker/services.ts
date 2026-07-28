@@ -371,7 +371,10 @@ Rules:
 7. Evidence URLs must be exact URLs. Never invent a citation.
 8. The framework steps must be transferable "when condition, do action" rules.
 9. Evaluate only the provided occupation competencies. Generic baseline skills are not author-specific extensions.
-10. Write the report in Traditional Chinese. Keep source titles and names in their original language.
+10. The verdict must make an adoption decision: borrow the thinking now, test it first, or skip it. Never assume installation is the next step.
+11. Explain the creator background only where it clarifies why the method formed. Do not use reputation as authority. Put the evidence-backed motivation or formation context in author.context; say it is unknown when sources cannot support it.
+12. Each adoption item must be a plain-language rule the user can try in ChatGPT, Claude, Gemini, Grok, or another chat interface without a local agent, plugin, or skill installation.
+13. Write the report in Traditional Chinese. Keep source titles and names in their original language.
 
 O*NET 30.3 competencies:
 ${competencies}
@@ -473,7 +476,10 @@ Editorial requirements:
 7. Keep interpretations as supported_inference or plausible
 8. Never infer that an author lacks a capability merely because it was not observed
 9. Preserve professional competency labels exactly so they still map to the selected baseline
-10. Return only JSON matching the required schema
+10. Make the verdict a clear borrow / test / skip decision; do not imply that installing a skill is the default next step
+11. Keep creator motivation in author.context only when the evidence supports it, and distinguish observed design choices from inferred philosophy
+12. Rewrite adoption items as plain-language rules that work in any chat AI before the user considers a plugin, skill, or agent
+13. Return only JSON matching the required schema
 
 PERPLEXITY RESEARCH DRAFT:
 ${JSON.stringify(research)}

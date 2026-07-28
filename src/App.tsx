@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, Fingerprint, Sparkles } from "lucide-react";
+import { ArrowRight, Brain, MessageSquareText, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uiCopy } from "./copy";
 import { HistoryPage } from "./components/HistoryPage";
@@ -40,17 +40,17 @@ function parseRoute(): AppRoute {
 function OutputModel() {
   const layers = [
     {
-      icon: BookOpen,
+      icon: ScanSearch,
       title: uiCopy.output.baseline,
       detail: uiCopy.output.baselineDetail
     },
     {
-      icon: Fingerprint,
+      icon: Brain,
       title: uiCopy.output.framework,
       detail: uiCopy.output.frameworkDetail
     },
     {
-      icon: Sparkles,
+      icon: MessageSquareText,
       title: uiCopy.output.delta,
       detail: uiCopy.output.deltaDetail
     }

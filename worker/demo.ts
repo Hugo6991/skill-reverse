@@ -5,113 +5,112 @@ const generatedAt = "2026-07-28T00:00:00.000Z";
 
 export const demoReport: ReverseReport = {
   id: "demo",
-  title: "從個人作品網站反向推導「可檢查的設計工程」",
-  targetUrl: "https://antfu.me",
+  title: "從 Anthropic skill-creator 提煉「先驗證，再封裝」",
+  targetUrl: "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
   generatedAt,
   verdict:
-    "這個成果的主要價值不在單一技術，而在把個人偏好轉成可重複檢查的工程約束。證據足以支持框架方向，但作者動機仍需用第一方長文或演講進一步核對。",
+    "值得先借用它的思考方式，不必急著安裝：先把真實工作流程寫成普通文字、用幾個案例驗證，只有反覆有效且常被漏做的部分，才值得封裝成 skill。",
   framework: {
-    name: "可檢查的設計工程",
+    name: "先驗證，再封裝",
     summary:
-      "先把模糊品味轉為可觀察的界面規則，再把容易退化的部分交給工具檢查，最後保留需要情境判斷的空間。",
-    useWhen: "成果同時包含設計決策、工程實作和長期維護訊號時。",
-    avoidWhen: "只能看到視覺截圖，沒有原始內容、互動或可驗證的實作證據時。",
+      "先從真實對話裡辨認反覆出現的目標、修正與失敗，再用普通 prompt 試跑；穩定有效的規則才固定下來，需要情境判斷的部分繼續留給人與模型。",
+    useWhen: "同一類任務反覆出現，而且你已經知道哪些步驟常被漏掉或做歪時。",
+    avoidWhen: "只是第一次碰到問題、流程還在快速變動，或一段臨時 prompt 已經足夠時。",
     steps: [
       {
-        title: "找重複訊號",
-        instruction: "先記錄成果反覆強調或刻意避免的行為，不急著替作者命名理念。",
+        title: "先找反覆發生的問題",
+        instruction: "當同一類工作再次出現時，記下目標、輸入、你對 AI 的修正，以及什麼結果算完成。",
         failureType: "omission"
       },
       {
-        title: "把偏好寫成條件",
-        instruction: "將觀察改寫為「當某情境出現時採取某決策」的可遷移規則。",
+        title: "先寫成任何 Chat 都看得懂的文字",
+        instruction: "當流程仍在探索時，先用普通語言寫出步驟與判斷條件，不綁定特定 agent 或工具。",
         failureType: "conditional"
       },
       {
-        title: "分開窄橋與原野",
-        instruction: "一致性要求交給工具，需脈絡判斷的選擇保留給人。",
-        failureType: "discipline"
+        title: "用真實案例測，不靠感覺收藏",
+        instruction: "當你覺得一套方法值得留下時，至少拿不同案例試跑，觀察它是否穩定改善結果。",
+        failureType: "shape"
       },
       {
-        title: "用反例測框架",
-        instruction: "尋找不符合框架的頁面或決策，避免把所有結果硬塞進單一故事。",
-        failureType: "shape"
+        title: "只封裝需要穩定重複的部分",
+        instruction: "當某些步驟反覆有效又常被省略時，才把它們做成 skill；一次性背景與需要判斷的內容保留在對話裡。",
+        failureType: "discipline"
       }
     ]
   },
   author: {
-    name: "Anthony Fu",
-    handle: "antfu7",
+    name: "Anthropic Agent Skills team",
     background:
-      "開源軟體作者與設計工程實作者，長期維護多個前端工具與個人知識作品。",
+      "Anthropic 在官方 Agent Skills repository 公開 skill 規格、範例與實際使用的文件能力；這個案例取自其中的 skill-creator。",
     context:
-      "這份示範只把可直接取得的網站與公開專案訊號視為已擷取證據；作者動機與歷史脈絡仍標為需要原始來源核對。"
+      "skill-creator 先要求釐清意圖，再建立測試案例、比較結果並迭代。可支持的形成動機是：把對話中有效但容易流失的工作方式，變成可重複驗證的行為；更深的組織或個人哲學仍需第一方訪談才能確認。"
   },
   occupation: pilotOccupation,
   professionalDelta: [
     {
       competency: pilotOccupation.competencies[0],
       manifestation: "evidenced",
-      rationale: "網站呈現了完整資訊架構、互動細節與持續維護痕跡。",
-      evidenceIds: ["source-site", "claim-system"]
+      rationale: "流程先定義使用情境與預期輸出，再進入實作與評估。",
+      evidenceIds: ["source-skill", "claim-validation"]
     },
     {
       competency: pilotOccupation.competencies[1],
       manifestation: "author_specific_extension",
-      rationale: "設計不是只產出畫面，而是被轉成跨作品可重複的限制與慣例。",
-      evidenceIds: ["claim-framework"]
+      rationale: "它把主觀的「這個 skill 好不好」轉成案例比較與可重複評估。",
+      evidenceIds: ["source-skill", "claim-packaging"]
     },
     {
       competency: pilotOccupation.competencies[2],
       manifestation: "evidenced",
-      rationale: "成果包含技術內容、工具連結和可追溯的開源實作。",
-      evidenceIds: ["source-site"]
+      rationale: "官方 repository 同時提供規格、範例與分層資源，讓做法可以追溯。",
+      evidenceIds: ["source-repo"]
     },
     {
       competency: pilotOccupation.competencies[3],
       manifestation: "not_observable",
-      rationale: "網站能證明程式成果存在，但不能單靠結果判斷所有程式設計能力。",
+      rationale: "skill 文件能證明流程設計，不能單靠結果判斷團隊全部工程能力。",
       evidenceIds: []
     }
   ],
   observations: [
     {
-      id: "obs-structure",
-      text: "個人網站以作品、文章與持續更新的筆記共同呈現專業軌跡。",
-      sourceIds: ["source-site"]
+      id: "obs-intent",
+      text: "流程先從現有對話提取目標、觸發情境、輸出格式與成功標準。",
+      sourceIds: ["source-skill"]
     },
     {
-      id: "obs-system",
-      text: "多個成果共享一致的命名、視覺和工具選擇，顯示可重用的決策系統。",
-      sourceIds: ["source-site", "source-repo"]
+      id: "obs-evaluation",
+      text: "草稿之後必須用測試提示實跑、比較結果並迭代，而不是寫完文件就算完成。",
+      sourceIds: ["source-skill"]
     }
   ],
   claims: [
     {
-      id: "claim-system",
-      text: "成果把個人網站當成持續運作的專業系統，而非一次性作品集。",
-      status: "supported_inference",
-      confidence: 84,
-      evidenceIds: ["source-site", "source-repo"],
+      id: "claim-validation",
+      text: "這套方法把 skill 視為需要用案例驗證的行為設計，不只是可收藏的指令文件。",
+      status: "verified",
+      confidence: 91,
+      evidenceIds: ["source-skill"],
       score: {
-        directness: 25,
+        directness: 29,
         firstParty: 20,
-        corroboration: 15,
-        temporalFit: 12,
-        reproducibility: 12,
+        corroboration: 14,
+        temporalFit: 14,
+        reproducibility: 14,
         contradictionPenalty: 0
       }
     },
     {
-      id: "claim-framework",
-      text: "作者傾向把設計偏好具體化為可以被工程流程持續維護的規則。",
+      id: "claim-packaging",
+      text: "先試跑再封裝，能避免把尚未穩定的一次性做法過早變成長期系統。",
       status: "supported_inference",
-      confidence: 78,
-      evidenceIds: ["source-site", "source-repo"],
+      confidence: 83,
+      evidenceIds: ["source-skill", "source-repo"],
       score: {
-        directness: 22,
+        directness: 25,
         firstParty: 20,
-        corroboration: 12,
+        corroboration: 14,
         temporalFit: 12,
         reproducibility: 12,
         contradictionPenalty: 0
@@ -120,52 +119,54 @@ export const demoReport: ReverseReport = {
   ],
   sources: [
     {
-      id: "source-site",
-      url: "https://antfu.me",
-      kind: "website",
+      id: "source-skill",
+      url: "https://github.com/anthropics/skills/blob/main/skills/skill-creator/SKILL.md",
+      kind: "github",
       status: "verified_at_retrieval",
-      title: "Anthony Fu",
+      title: "Anthropic skill-creator / SKILL.md",
       retrievedAt: generatedAt,
-      excerpt: "主要成果網站；示範報告使用固定快照資料，不代表即時查證。"
+      excerpt: "官方 skill 原始文件；示範報告使用固定快照資料，不代表即時查證。"
     },
     {
       id: "source-repo",
-      url: "https://github.com/antfu/antfu.me",
+      url: "https://github.com/anthropics/skills",
       kind: "github",
-      status: "inherited",
-      title: "antfu/antfu.me",
+      status: "verified_at_retrieval",
+      title: "anthropics/skills",
       retrievedAt: generatedAt,
-      excerpt: "在 blind run 中作為 holdout，不應反向洩漏進第一輪推論。"
+      excerpt: "官方 repository 說明與 Agent Skills 範例集合。"
     }
   ],
   edges: [
     {
       id: "edge-1",
-      source: "source-site",
-      target: "obs-structure",
+      source: "source-skill",
+      target: "obs-intent",
       relation: "supports"
     },
     {
       id: "edge-2",
-      source: "obs-structure",
-      target: "claim-system",
+      source: "obs-intent",
+      target: "claim-validation",
       relation: "derived_from"
     },
     {
       id: "edge-3",
       source: "source-repo",
-      target: "claim-framework",
+      target: "claim-packaging",
       relation: "supports"
     }
   ],
   adoption: [
-    "示範模式不將 GitHub stars 或社群追蹤數當作真實性證據。",
-    "實際採用案例必須連回可取得的第三方原始來源後才會提升證據狀態。"
+    "先從你已經發生過的對話與修正提取流程，不從空白模板開始。",
+    "先寫成任何聊天 AI 都能理解的文字，跑過真實案例再封裝。",
+    "只有穩定、反覆、容易被漏掉的步驟，才值得自動化。",
+    "需要情境判斷的部分不要硬寫成絕對規則。"
   ],
   caveats: [
     "這是產品內建示範，不是即時研究結果。",
-    "查無貼文不等於作者沒有表達過相關觀點。",
-    "職業基準用於比較，不用於評斷作者能力。"
+    "組織層級的設計哲學若沒有第一方訪談，只能標為推論。",
+    "應用場景用於比較，不用於評斷創作者能力。"
   ],
-  degraded: ["Demo snapshot：尚未呼叫 Perplexity、TwitterAPI.io 或 Browser Run"]
+  degraded: []
 };

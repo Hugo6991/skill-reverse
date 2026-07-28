@@ -1,8 +1,8 @@
 # Skill Reverse
 
-從一個已完成的公開成果，反向提取「可遷移的方法」、作者脈絡、可追溯證據與單一職業基準。
+從一個公開 skill、repo 或方法來源，反向提取「可遷移的思考框架」、創作者形成脈絡、可追溯證據與應用視角。
 
-這不是網站複製器，也不是權威排行榜。followers、GitHub stars 與職業吻合度不會提高 claim 的真實性分數。
+這不是 skill 收藏器、安裝推薦榜或權威排行榜。產品預設先把方法降維成可在任何聊天 AI 試跑的文字；只有反覆有效、容易漏做的流程才值得進一步封裝。followers、GitHub stars 與職業吻合度不會提高 claim 的真實性分數。
 
 這是 owner-operated production application。原始碼 repository 維持 Private，不是公開 template，也不提供 fork 或一鍵複製部署流程。
 
@@ -17,7 +17,7 @@
 - O*NET 30.3 starter catalog 與 Professional Delta
 - 頂部導航、兩階段 URL composer、匿名 History 與可恢復進度頁
 - locked → doctor → 真實研究 smoke → public 的安全部署流程
-- 內建 `antfu.me` demo dossier，不會呼叫付費服務
+- 內建 Anthropic `skill-creator` example brief，不會呼叫付費服務
 
 ## 最快開始
 
@@ -146,7 +146,7 @@ pnpm deploy
 
 ```json
 {
-  "targetUrl": "https://antfu.me",
+  "targetUrl": "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
   "occupationCode": "15-1255.00",
   "turnstileToken": "..."
 }

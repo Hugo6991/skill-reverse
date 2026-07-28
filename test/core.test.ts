@@ -15,6 +15,14 @@ describe("report presentation copy", () => {
     expect(withoutTerminalFullStop(`流程時使用\u3002`)).toBe("流程時使用");
     expect(withoutTerminalFullStop(`先確認\u3002再執行`)).toBe(`先確認\u3002再執行`);
   });
+
+  it("keeps the example focused on transferable thinking before installation", () => {
+    expect(demoReport.targetUrl).toContain("/skills/skill-creator");
+    expect(demoReport.targetUrl).not.toContain("antfu");
+    expect(demoReport.verdict).toContain("不必急著安裝");
+    expect(demoReport.adoption.some((item) => item.includes("聊天 AI"))).toBe(true);
+    expect(demoReport.degraded).toEqual([]);
+  });
 });
 
 describe("history presentation", () => {
