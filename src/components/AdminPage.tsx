@@ -57,7 +57,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
     const action = item.publicationStatus === "published" ? "hide" : "restore";
     const reason =
       action === "hide"
-        ? window.prompt("Optional moderation note. This is visible only to the owner.", "") ?? ""
+        ? window.prompt("Optional moderation note · visible only to the owner", "") ?? ""
         : "";
     setBusyId(item.reportId);
     setError("");
@@ -109,7 +109,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
       <header className="page-heading admin-heading">
         <span className="eyebrow">Owner controls</span>
         <h1>Public archive moderation</h1>
-        <p>Hide questionable reports without destroying evidence, or permanently remove the full record.</p>
+        <p>Hide questionable reports without destroying evidence or permanently remove the full record</p>
         <span className="admin-access-note">
           <ShieldCheck size={15} aria-hidden="true" />
           Protected by Cloudflare Access
@@ -158,7 +158,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
         <div className="page-state">
           <Eye size={21} aria-hidden="true" />
           <strong>No reports match this view</strong>
-          <span>Change the filter or search phrase.</span>
+          <span>Change the filter or search phrase</span>
         </div>
       ) : (
         <section className="admin-report-list" aria-label="Reports">

@@ -2,12 +2,16 @@ import {
   ArrowRight,
   BookMarked,
   LoaderCircle,
-  LockKeyhole,
+  Share2,
   Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { gameArchetypeCopy, gameRoastCopy } from "../game-copy";
-import type { CollectionPage as CollectionResponse, HistoryItem, SkillCardSummary } from "../types";
+import type {
+  CollectionPage as CollectionResponse,
+  MyResearchItem,
+  SkillCardSummary
+} from "../types";
 import { GameRadar } from "./GameRadar";
 
 async function loadCollection(): Promise<CollectionResponse> {
@@ -31,7 +35,7 @@ function volumeNumber(index: number): string {
 
 export function CollectionPage({ onNavigate }: { onNavigate(path: string): void }) {
   const [cards, setCards] = useState<SkillCardSummary[]>([]);
-  const [activity, setActivity] = useState<HistoryItem[]>([]);
+  const [activity, setActivity] = useState<MyResearchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -54,7 +58,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
   }, [refresh]);
 
   async function removeCard(card: SkillCardSummary) {
-    if (!window.confirm(`移除「${card.displayName}」`)) return;
+    if (!window.confirm(`從這台瀏覽器移除 ${card.displayName}\n公開報告仍會保留`)) return;
     const response = await fetch(`/api/cards/${encodeURIComponent(card.id)}`, {
       method: "DELETE"
     });
@@ -73,7 +77,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
       <header className="page-heading collection-heading">
         <span className="eyebrow">MY COLLECTION</span>
         <h1>我的藏經閣</h1>
-        <p>每次鑑定留下一卷畫像 同一目標與職業只保留最新版</p>
+        <p>這台瀏覽器只留最新版 完整報告會進入公開檔案</p>
       </header>
 
       {loading ? (
@@ -139,8 +143,8 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                   </button>
                   <div className="manual-card-actions">
                     <span>
-                      <LockKeyhole size={13} aria-hidden="true" />
-                      {card.shareSlug ? "已分享" : "私藏"}
+                      <Share2 size={13} aria-hidden="true" />
+                      {card.shareSlug ? "畫像卡已分享" : "畫像卡未分享"}
                     </span>
                     <button
                       type="button"
@@ -174,7 +178,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                       aria-hidden="true"
                     />
                     <span>
-                      <strong>{item.displayName}</strong>
+                      <strong>{new URL(item.targetUrl).hostname}</strong>
                       <small>{item.status === "failed" ? "鑑定失敗" : `鑑定中 ${item.progress}%`}</small>
                     </span>
                     <ArrowRight size={15} aria-hidden="true" />

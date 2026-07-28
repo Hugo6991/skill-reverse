@@ -1056,11 +1056,15 @@ app.get("/api/collection", async (c) => {
   const now = new Date().toISOString();
   const [cardRows, activityRows] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT id, report_id, target_url, display_name, occupation_code, occupation_title,
-              game_profile_json, share_slug, created_at, updated_at
-       FROM skill_cards
-       WHERE actor_hash = ?1 AND expires_at > ?2
-       ORDER BY updated_at DESC
+      `SELECT sc.id, sc.report_id, sc.target_url, sc.display_name, sc.occupation_code,
+              sc.occupation_title, sc.game_profile_json, sc.share_slug,
+              sc.created_at, sc.updated_at
+       FROM skill_cards sc
+       JOIN jobs j ON j.id = sc.job_id
+       WHERE sc.actor_hash = ?1
+         AND sc.expires_at > ?2
+         AND j.publication_status = 'published'
+       ORDER BY sc.updated_at DESC
        LIMIT 50`
     )
       .bind(actor.actorHash, now)
@@ -1078,7 +1082,17 @@ app.get("/api/collection", async (c) => {
       }>(),
     c.env.DB.prepare(
       `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
-              j.status, j.stage, j.progress, j.report_id, j.created_at, j.updated_at
+              j.status, j.stage, j.progress, j.queued_at, j.started_at, j.finished_at,
+              j.auto_retry_count, j.updated_at,
+              CASE WHEN j.status = 'queued' THEN (
+                SELECT COUNT(*) + 1
+                FROM jobs q
+                WHERE q.status = 'queued'
+                  AND (
+                    q.queued_at < j.queued_at
+                    OR (q.queued_at = j.queued_at AND q.id < j.id)
+                  )
+              ) END AS queue_position
        FROM jobs j
        LEFT JOIN occupations o ON o.code = j.occupation_code
        WHERE j.actor_hash = ?1
@@ -1094,10 +1108,13 @@ app.get("/api/collection", async (c) => {
         occupation_code: string;
         occupation_title: string | null;
         status: string;
-        stage: string;
+        stage: JobStatus["stage"];
         progress: number;
-        report_id: string | null;
-        created_at: string;
+        queued_at: string | null;
+        started_at: string | null;
+        finished_at: string | null;
+        auto_retry_count: number;
+        queue_position: number | null;
         updated_at: string;
       }>()
   ]);
@@ -1122,8 +1139,14 @@ app.get("/api/collection", async (c) => {
     status: row.status,
     stage: row.stage,
     progress: row.progress,
-    reportId: row.report_id ?? undefined,
-    createdAt: row.created_at,
+    queuedAt: row.queued_at ?? row.updated_at,
+    startedAt: row.started_at ?? undefined,
+    finishedAt: row.finished_at ?? undefined,
+    queuePosition:
+      row.status === "queued" && row.queue_position !== null
+        ? Number(row.queue_position)
+        : undefined,
+    autoRetryCount: Number(row.auto_retry_count),
     updatedAt: row.updated_at
   }));
   return attachActorCookie(c, c.json({ cards, activity }));
@@ -1160,9 +1183,13 @@ app.post("/api/cards/:id/share", async (c) => {
   c.set("actorHash", actor.actorHash);
   if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
   const existing = await c.env.DB.prepare(
-    `SELECT id, share_slug
-     FROM skill_cards
-     WHERE id = ?1 AND actor_hash = ?2 AND expires_at > ?3`
+    `SELECT sc.id, sc.share_slug
+     FROM skill_cards sc
+     JOIN jobs j ON j.id = sc.job_id
+     WHERE sc.id = ?1
+       AND sc.actor_hash = ?2
+       AND sc.expires_at > ?3
+       AND j.publication_status = 'published'`
   )
     .bind(c.req.param("id"), actor.actorHash, new Date().toISOString())
     .first<{ id: string; share_slug: string | null }>();
@@ -1195,9 +1222,13 @@ app.post("/api/cards/:id/share", async (c) => {
 
 app.get("/api/public/cards/:slug", async (c) => {
   const row = await c.env.DB.prepare(
-    `SELECT id, target_url, display_name, occupation_title, game_profile_json, created_at
-     FROM skill_cards
-     WHERE share_slug = ?1 AND expires_at > ?2`
+    `SELECT sc.id, sc.target_url, sc.display_name, sc.occupation_title,
+            sc.game_profile_json, sc.created_at
+     FROM skill_cards sc
+     JOIN jobs j ON j.id = sc.job_id
+     WHERE sc.share_slug = ?1
+       AND sc.expires_at > ?2
+       AND j.publication_status = 'published'`
   )
     .bind(c.req.param("slug"), new Date().toISOString())
     .first<{
@@ -1217,7 +1248,11 @@ app.get("/api/public/cards/:slug", async (c) => {
     axes: storedProfile.axes.map((axis) => ({
       ...axis,
       evidenceIds: [],
-      signalIds: []
+      signalIds: [],
+      signalDetails: axis.signalDetails?.map((signal) => ({
+        ...signal,
+        evidenceIds: []
+      }))
     }))
   };
   return c.json({
@@ -1478,7 +1513,10 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-  checks.database = { ok: schema?.value === "6", detail: `schema ${schema?.value ?? "missing"}` };
+    checks.database = {
+      ok: schema?.value === "7",
+      detail: `schema ${schema?.value ?? "missing"}`
+    };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }

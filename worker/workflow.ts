@@ -18,6 +18,7 @@ import {
 } from "./provider-ledger";
 import type { AppEnv } from "./types";
 import { historyPresentation } from "./history";
+import { targetKey as normalizedTargetKey } from "./publication";
 
 export interface ResearchWorkflowParams {
   kind?: "research" | "health";
@@ -356,7 +357,7 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         const permanentExpiry = "9999-12-31T23:59:59.999Z";
         const cardExpires = new Date(now.getTime() + 365 * 86_400_000).toISOString();
         const presentation = historyPresentation(targetUrl, JSON.stringify(report));
-        const targetKey = new URL(targetUrl).toString();
+        const targetKey = normalizedTargetKey(targetUrl);
         const statements = captured.map((artifact) =>
           this.env.DB.prepare(
             `INSERT OR REPLACE INTO source_artifacts

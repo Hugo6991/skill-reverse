@@ -318,7 +318,7 @@ export interface SkillCardSummary {
 
 export interface CollectionPage {
   cards: SkillCardSummary[];
-  activity: HistoryItem[];
+  activity: MyResearchItem[];
   nextCursor?: string;
 }
 

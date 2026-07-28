@@ -10,6 +10,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations("./migrations"),
+          APP_MODE: "demo",
           ANON_SESSION_SECRET: "test-only-anonymous-session-secret",
           PUBLIC_APP_URL: "https://example.com"
         }

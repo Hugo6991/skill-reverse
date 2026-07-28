@@ -399,19 +399,31 @@ describe("Cloudflare bindings in workerd", () => {
     const actorId = cookie.slice("sr_actor=".length).split(".")[0];
     const actorHash = await sha256(actorId);
     const cardId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
     const now = new Date().toISOString();
     const expires = new Date(Date.now() + 365 * 86_400_000).toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, degraded_json, publication_status,
+        published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, 'https://github.com/example/manual', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, '[]', 'published', ?3,
+        'https://github.com/example/manual', ?3, ?3, ?4)`
+    )
+      .bind(jobId, actorHash, now, expires)
+      .run();
     await bindings.DB.prepare(
       `INSERT INTO skill_cards
        (id, actor_hash, job_id, report_id, target_key, target_url, display_name,
         occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
        VALUES (?1, ?2, ?3, ?1, ?4, ?4, 'Test Manual', '15-1255.00',
         'Web and Digital Interface Designers', ?5, ?6, ?6, ?7)`
-    )
+      )
       .bind(
         cardId,
         actorHash,
-        crypto.randomUUID(),
+        jobId,
         "https://github.com/example/manual",
         JSON.stringify(demoReport.gameProfile),
         now,
@@ -453,7 +465,11 @@ describe("Cloudflare bindings in workerd", () => {
       `https://example.com/api/public/cards/${shareBody.shareSlug}`
     );
     expect(publicCard.status).toBe(200);
-    expect(await publicCard.json()).toMatchObject({
+    const publicCardBody = (await publicCard.json()) as {
+      displayName: string;
+      gameProfile: typeof demoReport.gameProfile;
+    };
+    expect(publicCardBody).toMatchObject({
       displayName: "Test Manual",
       gameProfile: {
         axes: expect.arrayContaining([
@@ -461,6 +477,25 @@ describe("Cloudflare bindings in workerd", () => {
         ])
       }
     });
+    expect(
+      publicCardBody.gameProfile.axes
+        .flatMap((axis) => axis.signalDetails ?? [])
+        .every((signal) => signal.evidenceIds.length === 0)
+    ).toBe(true);
+
+    await bindings.DB.prepare(
+      "UPDATE jobs SET publication_status = 'hidden' WHERE id = ?1"
+    )
+      .bind(jobId)
+      .run();
+    expect(
+      await SELF.fetch(`https://example.com/api/public/cards/${shareBody.shareSlug}`)
+    ).toMatchObject({ status: 404 });
+    await bindings.DB.prepare(
+      "UPDATE jobs SET publication_status = 'published' WHERE id = ?1"
+    )
+      .bind(jobId)
+      .run();
 
     const removed = await SELF.fetch(`https://example.com/api/cards/${cardId}`, {
       method: "DELETE",
@@ -478,17 +513,29 @@ describe("Cloudflare bindings in workerd", () => {
     const actorId = cookie.slice("sr_actor=".length).split(".")[0];
     const actorHash = await sha256(actorId);
     const now = new Date().toISOString();
+    const jobId = crypto.randomUUID();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, degraded_json, publication_status,
+        published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, 'https://example.com/expired', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, '[]', 'published', ?3,
+        'https://example.com/expired', ?3, ?3, ?4)`
+    )
+      .bind(jobId, actorHash, now, new Date(Date.now() + 86_400_000).toISOString())
+      .run();
     await bindings.DB.prepare(
       `INSERT INTO skill_cards
        (id, actor_hash, job_id, target_key, target_url, display_name,
         occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
        VALUES (?1, ?2, ?3, ?4, ?4, 'Expired Manual', '15-1255.00',
         'Web and Digital Interface Designers', ?5, ?6, ?6, ?7)`
-    )
+      )
       .bind(
         crypto.randomUUID(),
         actorHash,
-        crypto.randomUUID(),
+        jobId,
         "https://example.com/expired",
         JSON.stringify(demoReport.gameProfile),
         now,

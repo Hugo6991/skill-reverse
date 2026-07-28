@@ -25,4 +25,4 @@ CREATE INDEX IF NOT EXISTS skill_cards_expiry_idx
 ON skill_cards(expires_at);
 
 INSERT OR REPLACE INTO app_meta (key, value, updated_at)
-VALUES ('schema_version', '5', datetime('now'));
+VALUES ('schema_version', '7', datetime('now'));

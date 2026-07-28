@@ -18,9 +18,9 @@ export const uiCopy = {
     occupationPlaceholder: "Search a work context",
     checkingPrevious: "Checking the public archive…",
     previousTitle: "This source has earlier reports",
-    previousBody: "Open a previous result for context, or continue below to create a fresh run.",
+    previousBody: "Open a previous result for context or continue below to create a fresh run",
     publicNotice:
-      "Submitted URLs, completed reports and captured evidence are published to the permanent public archive.",
+      "Submitted URLs completed reports and captured evidence enter the permanent public archive",
     start: "Reverse the thinking",
     starting: "Reading the thinking…",
     lockedTitle: "Research is not available yet",
