@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { applyD1Migrations, SELF, type D1Migration } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
+import { nextEligiblePendingIndex } from "../worker/durable";
 import { searchOccupations } from "../worker/occupations";
 import { recordProviderCall } from "../worker/provider-ledger";
 import { sha256 } from "../worker/security";
@@ -23,19 +24,21 @@ describe("Cloudflare bindings in workerd", () => {
     });
   });
 
-  it("enforces one active job and the configured daily limit in ActorGate", async () => {
+  it("enforces outstanding and daily job limits in ActorGate", async () => {
     const actor = bindings.ACTOR_GATE.getByName(`test-${crypto.randomUUID()}`);
-    expect(await actor.reserve("job-1", "2026-07-28", 2)).toEqual({ ok: true });
-    expect(await actor.reserve("job-2", "2026-07-28", 2)).toMatchObject({
+    expect(await actor.reserve("job-1", "2026-07-28", 3, 2)).toEqual({ ok: true });
+    expect(await actor.reserve("job-2", "2026-07-28", 3, 2)).toEqual({ ok: true });
+    expect(await actor.reserve("job-3", "2026-07-28", 3, 2)).toMatchObject({
       ok: false,
-      reason: "concurrent_job"
+      reason: "outstanding_job_limit"
     });
     await actor.release("job-1");
-    expect(await actor.reserve("job-2", "2026-07-28", 2)).toEqual({ ok: true });
-    await actor.rollback("job-2");
-    expect(await actor.reserve("job-2b", "2026-07-28", 2)).toEqual({ ok: true });
-    await actor.release("job-2b");
-    expect(await actor.reserve("job-3", "2026-07-28", 2)).toMatchObject({
+    expect(await actor.reserve("job-3", "2026-07-28", 3, 2)).toEqual({ ok: true });
+    await actor.rollback("job-3");
+    await actor.release("job-2");
+    expect(await actor.reserve("job-4", "2026-07-28", 3, 2)).toEqual({ ok: true });
+    await actor.release("job-4");
+    expect(await actor.reserve("job-5", "2026-07-28", 3, 2)).toMatchObject({
       ok: false,
       reason: "daily_job_limit"
     });
@@ -62,6 +65,78 @@ describe("Cloudflare bindings in workerd", () => {
       actualCents: 20,
       remainingCents: 80
     });
+  });
+
+  it("skips a blocked actor while preserving cross-user queue order", () => {
+    const pending = [
+      { actorHash: "actor-a" },
+      { actorHash: "actor-a" },
+      { actorHash: "actor-b" }
+    ];
+    expect(nextEligiblePendingIndex(pending, new Map([["actor-a", 1]]), 1)).toBe(2);
+    expect(nextEligiblePendingIndex(pending, new Map(), 1)).toBe(0);
+  });
+
+  it("reports queued timestamps, approximate position and accepts sources before start", async () => {
+    const session = await SELF.fetch("https://example.com/api/my-jobs");
+    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const actorId = cookie.slice("sr_actor=".length).split(".")[0];
+    const actorHash = await sha256(actorId);
+    const firstJobId = crypto.randomUUID();
+    const secondJobId = crypto.randomUUID();
+    const firstQueuedAt = "2026-01-01T00:00:00.000Z";
+    const secondQueuedAt = "2026-01-01T00:00:01.000Z";
+    const expires = "2026-12-31T00:00:00.000Z";
+
+    const statement = (jobId: string, owner: string, queuedAt: string, targetUrl: string) =>
+      bindings.DB.prepare(
+        `INSERT INTO jobs
+         (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+          progress, reserved_cents, actual_cents, capability_hash, degraded_json,
+          queued_at, created_at, updated_at, expires_at)
+         VALUES (?1, ?2, ?3, '[]', '15-1255.00', 'validate', 'queued',
+          4, 50, 0, 'capability', '[]', ?4, ?4, ?4, ?5)`
+      ).bind(jobId, owner, targetUrl, queuedAt, expires);
+    await bindings.DB.batch([
+      statement(firstJobId, "another-queued-actor", firstQueuedAt, "https://example.com/first"),
+      statement(secondJobId, actorHash, secondQueuedAt, "https://example.com/second")
+    ]);
+
+    const status = await SELF.fetch(`https://example.com/api/jobs/${secondJobId}`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({
+      id: secondJobId,
+      status: "queued",
+      queuePosition: 2,
+      queuedAt: secondQueuedAt,
+      retry: { automaticCount: 0, automaticMax: 1 }
+    });
+
+    const sources = await SELF.fetch(`https://example.com/api/jobs/${secondJobId}/sources`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        urls: ["https://github.com/owner/repo"],
+        finalize: true
+      })
+    });
+    expect(sources.status).toBe(200);
+    expect(await sources.json()).toMatchObject({
+      accepted: ["https://github.com/owner/repo"],
+      finalized: true
+    });
+    expect(
+      await bindings.DB.prepare(
+        "SELECT sources_finalized_at FROM jobs WHERE id = ?1"
+      )
+        .bind(secondJobId)
+        .first()
+    ).toMatchObject({ sources_finalized_at: expect.any(String) });
+
+    await bindings.DB.batch([
+      bindings.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(firstJobId),
+      bindings.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(secondJobId)
+    ]);
   });
 
   it("keeps history and supporting sources scoped to the signed actor cookie", async () => {

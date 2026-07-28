@@ -130,6 +130,10 @@ export interface JobStatus {
   targetUrl?: string;
   occupationCode?: string;
   createdAt?: string;
+  queuedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  queuePosition?: number;
   reportId?: string;
   degraded: string[];
   costUsd: number;
@@ -146,6 +150,8 @@ export interface JobStatus {
     allowed: boolean;
     count: number;
     max: number;
+    automaticCount?: number;
+    automaticMax?: number;
   };
 }
 
@@ -168,6 +174,26 @@ export interface HistoryItem {
 export interface HistoryPage {
   items: HistoryItem[];
   nextCursor?: string;
+}
+
+export interface MyResearchItem {
+  jobId: string;
+  targetUrl: string;
+  occupationCode: string;
+  occupationTitle: string;
+  status: "queued" | "running" | "failed";
+  stage: JobStage;
+  progress: number;
+  queuedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  queuePosition?: number;
+  autoRetryCount: number;
+  updatedAt: string;
+}
+
+export interface MyResearchPage {
+  items: MyResearchItem[];
 }
 
 export interface PublicConfig {

@@ -21,6 +21,10 @@
     "JOB_USD_LIMIT": "0.50",
     "DAILY_USD_LIMIT": "5.00",
     "ANON_DAILY_JOB_LIMIT": "20",
+    "GLOBAL_RESEARCH_CONCURRENCY": "2",
+    "ACTOR_ACTIVE_JOB_LIMIT": "1",
+    "ACTOR_OUTSTANDING_JOB_LIMIT": "10",
+    "AUTO_RETRY_LIMIT": "1",
     "PUBLIC_APP_URL": "https://skill-reverse.vibeencode.dev",
     "OPENROUTER_SYNTHESIS_MODEL": "openai/gpt-5.6-terra",
     "REPORT_TTL_DAYS": "30",
@@ -50,6 +54,32 @@
       "class_name": "ResearchWorkflow"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "skill-reverse-jobs",
+        "binding": "RESEARCH_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "skill-reverse-jobs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 2,
+        "max_retries": 3,
+        "retry_delay": 10,
+        "max_concurrency": 1,
+        "dead_letter_queue": "skill-reverse-jobs-dlq"
+      },
+      {
+        "queue": "skill-reverse-jobs-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 2,
+        "max_retries": 1,
+        "max_concurrency": 1
+      }
+    ]
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -59,6 +89,10 @@
       {
         "name": "DAILY_BUDGET",
         "class_name": "DailyBudget"
+      },
+      {
+        "name": "RESEARCH_SCHEDULER",
+        "class_name": "ResearchScheduler"
       }
     ]
   },
@@ -66,6 +100,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["ActorGate", "DailyBudget"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ResearchScheduler"]
     }
   ],
   "ratelimits": [

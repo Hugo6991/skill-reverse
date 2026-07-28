@@ -44,7 +44,11 @@ export function SourceCollection({
         <div>
           <span className="eyebrow">{uiCopy.sources.eyebrow}</span>
           <h2>{uiCopy.sources.title}</h2>
-          <p>{uiCopy.sources.description}</p>
+          <p>
+            {job.status === "queued"
+              ? uiCopy.sources.queuedDescription
+              : uiCopy.sources.description}
+          </p>
         </div>
         {collection.closesAt && (
           <time dateTime={collection.closesAt}>

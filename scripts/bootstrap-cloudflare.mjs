@@ -20,6 +20,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const configPath = fileURLToPath(new URL("../wrangler.jsonc", import.meta.url));
 const databaseName = "skill-reverse-db";
 const bucketName = "skill-reverse-artifacts";
+const queueNames = ["skill-reverse-jobs-dlq", "skill-reverse-jobs"];
 
 function commandText(command, args) {
   return [command, ...args].join(" ");
@@ -117,6 +118,25 @@ function ensureR2() {
   console.log(`✓ R2 ${bucketName} ready`);
 }
 
+function ensureQueues() {
+  for (const queueName of queueNames) {
+    let info = wrangler(["queues", "info", queueName], {
+      capture: true,
+      allowFailure: true
+    });
+    if (info.status !== 0) {
+      console.log(`→ Creating Queue ${queueName}`);
+      wrangler(["queues", "create", queueName]);
+      info = wrangler(["queues", "info", queueName], {
+        capture: true,
+        allowFailure: true
+      });
+    }
+    if (info.status !== 0) throw new Error(`Queue ${queueName} was not found after creation`);
+    console.log(`✓ Queue ${queueName} ready`);
+  }
+}
+
 function deployLocked() {
   run("pnpm", ["typecheck"]);
   run("pnpm", ["test"]);
@@ -135,6 +155,7 @@ async function main() {
     console.log(`  config: ${configPath}`);
     console.log(`  D1: ensure ${databaseName}, then replace ${initial.database.database_id}`);
     console.log(`  R2: ensure ${bucketName}`);
+    console.log(`  Queues: ensure ${queueNames.join(" and ")}`);
     console.log("  verify: typecheck → tests → build → migrations → deploy");
     console.log("\n✓ Bootstrap plan is valid");
     return;
@@ -143,6 +164,7 @@ async function main() {
   ensureAuthentication();
   const databaseId = ensureD1();
   ensureR2();
+  ensureQueues();
 
   const current = readConfig();
   const nextConfig = updateD1DatabaseId(current.text, databaseId);
@@ -167,7 +189,9 @@ async function main() {
 
 main().catch((error) => {
   console.error(`\n✕ Bootstrap stopped: ${error instanceof Error ? error.message : String(error)}`);
-  console.error("  It is safe to rerun pnpm bootstrap:cloudflare; existing D1/R2 resources are reused.");
+  console.error(
+    "  It is safe to rerun pnpm bootstrap:cloudflare; existing D1/R2/Queue resources are reused."
+  );
   if (!process.env.CLOUDFLARE_API_TOKEN) {
     console.error(
       "  If OAuth is intentionally disabled, set CLOUDFLARE_API_TOKEN in your terminal and rerun."

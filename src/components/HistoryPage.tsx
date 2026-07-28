@@ -1,7 +1,12 @@
-import { ArrowRight, Clock3, FileSearch2, LoaderCircle, Trash2 } from "lucide-react";
+import { ArrowRight, CircleAlert, Clock3, FileSearch2, LoaderCircle, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { uiCopy } from "../copy";
-import type { HistoryItem, HistoryPage as HistoryResponse } from "../types";
+import type {
+  HistoryItem,
+  HistoryPage as HistoryResponse,
+  MyResearchItem,
+  MyResearchPage
+} from "../types";
 
 async function loadHistory(): Promise<HistoryResponse> {
   const response = await fetch("/api/history?limit=20");
@@ -12,8 +17,19 @@ async function loadHistory(): Promise<HistoryResponse> {
   return body;
 }
 
+async function loadMyResearch(): Promise<MyResearchPage> {
+  const response = await fetch("/api/my-jobs");
+  const body = (await response.json().catch(() => ({}))) as MyResearchPage & {
+    error?: { message?: string };
+  };
+  if (!response.ok) throw new Error(body.error?.message ?? "Your research jobs are unavailable");
+  return body;
+}
+
 export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
+  const [myResearch, setMyResearch] = useState<MyResearchItem[]>([]);
+  const [myResearchLoading, setMyResearchLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -29,9 +45,29 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
     }
   }, []);
 
+  const refreshMyResearch = useCallback(async () => {
+    try {
+      const page = await loadMyResearch();
+      setMyResearch(page.items);
+    } catch {
+      // The public archive remains useful if the anonymous session lookup is unavailable.
+    } finally {
+      setMyResearchLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void refreshMyResearch();
+  }, [refresh, refreshMyResearch]);
+
+  useEffect(() => {
+    if (!myResearch.some((item) => item.status === "queued" || item.status === "running")) {
+      return;
+    }
+    const timer = window.setInterval(() => void refreshMyResearch(), 3_000);
+    return () => window.clearInterval(timer);
+  }, [myResearch, refreshMyResearch]);
 
   async function remove(item: HistoryItem) {
     if (!window.confirm(`Remove ${item.displayName} from history?`)) return;
@@ -55,6 +91,83 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
         <h1>{uiCopy.history.title}</h1>
         <p>{uiCopy.history.description}</p>
       </header>
+
+      {(myResearchLoading || myResearch.length > 0) && (
+        <section className="my-research-section" aria-labelledby="my-research-title">
+          <div className="history-section-heading">
+            <div>
+              <span className="eyebrow">This browser</span>
+              <h2 id="my-research-title">Your research queue</h2>
+            </div>
+            <span>Updates automatically while work is queued or running</span>
+          </div>
+          {myResearchLoading ? (
+            <div className="page-state compact-state" role="status">
+              <LoaderCircle className="spin" size={18} aria-hidden="true" />
+              <span>Checking your research jobs…</span>
+            </div>
+          ) : (
+            <div className="history-list">
+              {myResearch.map((item) => {
+                const retrying = item.status === "running" && item.autoRetryCount > 0;
+                const statusLabel =
+                  item.status === "queued"
+                    ? item.queuePosition
+                      ? `Queued · #${item.queuePosition}`
+                      : "Queued"
+                    : retrying
+                      ? `Retrying ${item.autoRetryCount}/1`
+                      : item.status === "running"
+                        ? "Running"
+                        : "Failed";
+                const Icon =
+                  item.status === "failed"
+                    ? CircleAlert
+                    : item.status === "queued"
+                      ? Clock3
+                      : LoaderCircle;
+                const timestamp =
+                  item.finishedAt ?? item.startedAt ?? item.queuedAt ?? item.updatedAt;
+                return (
+                  <article className="history-row" key={item.jobId}>
+                    <button
+                      className="history-main"
+                      type="button"
+                      onClick={() => onNavigate(`/jobs/${encodeURIComponent(item.jobId)}`)}
+                    >
+                      <span className="history-icon">
+                        <Icon
+                          className={item.status === "running" ? "spin" : undefined}
+                          size={17}
+                          aria-hidden="true"
+                        />
+                      </span>
+                      <span className="history-copy">
+                        <strong>{new URL(item.targetUrl).hostname}</strong>
+                        <small>
+                          {item.occupationTitle} · {item.stage.replaceAll("_", " ")}
+                        </small>
+                      </span>
+                      <span className={`history-status status-${item.status}`}>
+                        {statusLabel}
+                      </span>
+                      <time dateTime={timestamp}>
+                        {new Intl.DateTimeFormat("zh-TW", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit"
+                        }).format(new Date(timestamp))}
+                      </time>
+                      <ArrowRight className="history-arrow" size={16} aria-hidden="true" />
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       {loading ? (
         <div className="page-state" role="status">

@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import { getOccupation } from "./occupations";
 import {
   assembleReport,
@@ -43,6 +44,10 @@ async function updateJob(
     errorMessage?: string | null;
     sourceWindowClosesAt?: string | null;
     sourcesFinalizedAt?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+    autoRetryCount?: number;
+    lastAutoRetryAt?: string | null;
   }
 ): Promise<void> {
   const sets: string[] = ["updated_at = ?"];
@@ -64,6 +69,12 @@ async function updateJob(
   }
   if (values.sourcesFinalizedAt !== undefined) {
     add("sources_finalized_at", values.sourcesFinalizedAt);
+  }
+  if (values.startedAt !== undefined) add("started_at", values.startedAt);
+  if (values.finishedAt !== undefined) add("finished_at", values.finishedAt);
+  if (values.autoRetryCount !== undefined) add("auto_retry_count", values.autoRetryCount);
+  if (values.lastAutoRetryAt !== undefined) {
+    add("last_auto_retry_at", values.lastAutoRetryAt);
   }
   params.push(jobId);
   await db
@@ -97,10 +108,12 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
     const degraded: string[] = [];
     try {
       await step.do("mark job running", async () => {
+        const startedAt = new Date().toISOString();
         await updateJob(this.env.DB, jobId, {
           stage: "capture",
           status: "running",
-          progress: 12
+          progress: 12,
+          startedAt
         });
       });
 
@@ -110,7 +123,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         async () => captureUrl(this.env, jobId, targetUrl, 1)
       );
 
-      await step.do("open optional source collection", async () => {
+      const sourceCollection = await step.do("open optional source collection", async () => {
+        const current = await this.env.DB.prepare(
+          "SELECT sources_finalized_at FROM jobs WHERE id = ?1"
+        )
+          .bind(jobId)
+          .first<{ sources_finalized_at: string | null }>();
+        if (current?.sources_finalized_at) {
+          return { finalized: true, sourceWindowClosesAt: null };
+        }
         const sourceWindowClosesAt = new Date(Date.now() + 90_000).toISOString();
         await updateJob(this.env.DB, jobId, {
           stage: "source_collection",
@@ -118,22 +139,24 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           progress: 22,
           sourceWindowClosesAt
         });
-        return sourceWindowClosesAt;
+        return { finalized: false, sourceWindowClosesAt };
       });
 
-      try {
-        await step.waitForEvent<{ urls?: string[] }>("wait for optional supporting sources", {
-          type: "sources-ready",
-          timeout: "90 seconds"
-        });
-      } catch (error) {
-        console.info(
-          JSON.stringify({
-            event: "source_collection_timeout",
-            jobId,
-            message: error instanceof Error ? error.message : "timeout"
-          })
-        );
+      if (!sourceCollection.finalized) {
+        try {
+          await step.waitForEvent<{ urls?: string[] }>("wait for optional supporting sources", {
+            type: "sources-ready",
+            timeout: "90 seconds"
+          });
+        } catch (error) {
+          console.info(
+            JSON.stringify({
+              event: "source_collection_timeout",
+              jobId,
+              message: error instanceof Error ? error.message : "timeout"
+            })
+          );
+        }
       }
 
       const supportingUrls = await step.do("finalize optional sources", async () => {
@@ -199,21 +222,45 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
 
       const researched = await step.do(
         "reverse research with structured evidence",
-        { retries: { limit: 2, delay: "20 seconds", backoff: "exponential" } },
-        async () => {
+        {
+          retries: {
+            limit: Math.max(1, Number(this.env.AUTO_RETRY_LIMIT || 1) + 1),
+            delay: ({ error }) =>
+              providerErrorDetails(error).code === "provider_rate_limited"
+                ? "60 seconds"
+                : "20 seconds",
+            backoff: "exponential"
+          }
+        },
+        async (context) => {
+          if (context.attempt > 1) {
+            const retriedAt = new Date().toISOString();
+            await updateJob(this.env.DB, jobId, {
+              autoRetryCount: context.attempt - 1,
+              lastAutoRetryAt: retriedAt
+            });
+          }
           await updateJob(this.env.DB, jobId, {
             stage: "source_verification",
             progress: 62,
             degraded
           });
-          return runPerplexityResearch(
-            this.env,
-            targetUrl,
-            occupation,
-            captured,
-            social.posts,
-            jobId
-          );
+          try {
+            return await runPerplexityResearch(
+              this.env,
+              targetUrl,
+              occupation,
+              captured,
+              social.posts,
+              jobId
+            );
+          } catch (error) {
+            const details = providerErrorDetails(error);
+            if (!details.retryable) {
+              throw new NonRetryableError(details.internalMessage);
+            }
+            throw error;
+          }
         }
       );
 
@@ -235,17 +282,41 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         try {
           const result = await step.do(
             "synthesize final report with OpenAI via OpenRouter",
-            { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" } },
-            async () =>
-              runOpenRouterSynthesis(
-              this.env,
-              targetUrl,
-              occupation,
-              captured,
-              researched.result,
-              researched.citations,
-              jobId
-              )
+            {
+              retries: {
+                limit: Math.max(1, Number(this.env.AUTO_RETRY_LIMIT || 1) + 1),
+                delay: ({ error }) =>
+                  providerErrorDetails(error).code === "provider_rate_limited"
+                    ? "60 seconds"
+                    : "20 seconds",
+                backoff: "exponential"
+              }
+            },
+            async (context) => {
+              if (context.attempt > 1) {
+                await updateJob(this.env.DB, jobId, {
+                  autoRetryCount: context.attempt - 1,
+                  lastAutoRetryAt: new Date().toISOString()
+                });
+              }
+              try {
+                return await runOpenRouterSynthesis(
+                  this.env,
+                  targetUrl,
+                  occupation,
+                  captured,
+                  researched.result,
+                  researched.citations,
+                  jobId
+                );
+              } catch (error) {
+                const details = providerErrorDetails(error);
+                if (!details.retryable) {
+                  throw new NonRetryableError(details.internalMessage);
+                }
+                throw error;
+              }
+            }
           );
           synthesized = { ...result, degraded: undefined };
         } catch (error) {
@@ -326,7 +397,11 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
 
       await step.do("settle gates", async () => {
         const actualCents = await getJobCost(this.env.DB, jobId);
-        await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
+        await Promise.all([
+          actor.release(jobId),
+          budget.settle(jobId, actualCents),
+          this.env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
+        ]);
       });
       const actualCents = await getJobCost(this.env.DB, jobId);
       return { reportId: report.id, actualCents, degraded };
@@ -336,10 +411,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         status: "failed",
         degraded,
         errorCode: details.code,
-        errorMessage: details.internalMessage.slice(0, 500)
+        errorMessage: details.internalMessage.slice(0, 500),
+        finishedAt: new Date().toISOString()
       });
       const actualCents = await getJobCost(this.env.DB, jobId);
-      await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
+      await Promise.allSettled([
+        actor.release(jobId),
+        budget.settle(jobId, actualCents),
+        this.env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
+      ]);
       throw error;
     }
   }

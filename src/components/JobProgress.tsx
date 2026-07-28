@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, ExternalLink, LoaderCircle } from "lucide-react";
+import { ArrowLeft, Check, Clock3, ExternalLink, LoaderCircle, RotateCw } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { JobStage, JobStatus } from "../types";
 import { SourceCollection } from "./SourceCollection";
@@ -32,6 +32,8 @@ export function JobProgress({
   onBack(): void;
 }) {
   const currentIndex = stages.findIndex((stage) => stage.id === job.stage);
+  const automaticRetrying =
+    job.status === "running" && (job.retry?.automaticCount ?? 0) > 0;
   const [retryOpen, setRetryOpen] = useState(false);
   const [retryBusy, setRetryBusy] = useState(false);
   const [retryError, setRetryError] = useState("");
@@ -63,7 +65,15 @@ export function JobProgress({
         <div className="progress-heading">
           <div>
             <span className="eyebrow">Live research</span>
-            <h1>{job.status === "failed" ? "Research stopped" : "Evidence is being assembled"}</h1>
+            <h1>
+              {job.status === "queued"
+                ? "Research is queued"
+                : job.status === "failed"
+                  ? "Research stopped"
+                  : automaticRetrying
+                    ? "Research is retrying"
+                    : "Evidence is being assembled"}
+            </h1>
             {job.targetUrl && (
               <a href={job.targetUrl} target="_blank" rel="noreferrer">
                 {new URL(job.targetUrl).hostname}
@@ -71,7 +81,11 @@ export function JobProgress({
               </a>
             )}
           </div>
-          <span className="progress-percent">{job.progress}%</span>
+          <span className="progress-percent">
+            {job.status === "queued" && job.queuePosition
+              ? `Queue #${job.queuePosition}`
+              : `${job.progress}%`}
+          </span>
         </div>
         <div
           className="progress-track"
@@ -85,7 +99,7 @@ export function JobProgress({
         <ol className="stage-list">
           {stages.map((stage, index) => {
             const done = index < currentIndex || job.status === "completed";
-            const active = index === currentIndex && job.status !== "completed";
+            const active = index === currentIndex && job.status === "running";
             return (
               <li className={done ? "done" : active ? "active" : ""} key={stage.id}>
                 <span className="stage-dot">
@@ -102,6 +116,34 @@ export function JobProgress({
             );
           })}
         </ol>
+        {job.status === "queued" && (
+          <div className="queue-note" role="status">
+            <Clock3 size={18} aria-hidden="true" />
+            <div>
+              <strong>
+                {job.queuePosition
+                  ? `Approximately number ${job.queuePosition} in the queue`
+                  : "Waiting for a research slot"}
+              </strong>
+              <span>This job is saved. You can start another research while it waits.</span>
+            </div>
+            <button className="secondary-button" type="button" onClick={onStartNew}>
+              Start another
+            </button>
+          </div>
+        )}
+        {automaticRetrying && (
+          <div className="retrying-note" role="status">
+            <RotateCw className="spin" size={18} aria-hidden="true" />
+            <div>
+              <strong>Temporary provider error</strong>
+              <span>
+                Automatically retrying {job.retry?.automaticCount}/
+                {job.retry?.automaticMax ?? 1}; completed research steps are being reused.
+              </span>
+            </div>
+          </div>
+        )}
         {job.degraded.length > 0 && (
           <div className="degraded-note">
             <strong>Some research lanes were unavailable</strong>

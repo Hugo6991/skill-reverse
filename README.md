@@ -9,8 +9,8 @@
 ## 目前可用
 
 - React + Vite 研究工作台與互動報告
-- Hono API、Cloudflare Workflows、D1、R2、Browser Run
-- Durable Objects 精確限制每人併發與每日研究預算
+- Hono API、Cloudflare Queues、Workflows、D1、R2、Browser Run
+- SQLite-backed Durable Objects 以全站 2 筆、每位使用者 1 筆的上限公平排程
 - Turnstile 後端 Siteverify
 - Perplexity Sonar Pro 結構化 research
 - TwitterAPI.io 定向作者貼文搜尋，可安全降級
@@ -40,9 +40,9 @@ pnpm bootstrap:cloudflare:dry-run
 pnpm bootstrap:cloudflare
 ```
 
-Bootstrap 會要求 Wrangler OAuth，查找或建立 `skill-reverse-db` D1 與 `skill-reverse-artifacts` R2，將真正的 D1 UUID 寫回 `wrangler.jsonc`，套用 migrations 並部署 locked Worker。它可以安全重跑；已存在的資源會被復用。
+Bootstrap 會要求 Wrangler OAuth，查找或建立 `skill-reverse-db` D1、`skill-reverse-artifacts` R2、研究 Queue 與 DLQ，將真正的 D1 UUID 寫回 `wrangler.jsonc`，套用 migrations 並部署 locked Worker。它可以安全重跑；已存在的資源會被復用。
 
-若不允許 Wrangler OAuth，可在本機終端以隱藏輸入設定具 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit 權限的 scoped token；不要把 token 貼到聊天、command argument 或 repository：
+若不允許 Wrangler OAuth，可在本機終端以隱藏輸入設定具 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit 與 Queues Edit 權限的 scoped token；不要把 token 貼到聊天、command argument 或 repository：
 
 ```bash
 read -s CLOUDFLARE_API_TOKEN
@@ -82,7 +82,7 @@ locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 ke
 - Root directory：`/`
 - Build command：留空
 - Deploy command：`pnpm deploy`
-- Build API token：Account scope 至少包含 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit
+- Build API token：Account scope 至少包含 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit、Queues Edit
 
 Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repository variables 或 Workers Builds build variables。`main` push 會部署 production；其他 branch 只上傳 preview version。
 
@@ -99,7 +99,7 @@ Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repositor
 | `SETUP_COMPLETE` | generated | Unlocks public job creation |
 | `TWITTERAPI_KEY` | no | Social provenance; missing means degraded report |
 
-Cloudflare service credentials不需要放進環境變數；D1、R2、Browser Run、Workflow、Rate Limiting 與 Durable Objects 全部透過 bindings。
+Cloudflare service credentials不需要放進環境變數；Queues、D1、R2、Browser Run、Workflow、Rate Limiting 與 Durable Objects 全部透過 bindings。
 
 ### Owner API budget setup
 
@@ -111,7 +111,13 @@ Production 可以使用 owner 自己的 provider accounts，但應為這個網�
 4. 在 Cloudflare Turnstile 建立 Managed widget，hostname 至少允許 `skill-reverse.vibeencode.dev`；保留 `skill-reverse.6991hugo.workers.dev` 可讓原始 Worker URL 繼續作為緊急回退。
 5. 執行 `pnpm setup:prod`。Wizard 會辨識已存在的 Worker provider secrets，允許沿用而不必再次顯示或貼上；新增 secrets 仍只透過 stdin 寫入 Worker，永遠不進 GitHub、build variables 或前端 bundle。
 
-公開 UI 不展示單工作成本、每日預算或內部研究準則；限制仍由 Durable Objects、Rate Limiting、Turnstile 與 provider 預付額度在後端執行。匿名 session 預設每日最多 20 個研究工作，透過 `ANON_DAILY_JOB_LIMIT` 調整。
+公開 UI 不展示單工作成本、每日預算或內部研究準則；限制仍由 Durable Objects、Rate Limiting、Turnstile 與 provider 預付額度在後端執行。匿名 session 預設每日最多 20 個研究工作、最多保留 10 筆未完成工作；研究執行預設全站 2 筆、每位使用者 1 筆。分別可用 `ANON_DAILY_JOB_LIMIT`、`ACTOR_OUTSTANDING_JOB_LIMIT`、`GLOBAL_RESEARCH_CONCURRENCY` 與 `ACTOR_ACTIVE_JOB_LIMIT` 調整。
+
+### Research queue
+
+`POST /api/jobs` 只驗證請求、在 D1 建立 `queued` 工作，再將 job ID 寫入 Cloudflare Queue。Queue consumer 把工作冪等加入全站單例 `ResearchScheduler` Durable Object；排程器依加入時間與使用者公平限制啟動 Workflow。Workflow 完成或最終失敗後釋放名額，alarm 每分鐘回收遺失 callback 的工作。
+
+暫時性 provider 錯誤在同一 Workflow step 自動重試一次，已完成的擷取與分析不會重做。Queue transport 最多重試三次，仍無法送達 Scheduler 時由 DLQ 將工作標記為失敗並釋放預算與 outstanding reservation。
 
 ## 日常指令
 
@@ -131,7 +137,8 @@ pnpm deploy
 ## API
 
 - `POST /api/jobs`：建立研究工作
-- `GET /api/jobs/:id`：查詢階段、成本與降級狀態
+- `GET /api/jobs/:id`：查詢排隊順位、階段、重試與降級狀態
+- `GET /api/my-jobs`：讀取目前匿名 actor 的排隊中、執行中與失敗工作
 - `PUT /api/jobs/:id/sources`：在 90 秒視窗補充或略過來源
 - `GET /api/history`：讀取目前匿名 actor 的搜尋紀錄
 - `DELETE /api/history/:jobId`：刪除目前匿名 actor 的終止工作與相關資料

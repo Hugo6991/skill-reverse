@@ -217,9 +217,9 @@ export default function App() {
         ? {
             ...current,
             ...result,
-            status: "running",
-            stage: "source_verification",
-            progress: 62,
+            status: result.status ?? "queued",
+            stage: result.stage ?? "source_verification",
+            progress: result.progress ?? 62,
             error: undefined
           }
         : current

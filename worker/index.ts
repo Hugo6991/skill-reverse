@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import type { JobStatus } from "../src/types";
-import { ActorGate, DailyBudget } from "./durable";
+import { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import { demoReport } from "./demo";
 import { historyPresentation } from "./history";
 import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
@@ -16,10 +16,10 @@ import {
   sha256,
   verifyTurnstile
 } from "./security";
-import type { AppEnv, HonoEnv, JobRow, WorkflowInstance } from "./types";
+import type { AppEnv, HonoEnv, JobRow, ResearchQueueMessage } from "./types";
 import { ResearchWorkflow } from "./workflow";
 
-export { ActorGate, DailyBudget, ResearchWorkflow };
+export { ActorGate, DailyBudget, ResearchScheduler, ResearchWorkflow };
 
 const app = new Hono<HonoEnv>();
 
@@ -74,11 +74,11 @@ async function enqueueResearchJob(
     targetUrl: string;
     supportUrls?: string[];
     occupationCode: string;
+    sourcesFinalized?: boolean;
   }
 ): Promise<{
   jobId: string;
   capabilityToken: string;
-  workflow: WorkflowInstance;
   remainingCents: number;
 }> {
   const jobId = crypto.randomUUID();
@@ -92,22 +92,32 @@ async function enqueueResearchJob(
     Number.isFinite(configuredActorLimit) && configuredActorLimit > 0
       ? Math.max(1, Math.min(100, Math.floor(configuredActorLimit)))
       : 20;
+  const configuredOutstandingLimit = Number(env.ACTOR_OUTSTANDING_JOB_LIMIT || 10);
+  const actorOutstandingJobLimit =
+    Number.isFinite(configuredOutstandingLimit) && configuredOutstandingLimit > 0
+      ? Math.max(1, Math.min(100, Math.floor(configuredOutstandingLimit)))
+      : 10;
   const actorGate = env.ACTOR_GATE.getByName(input.actorHash);
   const dailyBudget = env.DAILY_BUDGET.getByName(day);
 
-  const actorReservation = await actorGate.reserve(jobId, day, actorDailyJobLimit);
+  const actorReservation = await actorGate.reserve(
+    jobId,
+    day,
+    actorDailyJobLimit,
+    actorOutstandingJobLimit
+  );
   if (!actorReservation.ok) {
     throw new JobGateError(
       actorReservation.reason ?? "actor_limited",
-      actorReservation.reason === "concurrent_job"
-        ? "One research job is already running"
+      actorReservation.reason === "outstanding_job_limit"
+        ? `This session already has ${actorOutstandingJobLimit} unfinished research jobs`
         : `This anonymous session has reached its daily limit of ${actorDailyJobLimit} research jobs`
     );
   }
 
   const budgetReservation = await dailyBudget.reserve(jobId, reservedCents, dailyLimitCents);
   if (!budgetReservation.ok) {
-    await actorGate.release(jobId);
+    await actorGate.rollback(jobId);
     throw new JobGateError(
       "daily_budget_exhausted",
       "The public research budget is exhausted for today"
@@ -123,8 +133,11 @@ async function enqueueResearchJob(
     await env.DB.prepare(
       `INSERT INTO jobs
        (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
-        progress, reserved_cents, actual_cents, degraded_json, created_at, updated_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 'validate', 'queued', 4, ?6, 0, '[]', ?7, ?7, ?8)`
+        progress, reserved_cents, actual_cents, capability_hash, degraded_json,
+        sources_finalized_at, queued_at,
+        created_at, updated_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'validate', 'queued', 4, ?6, 0, ?7, '[]',
+               ?8, ?9, ?9, ?9, ?10)`
     )
       .bind(
         jobId,
@@ -133,6 +146,8 @@ async function enqueueResearchJob(
         JSON.stringify(normalizedSupportUrls),
         input.occupationCode,
         reservedCents,
+        capabilityHash,
+        input.sourcesFinalized ? now.toISOString() : null,
         now.toISOString(),
         expiresAt
       )
@@ -141,32 +156,29 @@ async function enqueueResearchJob(
       await replaceJobSources(env.DB, jobId, normalizedSupportUrls);
     }
 
-    const workflow = await env.RESEARCH_WORKFLOW.create({
-      id: jobId,
-      params: {
-        kind: "research",
-        jobId,
-        actorHash: input.actorHash,
-        targetUrl: input.targetUrl,
-        supportUrls: normalizedSupportUrls,
-        occupationCode: input.occupationCode,
-        capabilityHash,
-        reservedCents,
-        day
-      }
-    });
-    await env.DB.prepare("UPDATE jobs SET workflow_id = ?1 WHERE id = ?2")
-      .bind(workflow.id, jobId)
-      .run();
+    await env.RESEARCH_QUEUE.send({ jobId } satisfies ResearchQueueMessage);
     return {
       jobId,
       capabilityToken,
-      workflow,
       remainingCents: budgetReservation.remainingCents
     };
   } catch (error) {
-    await Promise.all([actorGate.release(jobId), dailyBudget.release(jobId)]);
-    await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(jobId).run().catch(() => undefined);
+    await Promise.all([actorGate.rollback(jobId), dailyBudget.release(jobId)]);
+    try {
+      await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(jobId).run();
+    } catch {
+      const failedAt = new Date().toISOString();
+      await env.DB.prepare(
+        `UPDATE jobs
+         SET status = 'failed', error_code = 'queue_enqueue_failed',
+             error_message = 'The research request could not be queued',
+             finished_at = ?1, updated_at = ?1
+         WHERE id = ?2 AND status = 'queued'`
+      )
+        .bind(failedAt, jobId)
+        .run()
+        .catch(() => undefined);
+    }
     throw error;
   }
 }
@@ -368,11 +380,18 @@ app.get("/api/jobs/:id", async (c) => {
   }
   const row = await c.env.DB.prepare(
     `SELECT j.*,
-       (SELECT COUNT(*) FROM job_sources s WHERE s.job_id = j.id) AS submitted_count
+       (SELECT COUNT(*) FROM job_sources s WHERE s.job_id = j.id) AS submitted_count,
+       (SELECT COUNT(*) + 1
+        FROM jobs q
+        WHERE q.status = 'queued'
+          AND (
+            q.queued_at < j.queued_at
+            OR (q.queued_at = j.queued_at AND q.id < j.id)
+          )) AS queue_position
      FROM jobs j WHERE j.id = ?1`
   )
     .bind(c.req.param("id"))
-    .first<JobRow & { submitted_count: number }>();
+    .first<JobRow & { submitted_count: number; queue_position: number }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Job not found" } }, 404);
   const sourceStageOpen = ["validate", "capture", "source_collection"].includes(row.stage);
   const beforeDeadline =
@@ -386,6 +405,10 @@ app.get("/api/jobs/:id", async (c) => {
     targetUrl: row.target_url,
     occupationCode: row.occupation_code,
     createdAt: row.created_at,
+    queuedAt: row.queued_at ?? row.created_at,
+    startedAt: row.started_at ?? undefined,
+    finishedAt: row.finished_at ?? undefined,
+    queuePosition: row.status === "queued" ? Number(row.queue_position) : undefined,
     reportId: row.report_id ?? undefined,
     degraded: JSON.parse(row.degraded_json),
     costUsd: row.actual_cents / 100,
@@ -410,9 +433,84 @@ app.get("/api/jobs/:id", async (c) => {
         new Date(row.expires_at).getTime() > Date.now() &&
         row.actual_cents < row.reserved_cents,
       count: row.retry_count,
-      max: MAX_MANUAL_RETRIES
+      max: MAX_MANUAL_RETRIES,
+      automaticCount: row.auto_retry_count,
+      automaticMax: Math.max(0, Number(c.env.AUTO_RETRY_LIMIT || 1))
     }
   });
+});
+
+app.get("/api/my-jobs", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ items: [] });
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+
+  const rows = await c.env.DB.prepare(
+    `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
+            j.status, j.stage, j.progress, j.queued_at, j.started_at, j.finished_at,
+            j.auto_retry_count, j.updated_at,
+            CASE WHEN j.status = 'queued' THEN (
+              SELECT COUNT(*) + 1
+              FROM jobs q
+              WHERE q.status = 'queued'
+                AND (
+                  q.queued_at < j.queued_at
+                  OR (q.queued_at = j.queued_at AND q.id < j.id)
+                )
+            ) END AS queue_position
+     FROM jobs j
+     LEFT JOIN occupations o ON o.code = j.occupation_code
+     WHERE j.actor_hash = ?1
+       AND j.status IN ('queued', 'running', 'failed')
+     ORDER BY
+       CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+       j.updated_at DESC
+     LIMIT 20`
+  )
+    .bind(actor.actorHash)
+    .all<{
+      id: string;
+      target_url: string;
+      occupation_code: string;
+      occupation_title: string | null;
+      status: "queued" | "running" | "failed";
+      stage: JobStatus["stage"];
+      progress: number;
+      queued_at: string | null;
+      started_at: string | null;
+      finished_at: string | null;
+      auto_retry_count: number;
+      updated_at: string;
+      queue_position: number | null;
+    }>();
+
+  return attachActorCookie(
+    c,
+    c.json({
+      items: rows.results.map((row) => ({
+        jobId: row.id,
+        targetUrl: row.target_url,
+        occupationCode: row.occupation_code,
+        occupationTitle: row.occupation_title ?? row.occupation_code,
+        status: row.status,
+        stage: row.stage,
+        progress: row.progress,
+        queuedAt: row.queued_at ?? row.updated_at,
+        startedAt: row.started_at ?? undefined,
+        finishedAt: row.finished_at ?? undefined,
+        queuePosition:
+          row.status === "queued" && row.queue_position !== null
+            ? Number(row.queue_position)
+            : undefined,
+        autoRetryCount: Number(row.auto_retry_count),
+        updatedAt: row.updated_at
+      }))
+    })
+  );
 });
 
 app.post("/api/jobs/:id/retry", async (c) => {
@@ -442,7 +540,8 @@ app.post("/api/jobs/:id/retry", async (c) => {
 
   const row = await c.env.DB.prepare(
     `SELECT id, actor_hash, status, stage, progress, workflow_id, reserved_cents,
-            actual_cents, error_code, error_message, retry_count, expires_at, created_at
+            actual_cents, error_code, error_message, retry_count, expires_at, created_at,
+            finished_at, auto_retry_count, last_auto_retry_at
      FROM jobs WHERE id = ?1`
   )
     .bind(c.req.param("id"))
@@ -462,6 +561,9 @@ app.post("/api/jobs/:id/retry", async (c) => {
         | "retry_count"
         | "expires_at"
         | "created_at"
+        | "finished_at"
+        | "auto_retry_count"
+        | "last_auto_retry_at"
       >
     >();
   if (!row || row.actor_hash !== actor.actorHash) {
@@ -537,9 +639,19 @@ app.post("/api/jobs/:id/retry", async (c) => {
     Number.isFinite(configuredActorLimit) && configuredActorLimit > 0
       ? Math.max(1, Math.min(100, Math.floor(configuredActorLimit)))
       : 20;
+  const configuredOutstandingLimit = Number(c.env.ACTOR_OUTSTANDING_JOB_LIMIT || 10);
+  const actorOutstandingJobLimit =
+    Number.isFinite(configuredOutstandingLimit) && configuredOutstandingLimit > 0
+      ? Math.max(1, Math.min(100, Math.floor(configuredOutstandingLimit)))
+      : 10;
   const actorGate = c.env.ACTOR_GATE.getByName(actor.actorHash);
   const dailyBudget = c.env.DAILY_BUDGET.getByName(budgetDay);
-  const actorReservation = await actorGate.reserve(row.id, actorDay, actorDailyJobLimit);
+  const actorReservation = await actorGate.reserve(
+    row.id,
+    actorDay,
+    actorDailyJobLimit,
+    actorOutstandingJobLimit
+  );
   if (!actorReservation.ok) {
     return attachActorCookie(
       c,
@@ -548,8 +660,8 @@ app.post("/api/jobs/:id/retry", async (c) => {
           error: {
             code: actorReservation.reason ?? "actor_limited",
             message:
-              actorReservation.reason === "concurrent_job"
-                ? "One research job is already running"
+              actorReservation.reason === "outstanding_job_limit"
+                ? "This session has too many unfinished research jobs"
                 : "This session reached its daily research limit"
           }
         },
@@ -576,9 +688,10 @@ app.post("/api/jobs/:id/retry", async (c) => {
   const retriedAt = new Date().toISOString();
   const claimed = await c.env.DB.prepare(
     `UPDATE jobs
-     SET status = 'running', stage = 'source_verification', progress = 62,
+     SET status = 'queued', stage = 'source_verification', progress = 62,
          error_code = NULL, error_message = NULL, retry_count = retry_count + 1,
-         last_retry_at = ?1, updated_at = ?1
+         last_retry_at = ?1, queued_at = ?1, finished_at = NULL,
+         auto_retry_count = 0, last_auto_retry_at = NULL, updated_at = ?1
      WHERE id = ?2 AND actor_hash = ?3 AND status = 'failed'
        AND retry_count = ?4 AND retry_count < ?5`
   )
@@ -596,16 +709,15 @@ app.post("/api/jobs/:id/retry", async (c) => {
   }
 
   try {
-    const workflow = await c.env.RESEARCH_WORKFLOW.get(row.workflow_id);
-    await workflow.restart({
-      from: { name: "reverse research with structured evidence" }
-    });
+    await c.env.RESEARCH_QUEUE.send({ jobId: row.id } satisfies ResearchQueueMessage);
   } catch (error) {
     await c.env.DB.prepare(
       `UPDATE jobs
        SET status = 'failed', stage = ?1, progress = ?2, error_code = ?3,
-           error_message = ?4, retry_count = ?5, last_retry_at = NULL, updated_at = ?6
-       WHERE id = ?7 AND status = 'running' AND last_retry_at = ?8`
+           error_message = ?4, retry_count = ?5, last_retry_at = NULL,
+           finished_at = ?6, auto_retry_count = ?7, last_auto_retry_at = ?8,
+           updated_at = ?9
+       WHERE id = ?10 AND status = 'queued' AND last_retry_at = ?11`
     )
       .bind(
         row.stage,
@@ -613,6 +725,9 @@ app.post("/api/jobs/:id/retry", async (c) => {
         row.error_code,
         row.error_message,
         row.retry_count,
+        row.finished_at,
+        row.auto_retry_count,
+        row.last_auto_retry_at,
         new Date().toISOString(),
         row.id,
         retriedAt
@@ -631,8 +746,8 @@ app.post("/api/jobs/:id/retry", async (c) => {
       c.json(
         {
           error: {
-            code: "retry_start_failed",
-            message: "The retry could not be started"
+            code: "retry_queue_failed",
+            message: "The retry could not be queued"
           }
         },
         503
@@ -645,7 +760,7 @@ app.post("/api/jobs/:id/retry", async (c) => {
     c.json(
       {
         id: row.id,
-        status: "running",
+        status: "queued",
         stage: "source_verification",
         progress: 62,
         retry: { allowed: false, count: row.retry_count + 1, max: MAX_MANUAL_RETRIES }
@@ -920,9 +1035,9 @@ app.post("/api/setup/smoke", async (c) => {
     const result = await enqueueResearchJob(c.env, {
       actorHash: `setup-smoke-${crypto.randomUUID()}`,
       targetUrl: "https://antfu.me",
-      occupationCode: occupation.code
+      occupationCode: occupation.code,
+      sourcesFinalized: true
     });
-    await result.workflow.sendEvent({ type: "sources-ready", payload: { urls: [] } });
     return c.json({ jobId: result.jobId, capabilityToken: result.capabilityToken }, 202);
   } catch (error) {
     if (error instanceof JobGateError) {
@@ -968,7 +1083,7 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-    checks.database = { ok: schema?.value === "4", detail: `schema ${schema?.value ?? "missing"}` };
+    checks.database = { ok: schema?.value === "5", detail: `schema ${schema?.value ?? "missing"}` };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }
@@ -1010,6 +1125,27 @@ app.get("/api/health", async (c) => {
       checks.durableObjects = { ok: actorHealth.ok, detail: "RPC passed" };
     } catch (error) {
       checks.durableObjects = {
+        ok: false,
+        detail: error instanceof Error ? error.message : "unavailable"
+      };
+    }
+    try {
+      const scheduler = await c.env.RESEARCH_SCHEDULER.getByName("global").health();
+      checks.scheduler = {
+        ok: scheduler.ok,
+        detail: `${scheduler.active} active · ${scheduler.pending} pending`
+      };
+    } catch (error) {
+      checks.scheduler = {
+        ok: false,
+        detail: error instanceof Error ? error.message : "unavailable"
+      };
+    }
+    try {
+      await c.env.RESEARCH_QUEUE.metrics();
+      checks.queue = { ok: true, detail: "binding responded" };
+    } catch (error) {
+      checks.queue = {
         ok: false,
         detail: error instanceof Error ? error.message : "unavailable"
       };
@@ -1089,9 +1225,65 @@ async function cleanupExpired(env: AppEnv): Promise<void> {
   }
 }
 
+async function failDeadLetterJob(env: AppEnv, jobId: string): Promise<void> {
+  const row = await env.DB.prepare(
+    `SELECT actor_hash, created_at
+     FROM jobs WHERE id = ?1 AND status = 'queued'`
+  )
+    .bind(jobId)
+    .first<{ actor_hash: string; created_at: string }>();
+  if (!row) return;
+  const now = new Date().toISOString();
+  const failed = await env.DB.prepare(
+    `UPDATE jobs
+     SET status = 'failed', error_code = 'queue_delivery_failed',
+         error_message = 'The research request could not reach the scheduler',
+         finished_at = ?1, updated_at = ?1
+     WHERE id = ?2 AND status = 'queued'`
+  )
+    .bind(now, jobId)
+    .run();
+  if (!failed.meta.changes) return;
+  await Promise.all([
+    env.ACTOR_GATE.getByName(row.actor_hash).release(jobId),
+    env.DAILY_BUDGET.getByName(row.created_at.slice(0, 10)).release(jobId),
+    env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
+  ]);
+}
+
 export default {
   fetch: app.fetch,
+  async queue(
+    batch: MessageBatch<ResearchQueueMessage>,
+    env: AppEnv
+  ): Promise<void> {
+    const deadLetter = batch.queue === "skill-reverse-jobs-dlq";
+    for (const message of batch.messages) {
+      try {
+        if (!message.body?.jobId) {
+          message.ack();
+          continue;
+        }
+        if (deadLetter) {
+          await failDeadLetterJob(env, message.body.jobId);
+        } else {
+          await env.RESEARCH_SCHEDULER.getByName("global").enqueue(message.body.jobId);
+        }
+        message.ack();
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: deadLetter ? "dead_letter_handler_failed" : "queue_admission_failed",
+            jobId: message.body?.jobId,
+            attempts: message.attempts,
+            message: error instanceof Error ? error.message : "unknown error"
+          })
+        );
+        message.retry({ delaySeconds: deadLetter ? 60 : 10 });
+      }
+    }
+  },
   scheduled(_controller: ScheduledController, env: AppEnv, ctx: ExecutionContext) {
     ctx.waitUntil(cleanupExpired(env));
   }
-} satisfies ExportedHandler<AppEnv>;
+} satisfies ExportedHandler<AppEnv, ResearchQueueMessage>;

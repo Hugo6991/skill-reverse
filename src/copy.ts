@@ -37,6 +37,7 @@ export const uiCopy = {
     eyebrow: "Optional context",
     title: "Add supporting sources",
     description: "主頁研究已開始，可選擇補充 GitHub、文章、文件或 X 貼文",
+    queuedDescription: "研究仍在排隊；你可以先補充 GitHub、文章、文件或 X 貼文，啟動時會直接使用",
     add: "Add source",
     placeholder: "https://github.com/owner/repo",
     finish: "Use sources and continue",
