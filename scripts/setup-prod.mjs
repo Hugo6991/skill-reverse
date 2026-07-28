@@ -100,6 +100,7 @@ if (whoami.status !== 0) run(["login"]);
 const remoteSecrets = listRemoteSecrets();
 const hasPerplexityKey = remoteSecrets.has("PERPLEXITY_API_KEY");
 const hasTwitterKey = remoteSecrets.has("TWITTERAPI_KEY");
+const hasAnonSessionSecret = remoteSecrets.has("ANON_SESSION_SECRET");
 if (hasPerplexityKey || hasTwitterKey) {
   console.log(
     `Existing Worker secrets: ${[
@@ -157,15 +158,18 @@ const setupCapability = randomBytes(32).toString("hex");
 const secrets = {
   TURNSTILE_SITE_KEY: turnstile.siteKey,
   TURNSTILE_SECRET_KEY: turnstile.secretKey,
-  ANON_SESSION_SECRET: randomBytes(32).toString("hex"),
   SETUP_CAPABILITY: setupCapability,
   SETUP_COMPLETE: "false"
 };
+if (!hasAnonSessionSecret) {
+  secrets.ANON_SESSION_SECRET = randomBytes(32).toString("hex");
+}
 if (perplexityKey) secrets.PERPLEXITY_API_KEY = perplexityKey;
 if (twitterKey) secrets.TWITTERAPI_KEY = twitterKey;
 
 run(["secret", "bulk"], { input: JSON.stringify(secrets) });
 run(["d1", "migrations", "apply", "DB", "--remote"]);
+run(["deploy"]);
 
 const health = await fetch(`${deployment.origin}/api/health?deep=1`, {
   headers: { "x-setup-capability": setupCapability }
@@ -184,6 +188,76 @@ if (requiredFailures.length) {
   rl.close();
   process.exit(1);
 }
+
+console.log("\nLive research smoke");
+const smokeResponse = await fetch(`${deployment.origin}/api/setup/smoke`, {
+  method: "POST",
+  headers: { "x-setup-capability": setupCapability }
+});
+const smoke = await smokeResponse.json();
+if (!smokeResponse.ok || !smoke.jobId) {
+  console.error(`✕ Smoke could not start: ${smoke.error?.message ?? smokeResponse.status}`);
+  console.error("Production remains locked");
+  rl.close();
+  process.exit(1);
+}
+
+let smokeJob;
+for (let attempt = 0; attempt < 180; attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const response = await fetch(
+    `${deployment.origin}/api/jobs/${encodeURIComponent(smoke.jobId)}`
+  );
+  smokeJob = await response.json();
+  if (smokeJob.status === "completed" || smokeJob.status === "failed") break;
+  if (attempt % 10 === 0) {
+    console.log(`  ${smokeJob.stage ?? "queued"} · ${smokeJob.progress ?? 0}%`);
+  }
+}
+
+if (smokeJob?.status !== "completed" || !smokeJob.reportId) {
+  console.error(
+    `✕ Live research failed: ${smokeJob?.error?.message ?? "smoke timed out"}`
+  );
+  console.error("Production remains locked");
+  rl.close();
+  process.exit(1);
+}
+if (Number(smokeJob.costUsd) > 0.5) {
+  console.error(`✕ Smoke exceeded the per-job cap: $${smokeJob.costUsd}`);
+  console.error("Production remains locked");
+  rl.close();
+  process.exit(1);
+}
+
+const smokeReportResponse = await fetch(
+  `${deployment.origin}/api/reports/${encodeURIComponent(smokeJob.reportId)}`
+);
+const smokeReport = await smokeReportResponse.json();
+const sourceIds = new Set((smokeReport.sources ?? []).map((source) => source.id));
+const citationsAreValid =
+  (smokeReport.sources?.length ?? 0) > 0 &&
+  smokeReport.sources.every((source) => {
+    try {
+      return new URL(source.url).protocol === "https:";
+    } catch {
+      return false;
+    }
+  });
+const verifiedClaimsAreSupported = (smokeReport.claims ?? [])
+  .filter((claim) => claim.status === "verified")
+  .every(
+    (claim) =>
+      claim.evidenceIds.length > 0 &&
+      claim.evidenceIds.every((sourceId) => sourceIds.has(sourceId))
+  );
+if (!smokeReportResponse.ok || !citationsAreValid || !verifiedClaimsAreSupported) {
+  console.error("✕ Smoke report failed citation or verified-claim validation");
+  console.error("Production remains locked");
+  rl.close();
+  process.exit(1);
+}
+console.log(`✓ Live report passed · ${smokeReport.sources.length} sources · $${smokeJob.costUsd}`);
 
 run(["secret", "put", "SETUP_COMPLETE"], { input: "true\n" });
 console.log("\n✓ Production unlocked");

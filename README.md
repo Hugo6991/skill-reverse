@@ -15,7 +15,8 @@
 - Perplexity Sonar Pro 結構化 research
 - TwitterAPI.io 定向作者貼文搜尋，可安全降級
 - O*NET 30.3 starter catalog 與 Professional Delta
-- locked → doctor → public 的安全部署流程
+- 頂部導航、兩階段 URL composer、匿名 History 與可恢復進度頁
+- locked → doctor → 真實研究 smoke → public 的安全部署流程
 - 內建 `antfu.me` demo dossier，不會呼叫付費服務
 
 ## 最快開始
@@ -63,7 +64,8 @@ setup wizard 會：
 3. 透過 stdin 執行 `wrangler secret bulk`，不把 secrets 寫到檔案
 4. 套用 D1 migrations
 5. 驗證 D1、R2、Durable Objects、Workflow 與必要 provider 設定
-6. 所有必要檢查通過後才設定 `SETUP_COMPLETE=true`
+6. 用 `antfu.me` 真實執行 Browser Run、Workflow、Perplexity、D1、R2 與報告驗證
+7. 只有 smoke report、引用、verified claim 證據與成本全部通過，才設定 `SETUP_COMPLETE=true`
 
 locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 key 不會意外產生模型費用。完成 setup 後網站公開，但 GitHub repository 仍維持 Private。
 
@@ -126,9 +128,13 @@ pnpm deploy
 
 - `POST /api/jobs`：建立研究工作
 - `GET /api/jobs/:id`：查詢階段、成本與降級狀態
+- `PUT /api/jobs/:id/sources`：在 90 秒視窗補充或略過來源
+- `GET /api/history`：讀取目前匿名 actor 的搜尋紀錄
+- `DELETE /api/history/:jobId`：刪除目前匿名 actor 的終止工作與相關資料
 - `GET /api/reports/:id`：取得互動報告資料
 - `DELETE /api/reports/:id`：用 capability token 刪除報告
 - `GET /api/occupations?q=`：搜尋唯一職業
+- `POST /api/setup/smoke`：用 setup capability 啟動 production acceptance
 - `GET /api/health`：公開健康摘要
 - `GET /api/health?deep=1`：需要 `x-setup-capability`
 
@@ -137,11 +143,12 @@ pnpm deploy
 ```json
 {
   "targetUrl": "https://antfu.me",
-  "supportUrls": ["https://github.com/antfu/antfu.me"],
   "occupationCode": "15-1255.00",
   "turnstileToken": "..."
 }
 ```
+
+建立工作後，前端立即進入 `/jobs/:jobId`。主頁擷取期間可選擇提交最多八個補充 HTTPS URL，或送出 `{ "urls": [], "finalize": true }` 立即略過；Browser Run 最多擷取其中三個高價值來源。
 
 ## 證據規則
 

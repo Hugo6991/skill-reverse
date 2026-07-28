@@ -3,8 +3,9 @@ import { secureHeaders } from "hono/secure-headers";
 import type { JobStatus } from "../src/types";
 import { ActorGate, DailyBudget } from "./durable";
 import { demoReport } from "./demo";
+import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import { getOccupation, searchOccupations } from "./occupations";
-import { createJobSchema } from "./schema";
+import { createJobSchema, updateJobSourcesSchema } from "./schema";
 import {
   assertSafePublicUrl,
   attachActorCookie,
@@ -13,7 +14,7 @@ import {
   sha256,
   verifyTurnstile
 } from "./security";
-import type { AppEnv, HonoEnv, JobRow } from "./types";
+import type { AppEnv, HonoEnv, JobRow, WorkflowInstance } from "./types";
 import { ResearchWorkflow } from "./workflow";
 
 export { ActorGate, DailyBudget, ResearchWorkflow };
@@ -30,6 +31,121 @@ export function publicConfig(env: AppEnv) {
     mode: resolveAppMode(env),
     turnstileSiteKey: env.TURNSTILE_SITE_KEY ?? ""
   };
+}
+
+class JobGateError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: 429 | 503 = 429
+  ) {
+    super(message);
+  }
+}
+
+async function enqueueResearchJob(
+  env: AppEnv,
+  input: {
+    actorHash: string;
+    targetUrl: string;
+    supportUrls?: string[];
+    occupationCode: string;
+  }
+): Promise<{
+  jobId: string;
+  capabilityToken: string;
+  workflow: WorkflowInstance;
+  remainingCents: number;
+}> {
+  const jobId = crypto.randomUUID();
+  const capabilityToken = crypto.randomUUID() + crypto.randomUUID();
+  const capabilityHash = await sha256(capabilityToken);
+  const day = new Date().toISOString().slice(0, 10);
+  const reservedCents = Math.round(Number(env.JOB_USD_LIMIT || 0.5) * 100);
+  const dailyLimitCents = Math.round(Number(env.DAILY_USD_LIMIT || 5) * 100);
+  const actorGate = env.ACTOR_GATE.getByName(input.actorHash);
+  const dailyBudget = env.DAILY_BUDGET.getByName(day);
+
+  const actorReservation = await actorGate.reserve(jobId, day);
+  if (!actorReservation.ok) {
+    throw new JobGateError(
+      actorReservation.reason ?? "actor_limited",
+      actorReservation.reason === "concurrent_job"
+        ? "One research job is already running"
+        : "This anonymous session has reached its daily job limit"
+    );
+  }
+
+  const budgetReservation = await dailyBudget.reserve(jobId, reservedCents, dailyLimitCents);
+  if (!budgetReservation.ok) {
+    await actorGate.release(jobId);
+    throw new JobGateError(
+      "daily_budget_exhausted",
+      "The public research budget is exhausted for today"
+    );
+  }
+
+  const normalizedSupportUrls = [...new Set((input.supportUrls ?? []).map(normalizeSourceUrl))];
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + Number(env.REPORT_TTL_DAYS || 30) * 86_400_000
+  ).toISOString();
+  try {
+    await env.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, degraded_json, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'validate', 'queued', 4, ?6, 0, '[]', ?7, ?7, ?8)`
+    )
+      .bind(
+        jobId,
+        input.actorHash,
+        input.targetUrl,
+        JSON.stringify(normalizedSupportUrls),
+        input.occupationCode,
+        reservedCents,
+        now.toISOString(),
+        expiresAt
+      )
+      .run();
+    if (normalizedSupportUrls.length) {
+      await replaceJobSources(env.DB, jobId, normalizedSupportUrls);
+    }
+
+    const workflow = await env.RESEARCH_WORKFLOW.create({
+      id: jobId,
+      params: {
+        kind: "research",
+        jobId,
+        actorHash: input.actorHash,
+        targetUrl: input.targetUrl,
+        supportUrls: normalizedSupportUrls,
+        occupationCode: input.occupationCode,
+        capabilityHash,
+        reservedCents,
+        day
+      }
+    });
+    await env.DB.prepare("UPDATE jobs SET workflow_id = ?1 WHERE id = ?2")
+      .bind(workflow.id, jobId)
+      .run();
+    return {
+      jobId,
+      capabilityToken,
+      workflow,
+      remainingCents: budgetReservation.remainingCents
+    };
+  } catch (error) {
+    await Promise.all([actorGate.release(jobId), dailyBudget.release(jobId)]);
+    await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(jobId).run().catch(() => undefined);
+    throw error;
+  }
+}
+
+async function deleteJobAndArtifacts(env: AppEnv, jobId: string): Promise<void> {
+  const objects = await env.ARTIFACTS.list({ prefix: `jobs/${jobId}/` });
+  await Promise.all(objects.objects.map((object) => env.ARTIFACTS.delete(object.key)));
+  await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(jobId).run();
 }
 
 app.use(
@@ -181,100 +297,32 @@ app.post("/api/jobs", async (c) => {
     );
   }
 
-  const jobId = crypto.randomUUID();
-  const capabilityToken = crypto.randomUUID() + crypto.randomUUID();
-  const capabilityHash = await sha256(capabilityToken);
-  const day = new Date().toISOString().slice(0, 10);
-  const reservedCents = Math.round(Number(c.env.JOB_USD_LIMIT || 0.5) * 100);
-  const dailyLimitCents = Math.round(Number(c.env.DAILY_USD_LIMIT || 5) * 100);
-  const actorGate = c.env.ACTOR_GATE.getByName(actor.actorHash);
-  const dailyBudget = c.env.DAILY_BUDGET.getByName(day);
-
-  const actorReservation = await actorGate.reserve(jobId, day);
-  if (!actorReservation.ok) {
-    const message =
-      actorReservation.reason === "concurrent_job"
-        ? "One research job is already running"
-        : "This anonymous session has reached its daily job limit";
-    return attachActorCookie(
-      c,
-      c.json({ error: { code: actorReservation.reason, message } }, 429)
-    );
-  }
-
-  const budgetReservation = await dailyBudget.reserve(jobId, reservedCents, dailyLimitCents);
-  if (!budgetReservation.ok) {
-    await actorGate.release(jobId);
-    return attachActorCookie(
-      c,
-      c.json(
-        {
-          error: {
-            code: "daily_budget_exhausted",
-            message: "The public research budget is exhausted for today"
-          }
-        },
-        429
-      )
-    );
-  }
-
-  const now = new Date();
-  const expiresAt = new Date(
-    now.getTime() + Number(c.env.REPORT_TTL_DAYS || 30) * 86_400_000
-  ).toISOString();
   try {
-    await c.env.DB.prepare(
-      `INSERT INTO jobs
-       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
-        progress, reserved_cents, actual_cents, degraded_json, created_at, updated_at, expires_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 'validate', 'queued', 4, ?6, 0, '[]', ?7, ?7, ?8)`
-    )
-      .bind(
-        jobId,
-        actor.actorHash,
-        input.targetUrl,
-        JSON.stringify([...new Set(input.supportUrls)]),
-        input.occupationCode,
-        reservedCents,
-        now.toISOString(),
-        expiresAt
-      )
-      .run();
-
-    const workflow = await c.env.RESEARCH_WORKFLOW.create({
-      id: jobId,
-      params: {
-        kind: "research",
-        jobId,
-        actorHash: actor.actorHash,
-        targetUrl: input.targetUrl,
-        supportUrls: [...new Set(input.supportUrls)],
-        occupationCode: input.occupationCode,
-        capabilityHash,
-        reservedCents,
-        day
-      }
+    const result = await enqueueResearchJob(c.env, {
+      actorHash: actor.actorHash,
+      targetUrl: input.targetUrl,
+      supportUrls: input.supportUrls,
+      occupationCode: input.occupationCode
     });
-    await c.env.DB.prepare("UPDATE jobs SET workflow_id = ?1 WHERE id = ?2")
-      .bind(workflow.id, jobId)
-      .run();
+    const response = c.json(
+      {
+        jobId: result.jobId,
+        status: "queued",
+        capabilityToken: result.capabilityToken,
+        budgetRemainingUsd: result.remainingCents / 100
+      },
+      202
+    );
+    return attachActorCookie(c, response);
   } catch (error) {
-    await Promise.all([actorGate.release(jobId), dailyBudget.release(jobId)]);
-    await c.env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(jobId).run().catch(() => undefined);
+    if (error instanceof JobGateError) {
+      return attachActorCookie(
+        c,
+        c.json({ error: { code: error.code, message: error.message } }, error.status)
+      );
+    }
     throw error;
   }
-
-  const response = c.json(
-    {
-      jobId,
-      status: "queued",
-      capabilityToken,
-      budgetRemainingUsd: budgetReservation.remainingCents / 100
-    },
-    202
-  );
-  return attachActorCookie(c, response);
 });
 
 app.get("/api/jobs/:id", async (c) => {
@@ -289,22 +337,313 @@ app.get("/api/jobs/:id", async (c) => {
       costUsd: 0
     } satisfies JobStatus);
   }
-  const row = await c.env.DB.prepare("SELECT * FROM jobs WHERE id = ?1")
+  const row = await c.env.DB.prepare(
+    `SELECT j.*,
+       (SELECT COUNT(*) FROM job_sources s WHERE s.job_id = j.id) AS submitted_count
+     FROM jobs j WHERE j.id = ?1`
+  )
     .bind(c.req.param("id"))
-    .first<JobRow>();
+    .first<JobRow & { submitted_count: number }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Job not found" } }, 404);
+  const sourceStageOpen = ["validate", "capture", "source_collection"].includes(row.stage);
+  const beforeDeadline =
+    !row.source_window_closes_at ||
+    new Date(row.source_window_closes_at).getTime() > Date.now();
   return c.json({
     id: row.id,
     status: row.status,
     stage: row.stage,
     progress: row.progress,
+    targetUrl: row.target_url,
+    occupationCode: row.occupation_code,
+    createdAt: row.created_at,
     reportId: row.report_id ?? undefined,
     degraded: JSON.parse(row.degraded_json),
     costUsd: row.actual_cents / 100,
+    sourceCollection: {
+      open:
+        row.status !== "completed" &&
+        row.status !== "failed" &&
+        !row.sources_finalized_at &&
+        sourceStageOpen &&
+        beforeDeadline,
+      closesAt: row.source_window_closes_at ?? undefined,
+      submittedCount: Number(row.submitted_count)
+    },
     error: row.error_code
       ? { code: row.error_code, message: row.error_message ?? "Research failed" }
       : undefined
   });
+});
+
+app.put("/api/jobs/:id/sources", async (c) => {
+  const parsed = updateJobSourcesSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: {
+          code: "invalid_request",
+          message: parsed.error.issues[0]?.message ?? "Invalid supporting sources"
+        }
+      },
+      400
+    );
+  }
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json(
+      { error: { code: "setup_required", message: "Anonymous sessions are unavailable" } },
+      503
+    );
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+
+  const row = await c.env.DB.prepare(
+    `SELECT id, actor_hash, stage, status, workflow_id,
+            source_window_closes_at, sources_finalized_at
+     FROM jobs WHERE id = ?1`
+  )
+    .bind(c.req.param("id"))
+    .first<
+      Pick<
+        JobRow,
+        | "id"
+        | "actor_hash"
+        | "stage"
+        | "status"
+        | "workflow_id"
+        | "source_window_closes_at"
+        | "sources_finalized_at"
+      >
+    >();
+  if (!row || row.actor_hash !== actor.actorHash) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "Research job not found" } }, 404)
+    );
+  }
+  const stageOpen = ["validate", "capture", "source_collection"].includes(row.stage);
+  const beforeDeadline =
+    !row.source_window_closes_at ||
+    new Date(row.source_window_closes_at).getTime() > Date.now();
+  if (
+    row.sources_finalized_at ||
+    !stageOpen ||
+    !beforeDeadline ||
+    row.status === "completed" ||
+    row.status === "failed"
+  ) {
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: "sources_closed",
+            message: "Supporting source collection has closed"
+          }
+        },
+        409
+      )
+    );
+  }
+
+  let normalized: string[];
+  try {
+    normalized = parsed.data.urls.map(normalizeSourceUrl);
+  } catch (error) {
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: "unsafe_url",
+            message: error instanceof Error ? error.message : "Unsafe URL"
+          }
+        },
+        400
+      )
+    );
+  }
+  if (parsed.data.finalize) {
+    const now = new Date().toISOString();
+    const finalized = await c.env.DB.prepare(
+      `UPDATE jobs
+       SET sources_finalized_at = ?1, updated_at = ?1
+       WHERE id = ?2 AND sources_finalized_at IS NULL`
+    )
+      .bind(now, row.id)
+      .run();
+    if (!finalized.meta.changes) {
+      return attachActorCookie(
+        c,
+        c.json(
+          {
+            error: {
+              code: "sources_closed",
+              message: "Supporting source collection has closed"
+            }
+          },
+          409
+        )
+      );
+    }
+    try {
+      normalized = await replaceJobSources(c.env.DB, row.id, normalized);
+    } catch (error) {
+      await c.env.DB.prepare(
+        `UPDATE jobs SET sources_finalized_at = NULL
+         WHERE id = ?1 AND sources_finalized_at = ?2`
+      )
+        .bind(row.id, now)
+        .run();
+      throw error;
+    }
+    if (row.workflow_id) {
+      try {
+        const workflow = await c.env.RESEARCH_WORKFLOW.get(row.workflow_id);
+        await workflow.sendEvent({ type: "sources-ready", payload: { urls: normalized } });
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            event: "source_event_deferred",
+            jobId: row.id,
+            message: error instanceof Error ? error.message : "unavailable"
+          })
+        );
+      }
+    }
+  } else {
+    normalized = await replaceJobSources(c.env.DB, row.id, normalized);
+  }
+
+  return attachActorCookie(
+    c,
+    c.json({
+      accepted: normalized,
+      finalized: parsed.data.finalize,
+      submittedCount: normalized.length
+    })
+  );
+});
+
+app.get("/api/history", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) return c.json({ items: [] });
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const requestedLimit = Number(c.req.query("limit") ?? 20);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(50, Math.floor(requestedLimit)))
+    : 20;
+  const cursor = c.req.query("cursor");
+  const rows = await c.env.DB.prepare(
+    `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
+            j.status, j.stage, j.progress, j.report_id, j.created_at, j.updated_at
+     FROM jobs j
+     LEFT JOIN occupations o ON o.code = j.occupation_code
+     WHERE j.actor_hash = ?1
+       AND j.expires_at > ?2
+       AND (?3 IS NULL OR j.created_at < ?3)
+     ORDER BY j.created_at DESC
+     LIMIT ?4`
+  )
+    .bind(actor.actorHash, new Date().toISOString(), cursor ?? null, limit + 1)
+    .all<{
+      id: string;
+      target_url: string;
+      occupation_code: string;
+      occupation_title: string | null;
+      status: string;
+      stage: string;
+      progress: number;
+      report_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>();
+  const page = rows.results.slice(0, limit);
+  const response = c.json({
+    items: page.map((item) => ({
+      jobId: item.id,
+      targetUrl: item.target_url,
+      occupationCode: item.occupation_code,
+      occupationTitle: item.occupation_title ?? item.occupation_code,
+      status: item.status,
+      stage: item.stage,
+      progress: item.progress,
+      reportId: item.report_id ?? undefined,
+      createdAt: item.created_at,
+      updatedAt: item.updated_at
+    })),
+    nextCursor: rows.results.length > limit ? page.at(-1)?.created_at : undefined
+  });
+  return attachActorCookie(c, response);
+});
+
+app.delete("/api/history/:jobId", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ error: { code: "setup_required", message: "History is unavailable" } }, 503);
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const row = await c.env.DB.prepare(
+    "SELECT id, status FROM jobs WHERE id = ?1 AND actor_hash = ?2"
+  )
+    .bind(c.req.param("jobId"), actor.actorHash)
+    .first<{ id: string; status: string }>();
+  if (!row) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "History item not found" } }, 404)
+    );
+  }
+  if (row.status !== "completed" && row.status !== "failed") {
+    return attachActorCookie(
+      c,
+      c.json(
+        {
+          error: {
+            code: "job_running",
+            message: "Running research cannot be removed"
+          }
+        },
+        409
+      )
+    );
+  }
+  await deleteJobAndArtifacts(c.env, row.id);
+  return attachActorCookie(c, c.body(null, 204));
+});
+
+app.post("/api/setup/smoke", async (c) => {
+  if (!isSetupAuthorized(c.req.raw, c.env)) {
+    return c.json({ error: { code: "unauthorized", message: "Setup capability required" } }, 401);
+  }
+  const occupation = await getOccupation(c.env.DB, "15-1255.00");
+  if (!occupation) {
+    return c.json(
+      { error: { code: "occupation_not_found", message: "Pilot occupation is unavailable" } },
+      503
+    );
+  }
+  try {
+    const result = await enqueueResearchJob(c.env, {
+      actorHash: `setup-smoke-${crypto.randomUUID()}`,
+      targetUrl: "https://antfu.me",
+      occupationCode: occupation.code
+    });
+    await result.workflow.sendEvent({ type: "sources-ready", payload: { urls: [] } });
+    return c.json({ jobId: result.jobId, capabilityToken: result.capabilityToken }, 202);
+  } catch (error) {
+    if (error instanceof JobGateError) {
+      return c.json({ error: { code: error.code, message: error.message } }, error.status);
+    }
+    throw error;
+  }
 });
 
 app.get("/api/reports/:id", async (c) => {
@@ -332,9 +671,7 @@ app.delete("/api/reports/:id", async (c) => {
     .first<{ job_id: string }>();
   if (!row) return c.json({ error: { code: "unauthorized", message: "Capability rejected" } }, 403);
 
-  const objects = await c.env.ARTIFACTS.list({ prefix: `jobs/${row.job_id}/` });
-  await Promise.all(objects.objects.map((object) => c.env.ARTIFACTS.delete(object.key)));
-  await c.env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(row.job_id).run();
+  await deleteJobAndArtifacts(c.env, row.job_id);
   return c.body(null, 204);
 });
 
@@ -345,7 +682,7 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-    checks.database = { ok: schema?.value === "1", detail: `schema ${schema?.value ?? "missing"}` };
+    checks.database = { ok: schema?.value === "3", detail: `schema ${schema?.value ?? "missing"}` };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }
@@ -417,9 +754,14 @@ app.get("/api/health", async (c) => {
 });
 
 app.get("/favicon.ico", (c) => c.body(null, 204));
-app.all("*", (c) =>
-  c.env.ASSETS ? c.env.ASSETS.fetch(c.req.raw) : c.text("Not found", 404)
-);
+app.all("*", async (c) => {
+  if (!c.env.ASSETS) return c.text("Not found", 404);
+  const response = await c.env.ASSETS.fetch(c.req.raw);
+  if (response.status !== 404 || c.req.method !== "GET") return response;
+  const accept = c.req.header("accept") ?? "";
+  if (!accept.includes("text/html")) return response;
+  return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
+});
 
 async function cleanupExpired(env: AppEnv): Promise<void> {
   const artifactCutoff = new Date(

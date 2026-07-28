@@ -136,6 +136,9 @@ export async function verifyTurnstile(
   if (!usingTestSecret && result.hostname && result.hostname !== expectedHost) {
     return { success: false, code: "turnstile_hostname_mismatch" };
   }
+  if (!usingTestSecret && result.action !== "create_research_job") {
+    return { success: false, code: "turnstile_action_mismatch" };
+  }
   return { success: true };
 }
 

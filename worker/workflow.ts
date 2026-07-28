@@ -7,6 +7,7 @@ import {
   runPerplexityResearch,
   type CapturedArtifact
 } from "./services";
+import { loadJobSources, selectCaptureSources } from "./job-sources";
 import type { AppEnv } from "./types";
 
 export interface ResearchWorkflowParams {
@@ -33,6 +34,8 @@ async function updateJob(
     degraded?: string[];
     errorCode?: string | null;
     errorMessage?: string | null;
+    sourceWindowClosesAt?: string | null;
+    sourcesFinalizedAt?: string | null;
   }
 ): Promise<void> {
   const sets: string[] = ["updated_at = ?"];
@@ -49,6 +52,12 @@ async function updateJob(
   if (values.degraded !== undefined) add("degraded_json", JSON.stringify(values.degraded));
   if (values.errorCode !== undefined) add("error_code", values.errorCode);
   if (values.errorMessage !== undefined) add("error_message", values.errorMessage);
+  if (values.sourceWindowClosesAt !== undefined) {
+    add("source_window_closes_at", values.sourceWindowClosesAt);
+  }
+  if (values.sourcesFinalizedAt !== undefined) {
+    add("sources_finalized_at", values.sourcesFinalizedAt);
+  }
   params.push(jobId);
   await db
     .prepare(`UPDATE jobs SET ${sets.join(", ")} WHERE id = ?`)
@@ -90,19 +99,58 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         });
       });
 
-      const urls = [targetUrl, ...(params.supportUrls ?? [])].slice(0, 4);
-      const captured = await step.do(
-        "capture public artifacts",
+      const primaryCapture = await step.do(
+        "capture primary artifact",
         { retries: { limit: 2, delay: "10 seconds", backoff: "linear" } },
+        async () => captureUrl(this.env, jobId, targetUrl, 1)
+      );
+
+      await step.do("open optional source collection", async () => {
+        const sourceWindowClosesAt = new Date(Date.now() + 90_000).toISOString();
+        await updateJob(this.env.DB, jobId, {
+          stage: "source_collection",
+          status: "running",
+          progress: 22,
+          sourceWindowClosesAt
+        });
+        return sourceWindowClosesAt;
+      });
+
+      try {
+        await step.waitForEvent<{ urls?: string[] }>("wait for optional supporting sources", {
+          type: "sources-ready",
+          timeout: "90 seconds"
+        });
+      } catch (error) {
+        console.info(
+          JSON.stringify({
+            event: "source_collection_timeout",
+            jobId,
+            message: error instanceof Error ? error.message : "timeout"
+          })
+        );
+      }
+
+      const supportingUrls = await step.do("finalize optional sources", async () => {
+        const values = await loadJobSources(this.env.DB, jobId);
+        await updateJob(this.env.DB, jobId, {
+          sourcesFinalizedAt: new Date().toISOString()
+        });
+        return selectCaptureSources(targetUrl, values);
+      });
+
+      const supportingCaptures = await step.do(
+        "capture supporting artifacts",
+        { retries: { limit: 1, delay: "10 seconds", backoff: "linear" } },
         async () => {
           const results: CapturedArtifact[] = [];
-          for (let index = 0; index < urls.length; index += 1) {
+          for (let index = 0; index < supportingUrls.length; index += 1) {
+            const url = supportingUrls[index];
             try {
-              results.push(await captureUrl(this.env, jobId, urls[index], index + 1));
+              results.push(await captureUrl(this.env, jobId, url, index + 2));
             } catch (error) {
-              if (index === 0) throw error;
               degraded.push(
-                `Supporting source skipped (${new URL(urls[index]).hostname}): ${
+                `Supporting source skipped (${new URL(url).hostname}): ${
                   error instanceof Error ? error.message : "capture error"
                 }`
               );
@@ -111,11 +159,12 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           return results;
         }
       );
+      const captured = [primaryCapture, ...supportingCaptures];
 
       const occupation = await step.do("load professional baseline", async () => {
         await updateJob(this.env.DB, jobId, {
           stage: "professional_baseline",
-          progress: 30,
+          progress: 36,
           degraded
         });
         const profile = await getOccupation(this.env.DB, occupationCode);

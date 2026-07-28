@@ -2,6 +2,7 @@ export type JobStage =
   | "validate"
   | "occupation_confirmation"
   | "capture"
+  | "source_collection"
   | "research"
   | "source_verification"
   | "professional_baseline"
@@ -126,13 +127,39 @@ export interface JobStatus {
   status: "queued" | "running" | "completed" | "failed";
   stage: JobStage;
   progress: number;
+  targetUrl?: string;
+  occupationCode?: string;
+  createdAt?: string;
   reportId?: string;
   degraded: string[];
   costUsd: number;
+  sourceCollection?: {
+    open: boolean;
+    closesAt?: string;
+    submittedCount: number;
+  };
   error?: {
     code: string;
     message: string;
   };
+}
+
+export interface HistoryItem {
+  jobId: string;
+  targetUrl: string;
+  occupationCode: string;
+  occupationTitle: string;
+  status: JobStatus["status"];
+  stage: JobStage;
+  progress: number;
+  reportId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HistoryPage {
+  items: HistoryItem[];
+  nextCursor?: string;
 }
 
 export interface PublicConfig {

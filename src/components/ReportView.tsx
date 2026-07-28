@@ -190,7 +190,7 @@ export function ReportView({
           </section>
           <div className="baseline-caution">
             <strong>Absence of evidence is not evidence of absence</strong>
-            <span>這張表描述成果能證明什麼，不用來評斷作者具不具備某項能力。</span>
+            <span>這張表描述成果能證明什麼，不用來評斷作者具不具備某項能力</span>
           </div>
         </div>
       )}

@@ -1,13 +1,23 @@
-import { ArrowRight, Link2, LockKeyhole, Plus, Search, Trash2 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ArrowRight, Link2, LockKeyhole, Search } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { uiCopy } from "../copy";
 import type { OccupationProfile, PublicConfig } from "../types";
 import { Turnstile } from "./Turnstile";
 
 export interface ResearchInput {
   targetUrl: string;
-  supportUrls: string[];
   occupationCode: string;
   turnstileToken: string;
+}
+
+function validatePublicUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return "Enter a public HTTPS URL";
+    return undefined;
+  } catch {
+    return "Enter a complete URL such as https://example.com";
+  }
 }
 
 export function ResearchForm({
@@ -21,15 +31,17 @@ export function ResearchForm({
   onSubmit(input: ResearchInput): Promise<void>;
   onOpenDemo(): void;
 }) {
-  const [targetUrl, setTargetUrl] = useState("https://antfu.me");
-  const [supportUrls, setSupportUrls] = useState<string[]>([]);
-  const [occupationQuery, setOccupationQuery] = useState("web interface");
+  const [targetUrl, setTargetUrl] = useState("");
+  const [urlReady, setUrlReady] = useState(false);
+  const [occupationQuery, setOccupationQuery] = useState("");
   const [occupations, setOccupations] = useState<OccupationProfile[]>([]);
   const [occupation, setOccupation] = useState<OccupationProfile>();
   const [token, setToken] = useState(config.mode === "demo" ? "demo-token" : "");
   const [error, setError] = useState("");
+  const occupationInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!urlReady) return;
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       try {
@@ -40,10 +52,11 @@ export function ResearchForm({
         if (!response.ok) throw new Error("Occupation catalog is unavailable");
         const data = (await response.json()) as { occupations: OccupationProfile[] };
         setOccupations(data.occupations);
-        setOccupation((current) => {
-          if (current && data.occupations.some((item) => item.code === current.code)) return current;
-          return data.occupations[0];
-        });
+        setOccupation((current) =>
+          current && data.occupations.some((item) => item.code === current.code)
+            ? current
+            : undefined
+        );
       } catch (caught) {
         if (!(caught instanceof DOMException && caught.name === "AbortError")) {
           setError(caught instanceof Error ? caught.message : "Occupation search failed");
@@ -54,16 +67,34 @@ export function ResearchForm({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [occupationQuery]);
+  }, [occupationQuery, urlReady]);
+
+  useEffect(() => {
+    if (urlReady) occupationInput.current?.focus();
+  }, [urlReady]);
 
   const onToken = useCallback((value: string) => setToken(value), []);
   const onTurnstileError = useCallback((message: string) => setError(message), []);
 
+  function continueFromUrl() {
+    setError("");
+    const problem = validatePublicUrl(targetUrl);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setUrlReady(true);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    if (!urlReady) {
+      continueFromUrl();
+      return;
+    }
     if (!occupation) {
-      setError("Select exactly one occupation");
+      setError("Choose one occupation before starting");
       return;
     }
     if (!token && config.mode === "public") {
@@ -73,12 +104,11 @@ export function ResearchForm({
     try {
       await onSubmit({
         targetUrl,
-        supportUrls: supportUrls.filter(Boolean),
         occupationCode: occupation.code,
         turnstileToken: token || "demo-token"
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The research job could not start");
+      setError(caught instanceof Error ? caught.message : "Research could not start");
       if (config.mode === "public") {
         setToken("");
         window.turnstile?.reset();
@@ -87,122 +117,72 @@ export function ResearchForm({
   }
 
   return (
-    <section className="docket" aria-labelledby="research-form-title">
-      <div className="docket-heading">
-        <div>
-          <span className="eyebrow">New research docket</span>
-          <h2 id="research-form-title">從成果開始，不從故事開始</h2>
-        </div>
-        <span className="docket-number">SR—001</span>
+    <section className="research-hero" aria-labelledby="research-title">
+      <div className="hero-heading">
+        <span className="eyebrow">{uiCopy.home.eyebrow}</span>
+        <h1 id="research-title">{uiCopy.home.title}</h1>
+        <p>{uiCopy.home.description}</p>
       </div>
 
-      {config.mode === "locked" && (
-        <div className="locked-notice" role="status">
-          <LockKeyhole size={20} aria-hidden="true" />
-          <div>
-            <strong>Research jobs are not available yet</strong>
-            <span>You can explore the pilot report while the service is being prepared.</span>
-          </div>
+      <form className="hero-composer" onSubmit={submit}>
+        <label className="sr-only" htmlFor="target-url">
+          {uiCopy.home.urlLabel}
+        </label>
+        <div className={urlReady ? "url-composer ready" : "url-composer"}>
+          <Link2 size={20} aria-hidden="true" />
+          <input
+            id="target-url"
+            type="url"
+            inputMode="url"
+            autoFocus
+            required
+            value={targetUrl}
+            onChange={(event) => {
+              setTargetUrl(event.target.value);
+              if (urlReady) {
+                setUrlReady(false);
+                setOccupation(undefined);
+              }
+            }}
+            placeholder={uiCopy.home.urlPlaceholder}
+          />
+          {!urlReady && (
+            <button className="composer-button" type="button" onClick={continueFromUrl}>
+              {uiCopy.home.continue}
+              <ArrowRight size={18} aria-hidden="true" />
+            </button>
+          )}
+          {urlReady && (
+            <button
+              className="change-url-button"
+              type="button"
+              onClick={() => setUrlReady(false)}
+            >
+              {uiCopy.home.changeUrl}
+            </button>
+          )}
         </div>
-      )}
 
-      <form onSubmit={submit}>
-        <div className="form-step">
-          <span className="step-index">01</span>
-          <div className="step-body">
-            <label htmlFor="target-url">主要成果網址</label>
-            <p className="field-help">網站是研究起點；GitHub、文章與 X 貼文放在下一步</p>
-            <div className="input-with-icon">
-              <Link2 size={18} aria-hidden="true" />
-              <input
-                id="target-url"
-                type="url"
-                inputMode="url"
-                required
-                value={targetUrl}
-                onChange={(event) => setTargetUrl(event.target.value)}
-                placeholder="https://example.com"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="form-step">
-          <span className="step-index">02</span>
-          <div className="step-body">
-            <div className="field-title-row">
+        {urlReady && (
+          <div className="occupation-stage">
+            <div className="stage-heading">
               <div>
-                <label>輔助來源</label>
-                <p className="field-help">最多 8 個。第一方原始來源優先</p>
+                <span className="stage-number">02</span>
+                <h2>{uiCopy.home.occupationLabel}</h2>
               </div>
-              <button
-                type="button"
-                className="text-button"
-                disabled={supportUrls.length >= 8}
-                onClick={() => setSupportUrls((items) => [...items, ""])}
-              >
-                <Plus size={16} aria-hidden="true" />
-                Add source
-              </button>
+              <p>{uiCopy.home.occupationHelp}</p>
             </div>
-            {supportUrls.length === 0 ? (
-              <button
-                type="button"
-                className="empty-source"
-                onClick={() => setSupportUrls(["https://github.com/antfu/antfu.me"])}
-              >
-                <Plus size={18} aria-hidden="true" />
-                加入 GitHub、文章、文件或 X 貼文
-              </button>
-            ) : (
-              <div className="source-list">
-                {supportUrls.map((url, index) => (
-                  <div className="source-row" key={index}>
-                    <input
-                      aria-label={`Supporting source ${index + 1}`}
-                      type="url"
-                      value={url}
-                      onChange={(event) =>
-                        setSupportUrls((items) =>
-                          items.map((item, itemIndex) =>
-                            itemIndex === index ? event.target.value : item
-                          )
-                        )
-                      }
-                      placeholder="https://github.com/owner/repo"
-                    />
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Remove source ${index + 1}`}
-                      onClick={() =>
-                        setSupportUrls((items) => items.filter((_, itemIndex) => itemIndex !== index))
-                      }
-                    >
-                      <Trash2 size={17} aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="form-step">
-          <span className="step-index">03</span>
-          <div className="step-body">
-            <label htmlFor="occupation-search">對應職業</label>
-            <p className="field-help">職業是比較基準，不是對作者能力的評分</p>
-            <div className="input-with-icon">
+            <div className="input-with-icon occupation-search">
               <Search size={18} aria-hidden="true" />
               <input
+                ref={occupationInput}
                 id="occupation-search"
                 value={occupationQuery}
                 onChange={(event) => setOccupationQuery(event.target.value)}
-                placeholder="Search O*NET occupations"
+                placeholder={uiCopy.home.occupationPlaceholder}
               />
             </div>
-            <div className="occupation-list" role="radiogroup" aria-label="Select one occupation">
+            <div className="occupation-list" role="radiogroup" aria-label="Choose one occupation">
               {occupations.map((item) => (
                 <button
                   type="button"
@@ -222,43 +202,44 @@ export function ResearchForm({
                 </button>
               ))}
             </div>
-          </div>
-        </div>
 
-        {config.mode === "public" && config.turnstileSiteKey && (
-          <div className="form-step compact-step">
-            <span className="step-index">04</span>
-            <div className="step-body">
-              <label>Human verification</label>
-              <Turnstile
-                siteKey={config.turnstileSiteKey}
-                onToken={onToken}
-                onError={onTurnstileError}
-              />
-            </div>
+            {config.mode === "public" && config.turnstileSiteKey && (
+              <div className="verification-block">
+                <span>Human verification</span>
+                <Turnstile
+                  siteKey={config.turnstileSiteKey}
+                  onToken={onToken}
+                  onError={onTurnstileError}
+                />
+              </div>
+            )}
+
+            {config.mode === "locked" ? (
+              <div className="locked-notice" role="status">
+                <LockKeyhole size={19} aria-hidden="true" />
+                <div>
+                  <strong>{uiCopy.home.lockedTitle}</strong>
+                  <span>{uiCopy.home.lockedBody}</span>
+                </div>
+                <button className="secondary-button" type="button" onClick={onOpenDemo}>
+                  {uiCopy.home.openPilot}
+                </button>
+              </div>
+            ) : (
+              <button className="start-button primary-button" type="submit" disabled={busy}>
+                {busy ? uiCopy.home.starting : uiCopy.home.start}
+                <ArrowRight size={18} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
 
         {error && (
-          <div className="form-error" role="alert">
-            <strong>Research cannot start</strong>
+          <div className="form-error hero-error" role="alert">
+            <strong>Check this step</strong>
             <span>{error}</span>
           </div>
         )}
-
-        <div className="form-actions">
-          {config.mode === "locked" ? (
-            <button type="button" className="primary-button" onClick={onOpenDemo}>
-              Open demo dossier
-              <ArrowRight size={18} aria-hidden="true" />
-            </button>
-          ) : (
-            <button type="submit" className="primary-button" disabled={busy}>
-              {busy ? "Opening docket…" : "Start reverse research"}
-              <ArrowRight size={18} aria-hidden="true" />
-            </button>
-          )}
-        </div>
       </form>
     </section>
   );

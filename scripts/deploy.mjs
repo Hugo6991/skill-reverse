@@ -9,6 +9,7 @@ function run(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+run("pnpm", ["copycheck"]);
 run("pnpm", ["typecheck"]);
 run("pnpm", ["test"]);
 run("pnpm", ["build"]);

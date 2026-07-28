@@ -8,12 +8,17 @@ const publicHttpsUrl = z
 
 export const createJobSchema = z.object({
   targetUrl: publicHttpsUrl,
-  supportUrls: z.array(publicHttpsUrl).max(8).default([]),
+  supportUrls: z.array(publicHttpsUrl).max(8).optional().default([]),
   occupationCode: z.string().regex(/^\d{2}-\d{4}\.\d{2}$/),
   turnstileToken: z.string().min(1).max(2048)
 });
 
 export type CreateJobInput = z.infer<typeof createJobSchema>;
+
+export const updateJobSourcesSchema = z.object({
+  urls: z.array(publicHttpsUrl).max(8),
+  finalize: z.boolean().default(false)
+});
 
 export const modelResultSchema = z.object({
   title: z.string().min(1),

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { demoReport } from "../worker/demo";
 import { publicConfig, resolveAppMode } from "../worker/index";
 import { pilotOccupation } from "../worker/occupations";
 import { modelResultSchema } from "../worker/schema";
-import { assertSafePublicUrl } from "../worker/security";
+import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
+import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
 import { assembleReport } from "../worker/services";
 import type { AppEnv } from "../worker/types";
 
@@ -20,6 +21,53 @@ describe("public URL safety", () => {
     "https://example.com:8443"
   ])("blocks unsafe target %s", (url) => {
     expect(() => assertSafePublicUrl(url)).toThrow();
+  });
+});
+
+describe("Turnstile verification", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a valid production token issued for a different action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          success: true,
+          hostname: "skill-reverse.6991hugo.workers.dev",
+          action: "different_action"
+        })
+      )
+    );
+
+    await expect(
+      verifyTurnstile(
+        "token",
+        new Request("https://skill-reverse.6991hugo.workers.dev/api/jobs"),
+        { TURNSTILE_SECRET_KEY: "production-secret" } as AppEnv
+      )
+    ).resolves.toEqual({ success: false, code: "turnstile_action_mismatch" });
+  });
+});
+
+describe("supporting source selection", () => {
+  it("normalizes fragments and prioritizes GitHub then same-origin sources", () => {
+    expect(normalizeSourceUrl("https://example.com/guide#section")).toBe(
+      "https://example.com/guide"
+    );
+    expect(
+      selectCaptureSources("https://example.com", [
+        "https://third-party.example/story",
+        "https://example.com/about",
+        "https://github.com/owner/repo",
+        "https://example.com/work"
+      ])
+    ).toEqual([
+      "https://github.com/owner/repo",
+      "https://example.com/about",
+      "https://example.com/work"
+    ]);
   });
 });
 
