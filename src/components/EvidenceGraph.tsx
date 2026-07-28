@@ -1,5 +1,6 @@
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import { useMemo } from "react";
+import { withoutTerminalFullStop } from "../text";
 import type { ReverseReport } from "../types";
 
 function nodeType(id: string) {
@@ -12,8 +13,12 @@ export function EvidenceGraph({ report }: { report: ReverseReport }) {
   const { nodes, edges } = useMemo(() => {
     const labels = new Map<string, string>();
     report.sources.forEach((item) => labels.set(item.id, item.title));
-    report.observations.forEach((item) => labels.set(item.id, item.text));
-    report.claims.forEach((item) => labels.set(item.id, item.text));
+    report.observations.forEach((item) =>
+      labels.set(item.id, withoutTerminalFullStop(item.text))
+    );
+    report.claims.forEach((item) =>
+      labels.set(item.id, withoutTerminalFullStop(item.text))
+    );
 
     const ids = [...new Set(report.edges.flatMap((edge) => [edge.source, edge.target]))];
     const columns = { source: 0, observation: 1, claim: 2 };

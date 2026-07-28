@@ -11,6 +11,7 @@ import {
   TriangleAlert
 } from "lucide-react";
 import { useState } from "react";
+import { withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
 
@@ -50,8 +51,8 @@ export function ReportView({
           <span>Reverse report</span>
           <span>{new Date(report.generatedAt).toLocaleDateString("zh-TW")}</span>
         </div>
-        <h1>{report.title}</h1>
-        <p className="verdict">{report.verdict}</p>
+        <h1>{withoutTerminalFullStop(report.title)}</h1>
+        <p className="verdict">{withoutTerminalFullStop(report.verdict)}</p>
         <div className="report-meta">
           <a href={report.targetUrl} target="_blank" rel="noreferrer">
             {new URL(report.targetUrl).hostname}
@@ -68,7 +69,9 @@ export function ReportView({
           <TriangleAlert size={20} aria-hidden="true" />
           <div>
             <strong>Some evidence lanes were unavailable</strong>
-            <span>{report.degraded.join(" · ")}</span>
+            <span>
+              {report.degraded.map(withoutTerminalFullStop).join(" · ")}
+            </span>
           </div>
         </div>
       )}
@@ -92,16 +95,18 @@ export function ReportView({
         <div className="report-grid">
           <section className="framework-panel">
             <span className="eyebrow">Core framework</span>
-            <h2>{report.framework.name}</h2>
-            <p className="framework-summary">{report.framework.summary}</p>
+            <h2>{withoutTerminalFullStop(report.framework.name)}</h2>
+            <p className="framework-summary">
+              {withoutTerminalFullStop(report.framework.summary)}
+            </p>
             <div className="when-grid">
               <div>
                 <span>Use when</span>
-                <p>{report.framework.useWhen}</p>
+                <p>{withoutTerminalFullStop(report.framework.useWhen)}</p>
               </div>
               <div>
                 <span>Avoid when</span>
-                <p>{report.framework.avoidWhen}</p>
+                <p>{withoutTerminalFullStop(report.framework.avoidWhen)}</p>
               </div>
             </div>
             <ol className="framework-steps">
@@ -112,8 +117,8 @@ export function ReportView({
                     <span className={`failure-tag failure-${step.failureType}`}>
                       {step.failureType}
                     </span>
-                    <h3>{step.title}</h3>
-                    <p>{step.instruction}</p>
+                    <h3>{withoutTerminalFullStop(step.title)}</h3>
+                    <p>{withoutTerminalFullStop(step.instruction)}</p>
                   </div>
                 </li>
               ))}
@@ -123,10 +128,12 @@ export function ReportView({
           <aside className="report-sidebar">
             <section className="author-card">
               <span className="eyebrow">Author context</span>
-              <h2>{report.author.name}</h2>
+              <h2>{withoutTerminalFullStop(report.author.name)}</h2>
               {report.author.handle && <span className="author-handle">@{report.author.handle}</span>}
-              <p>{report.author.background}</p>
-              <div className="context-note">{report.author.context}</div>
+              <p>{withoutTerminalFullStop(report.author.background)}</p>
+              <div className="context-note">
+                {withoutTerminalFullStop(report.author.context)}
+              </div>
             </section>
             <section className="claims-card">
               <div className="section-title-row">
@@ -145,7 +152,7 @@ export function ReportView({
                       <span>{confidenceLabels[claim.status]}</span>
                       <strong>{claim.confidence}</strong>
                     </div>
-                    <p>{claim.text}</p>
+                    <p>{withoutTerminalFullStop(claim.text)}</p>
                   </article>
                 ))}
               </div>
@@ -159,7 +166,7 @@ export function ReportView({
           <section className="occupation-profile">
             <span className="eyebrow">Selected baseline</span>
             <h2>{report.occupation.title}</h2>
-            <p>{report.occupation.description}</p>
+            <p>{withoutTerminalFullStop(report.occupation.description)}</p>
             <div className="occupation-source">
               <span>{report.occupation.code}</span>
               <span>O*NET {report.occupation.version}</span>
@@ -178,13 +185,13 @@ export function ReportView({
               <article key={delta.competency.label}>
                 <div>
                   <span className="competency-kind">{delta.competency.kind}</span>
-                  <strong>{delta.competency.label}</strong>
+                  <strong>{withoutTerminalFullStop(delta.competency.label)}</strong>
                   <small>Importance {delta.competency.importance}</small>
                 </div>
                 <span className={`delta-state delta-${delta.manifestation}`}>
                   {deltaLabels[delta.manifestation]}
                 </span>
-                <p>{delta.rationale}</p>
+                <p>{withoutTerminalFullStop(delta.rationale)}</p>
               </article>
             ))}
           </section>
@@ -228,7 +235,7 @@ export function ReportView({
             <h2>Interpretation limits</h2>
             <ul>
               {report.caveats.map((caveat) => (
-                <li key={caveat}>{caveat}</li>
+                <li key={caveat}>{withoutTerminalFullStop(caveat)}</li>
               ))}
             </ul>
           </section>

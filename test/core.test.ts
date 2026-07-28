@@ -7,6 +7,14 @@ import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
 import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
 import { assembleReport } from "../worker/services";
 import type { AppEnv } from "../worker/types";
+import { withoutTerminalFullStop } from "../src/text";
+
+describe("report presentation copy", () => {
+  it("removes only terminal Chinese full stops", () => {
+    expect(withoutTerminalFullStop(`流程時使用\u3002`)).toBe("流程時使用");
+    expect(withoutTerminalFullStop(`先確認\u3002再執行`)).toBe(`先確認\u3002再執行`);
+  });
+});
 
 describe("public URL safety", () => {
   it("accepts a public HTTPS URL", () => {
