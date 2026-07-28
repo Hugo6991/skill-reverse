@@ -51,6 +51,24 @@ function run(args, options = {}) {
   }
 }
 
+async function runWithRetries(args, options = {}, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const result = spawnSync("pnpm", ["exec", "wrangler", ...args], {
+      stdio: options.input ? ["pipe", "inherit", "inherit"] : "inherit",
+      input: options.input,
+      encoding: "utf8",
+      shell: process.platform === "win32"
+    });
+    if (result.status === 0) return;
+    if (attempt < attempts) {
+      console.log(`Cloudflare request failed; retrying (${attempt}/${attempts})`);
+      await wait(attempt * 2_000);
+    }
+  }
+  rl.close();
+  process.exit(1);
+}
+
 function listRemoteSecrets() {
   const result = spawnSync("pnpm", ["exec", "wrangler", "secret", "list"], {
     encoding: "utf8",
@@ -62,6 +80,10 @@ function listRemoteSecrets() {
   } catch {
     return new Set();
   }
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function createTurnstileWidget({ apiToken, accountId, hostname }) {
@@ -101,11 +123,14 @@ const remoteSecrets = listRemoteSecrets();
 const hasPerplexityKey = remoteSecrets.has("PERPLEXITY_API_KEY");
 const hasTwitterKey = remoteSecrets.has("TWITTERAPI_KEY");
 const hasAnonSessionSecret = remoteSecrets.has("ANON_SESSION_SECRET");
-if (hasPerplexityKey || hasTwitterKey) {
+const hasTurnstileKeys =
+  remoteSecrets.has("TURNSTILE_SITE_KEY") && remoteSecrets.has("TURNSTILE_SECRET_KEY");
+if (hasPerplexityKey || hasTwitterKey || hasTurnstileKeys) {
   console.log(
     `Existing Worker secrets: ${[
       hasPerplexityKey && "Perplexity",
-      hasTwitterKey && "TwitterAPI.io"
+      hasTwitterKey && "TwitterAPI.io",
+      hasTurnstileKeys && "Turnstile"
     ]
       .filter(Boolean)
       .join(", ")}`
@@ -128,52 +153,68 @@ const twitterKey = await askSecret(
   hasTwitterKey ? "TwitterAPI.io key (leave blank to keep existing)" : "TwitterAPI.io key",
   { optional: true }
 );
-const automateTurnstile = (
-  await askSecret("Scoped Cloudflare token with Turnstile Sites Write", { optional: true })
-).trim();
-
 let turnstile;
-if (automateTurnstile) {
-  const accountId = await ask("Cloudflare Account ID");
-  try {
-    turnstile = await createTurnstileWidget({
-      apiToken: automateTurnstile,
-      accountId,
-      hostname: deployment.hostname
-    });
-    console.log("✓ Turnstile widget created and restricted to the production hostname");
-  } catch (error) {
-    console.error(`Turnstile automation failed: ${error.message}`);
-    console.log("Create a Managed widget in the Cloudflare dashboard and paste its keys.");
+if (!hasTurnstileKeys) {
+  const automateTurnstile = (
+    await askSecret("Scoped Cloudflare token with Turnstile Sites Write", { optional: true })
+  ).trim();
+  if (automateTurnstile) {
+    const accountId = await ask("Cloudflare Account ID");
+    try {
+      turnstile = await createTurnstileWidget({
+        apiToken: automateTurnstile,
+        accountId,
+        hostname: deployment.hostname
+      });
+      console.log("✓ Turnstile widget created and restricted to the production hostname");
+    } catch (error) {
+      console.error(`Turnstile automation failed: ${error.message}`);
+      console.log("Create a Managed widget in the Cloudflare dashboard and paste its keys.");
+    }
   }
-}
-if (!turnstile) {
-    turnstile = {
-      siteKey: await ask("Turnstile site key"),
-      secretKey: await askSecret("Turnstile secret key")
-    };
+  if (!turnstile) {
+      turnstile = {
+        siteKey: await ask("Turnstile site key"),
+        secretKey: await askSecret("Turnstile secret key")
+      };
+  }
 }
 
 const setupCapability = randomBytes(32).toString("hex");
 const secrets = {
-  TURNSTILE_SITE_KEY: turnstile.siteKey,
-  TURNSTILE_SECRET_KEY: turnstile.secretKey,
-  SETUP_CAPABILITY: setupCapability,
-  SETUP_COMPLETE: "false"
+  SETUP_COMPLETE: "false",
+  SETUP_CAPABILITY: setupCapability
 };
+if (turnstile) {
+  secrets.TURNSTILE_SITE_KEY = turnstile.siteKey;
+  secrets.TURNSTILE_SECRET_KEY = turnstile.secretKey;
+}
 if (!hasAnonSessionSecret) {
   secrets.ANON_SESSION_SECRET = randomBytes(32).toString("hex");
 }
 if (perplexityKey) secrets.PERPLEXITY_API_KEY = perplexityKey;
 if (twitterKey) secrets.TWITTERAPI_KEY = twitterKey;
 
-run(["secret", "bulk"], { input: JSON.stringify(secrets) });
 run(["d1", "migrations", "apply", "DB", "--remote"]);
 run(["deploy"]);
+for (const [name, value] of Object.entries(secrets)) {
+  await runWithRetries(["secret", "put", name], { input: `${value}\n` });
+}
 
-const health = await fetch(`${deployment.origin}/api/health?deep=1`, {
-  headers: { "x-setup-capability": setupCapability }
-}).then((response) => response.json());
+let health;
+for (let attempt = 0; attempt < 10; attempt += 1) {
+  const response = await fetch(`${deployment.origin}/api/health?deep=1`, {
+    headers: { "x-setup-capability": setupCapability }
+  });
+  health = await response.json();
+  if (response.ok && health.checks) break;
+  if (attempt < 9) await wait(3_000);
+}
+if (!health?.checks) {
+  console.error("\nProduction remains locked. Setup capability did not propagate.");
+  rl.close();
+  process.exit(1);
+}
 
 console.log("\nPreflight");
 for (const [name, result] of Object.entries(health.checks ?? {})) {
@@ -190,11 +231,17 @@ if (requiredFailures.length) {
 }
 
 console.log("\nLive research smoke");
-const smokeResponse = await fetch(`${deployment.origin}/api/setup/smoke`, {
-  method: "POST",
-  headers: { "x-setup-capability": setupCapability }
-});
-const smoke = await smokeResponse.json();
+let smokeResponse;
+let smoke;
+for (let attempt = 0; attempt < 10; attempt += 1) {
+  smokeResponse = await fetch(`${deployment.origin}/api/setup/smoke`, {
+    method: "POST",
+    headers: { "x-setup-capability": setupCapability }
+  });
+  smoke = await smokeResponse.json();
+  if (smokeResponse.status !== 401) break;
+  if (attempt < 9) await wait(3_000);
+}
 if (!smokeResponse.ok || !smoke.jobId) {
   console.error(`✕ Smoke could not start: ${smoke.error?.message ?? smokeResponse.status}`);
   console.error("Production remains locked");
@@ -262,6 +309,11 @@ console.log(`✓ Live report passed · ${smokeReport.sources.length} sources · 
 run(["secret", "put", "SETUP_COMPLETE"], { input: "true\n" });
 console.log("\n✓ Production unlocked");
 console.log(`  Health: ${deployment.origin}/api/health`);
-console.log(`  Setup capability (shown once): ${setupCapability}`);
-console.log("  Save it in your password manager for future deep doctor checks");
+if (process.env.SKILL_REVERSE_AUTOMATED === "1") {
+  console.log("  Setup capability was withheld from automated logs");
+  console.log("  Run setup:prod interactively later if you need a saved deep-doctor capability");
+} else {
+  console.log(`  Setup capability (shown once): ${setupCapability}`);
+  console.log("  Save it in your password manager for future deep doctor checks");
+}
 rl.close();

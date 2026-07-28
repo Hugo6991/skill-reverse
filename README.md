@@ -61,7 +61,7 @@ setup wizard 會：
 
 1. 確認 Wrangler 登入
 2. 以隱藏輸入讀取 Perplexity、TwitterAPI.io、Turnstile keys
-3. 透過 stdin 執行 `wrangler secret bulk`，不把 secrets 寫到檔案
+3. 部署 locked version 後，透過 stdin 逐項執行 `wrangler secret put`，不把 secrets 寫到檔案
 4. 套用 D1 migrations
 5. 驗證 D1、R2、Durable Objects、Workflow 與必要 provider 設定
 6. 用 `antfu.me` 真實執行 Browser Run、Workflow、Perplexity、D1、R2 與報告驗證
