@@ -103,7 +103,7 @@ Production 可以使用 owner 自己的 provider accounts，但應為這個網�
 1. 在 Perplexity 建立專用 key，先只加入少量 prepaid credits，並關閉 Auto reload。應用固定使用 Sonar Pro 的 low search context，另由 Worker 的單工作與每日預算閘門控制建立研究工作。
 2. TwitterAPI.io key 是可選能力。使用獨立 key 與有限餘額；額度用完時只會降級 social provenance，不會讓整份報告失敗。
 3. 在 Cloudflare Turnstile 建立 Managed widget，hostname 限制為 production `workers.dev` hostname。
-4. 執行 `pnpm setup:prod`，所有 secrets 透過 stdin 寫入 Worker，永遠不進 GitHub、build variables 或前端 bundle。
+4. 執行 `pnpm setup:prod`。Wizard 會辨識已存在的 Worker provider secrets，允許沿用而不必再次顯示或貼上；新增 secrets 仍只透過 stdin 寫入 Worker，永遠不進 GitHub、build variables 或前端 bundle。
 
 公開 UI 不展示單工作成本、每日預算或內部研究準則；限制仍由 Durable Objects、Rate Limiting、Turnstile 與 provider 預付額度在後端執行。
 

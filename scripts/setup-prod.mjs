@@ -51,6 +51,19 @@ function run(args, options = {}) {
   }
 }
 
+function listRemoteSecrets() {
+  const result = spawnSync("pnpm", ["exec", "wrangler", "secret", "list"], {
+    encoding: "utf8",
+    shell: process.platform === "win32"
+  });
+  if (result.status !== 0) return new Set();
+  try {
+    return new Set(JSON.parse(result.stdout).map((item) => item.name));
+  } catch {
+    return new Set();
+  }
+}
+
 async function createTurnstileWidget({ apiToken, accountId, hostname }) {
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/challenges/widgets`,
@@ -84,6 +97,20 @@ const whoami = spawnSync("pnpm", ["exec", "wrangler", "whoami", "--json"], {
 });
 if (whoami.status !== 0) run(["login"]);
 
+const remoteSecrets = listRemoteSecrets();
+const hasPerplexityKey = remoteSecrets.has("PERPLEXITY_API_KEY");
+const hasTwitterKey = remoteSecrets.has("TWITTERAPI_KEY");
+if (hasPerplexityKey || hasTwitterKey) {
+  console.log(
+    `Existing Worker secrets: ${[
+      hasPerplexityKey && "Perplexity",
+      hasTwitterKey && "TwitterAPI.io"
+    ]
+      .filter(Boolean)
+      .join(", ")}`
+  );
+}
+
 const deploymentUrl = await ask("Deployed URL (for example https://skill-reverse.example.workers.dev)");
 const deployment = new URL(deploymentUrl);
 if (deployment.protocol !== "https:") {
@@ -92,8 +119,14 @@ if (deployment.protocol !== "https:") {
   process.exit(1);
 }
 
-const perplexityKey = await askSecret("Perplexity API key");
-const twitterKey = await askSecret("TwitterAPI.io key", { optional: true });
+const perplexityKey = await askSecret(
+  hasPerplexityKey ? "Perplexity API key (leave blank to keep existing)" : "Perplexity API key",
+  { optional: hasPerplexityKey }
+);
+const twitterKey = await askSecret(
+  hasTwitterKey ? "TwitterAPI.io key (leave blank to keep existing)" : "TwitterAPI.io key",
+  { optional: true }
+);
 const automateTurnstile = (
   await askSecret("Scoped Cloudflare token with Turnstile Sites Write", { optional: true })
 ).trim();
@@ -122,13 +155,13 @@ if (!turnstile) {
 
 const setupCapability = randomBytes(32).toString("hex");
 const secrets = {
-  PERPLEXITY_API_KEY: perplexityKey,
   TURNSTILE_SITE_KEY: turnstile.siteKey,
   TURNSTILE_SECRET_KEY: turnstile.secretKey,
   ANON_SESSION_SECRET: randomBytes(32).toString("hex"),
   SETUP_CAPABILITY: setupCapability,
   SETUP_COMPLETE: "false"
 };
+if (perplexityKey) secrets.PERPLEXITY_API_KEY = perplexityKey;
 if (twitterKey) secrets.TWITTERAPI_KEY = twitterKey;
 
 run(["secret", "bulk"], { input: JSON.stringify(secrets) });
