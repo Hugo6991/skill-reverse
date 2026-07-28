@@ -6,6 +6,7 @@ import { searchOccupations } from "../worker/occupations";
 import { recordProviderCall } from "../worker/provider-ledger";
 import { sha256 } from "../worker/security";
 import type { AppEnv } from "../worker/types";
+import { demoReport } from "../worker/demo";
 
 type TestEnv = AppEnv & { TEST_MIGRATIONS: D1Migration[] };
 const bindings = env as unknown as TestEnv;
@@ -390,6 +391,114 @@ describe("Cloudflare bindings in workerd", () => {
         )
       ).status
     ).toBe(404);
+  });
+
+  it("keeps cards private until sharing is enabled and isolates anonymous owners", async () => {
+    const session = await SELF.fetch("https://example.com/api/collection");
+    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const actorId = cookie.slice("sr_actor=".length).split(".")[0];
+    const actorHash = await sha256(actorId);
+    const cardId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 365 * 86_400_000).toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO skill_cards
+       (id, actor_hash, job_id, report_id, target_key, target_url, display_name,
+        occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, ?3, ?1, ?4, ?4, 'Test Manual', '15-1255.00',
+        'Web and Digital Interface Designers', ?5, ?6, ?6, ?7)`
+    )
+      .bind(
+        cardId,
+        actorHash,
+        crypto.randomUUID(),
+        "https://github.com/example/manual",
+        JSON.stringify(demoReport.gameProfile),
+        now,
+        expires
+      )
+      .run();
+
+    const owned = await SELF.fetch("https://example.com/api/collection", {
+      headers: { cookie }
+    });
+    expect(await owned.json()).toMatchObject({
+      cards: [{ id: cardId, displayName: "Test Manual" }]
+    });
+
+    const otherSession = await SELF.fetch("https://example.com/api/collection");
+    const otherCookie = otherSession.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(await otherSession.json()).toMatchObject({ cards: [] });
+    const forbiddenShare = await SELF.fetch(`https://example.com/api/cards/${cardId}/share`, {
+      method: "POST",
+      headers: { cookie: otherCookie }
+    });
+    expect(forbiddenShare.status).toBe(404);
+
+    expect(
+      await bindings.DB.prepare("SELECT share_slug FROM skill_cards WHERE id = ?1")
+        .bind(cardId)
+        .first()
+    ).toMatchObject({ share_slug: null });
+
+    const shared = await SELF.fetch(`https://example.com/api/cards/${cardId}/share`, {
+      method: "POST",
+      headers: { cookie }
+    });
+    expect(shared.status).toBe(200);
+    const shareBody = (await shared.json()) as { shareSlug: string; shareUrl: string };
+    expect(shareBody.shareUrl).toBe(`https://example.com/c/${shareBody.shareSlug}`);
+
+    const publicCard = await SELF.fetch(
+      `https://example.com/api/public/cards/${shareBody.shareSlug}`
+    );
+    expect(publicCard.status).toBe(200);
+    expect(await publicCard.json()).toMatchObject({
+      displayName: "Test Manual",
+      gameProfile: {
+        axes: expect.arrayContaining([
+          expect.objectContaining({ evidenceIds: [], signalIds: [] })
+        ])
+      }
+    });
+
+    const removed = await SELF.fetch(`https://example.com/api/cards/${cardId}`, {
+      method: "DELETE",
+      headers: { cookie }
+    });
+    expect(removed.status).toBe(204);
+    expect(
+      await SELF.fetch(`https://example.com/api/public/cards/${shareBody.shareSlug}`)
+    ).toMatchObject({ status: 404 });
+  });
+
+  it("hides expired cards from the collection", async () => {
+    const session = await SELF.fetch("https://example.com/api/collection");
+    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const actorId = cookie.slice("sr_actor=".length).split(".")[0];
+    const actorHash = await sha256(actorId);
+    const now = new Date().toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO skill_cards
+       (id, actor_hash, job_id, target_key, target_url, display_name,
+        occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?4, 'Expired Manual', '15-1255.00',
+        'Web and Digital Interface Designers', ?5, ?6, ?6, ?7)`
+    )
+      .bind(
+        crypto.randomUUID(),
+        actorHash,
+        crypto.randomUUID(),
+        "https://example.com/expired",
+        JSON.stringify(demoReport.gameProfile),
+        now,
+        new Date(Date.now() - 1_000).toISOString()
+      )
+      .run();
+    const collection = await SELF.fetch("https://example.com/api/collection", {
+      headers: { cookie }
+    });
+    expect(await collection.json()).toMatchObject({ cards: [] });
   });
 
   it("records provider usage and cost even when structured output parsing fails", async () => {

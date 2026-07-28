@@ -15,6 +15,7 @@ export type AppRoute =
   | { kind: "collection" }
   | { kind: "job"; id: string }
   | { kind: "report"; id: string }
+  | { kind: "public_card"; slug: string }
   | { kind: "not_found" };
 
 function NavLink({

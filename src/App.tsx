@@ -5,6 +5,7 @@ import { AdminPage } from "./components/AdminPage";
 import { CollectionPage } from "./components/CollectionPage";
 import { HistoryPage } from "./components/HistoryPage";
 import { JobProgress } from "./components/JobProgress";
+import { PublicCardPage } from "./components/PublicCardPage";
 import { ReportView } from "./components/ReportView";
 import { ResearchForm, type ResearchInput } from "./components/ResearchForm";
 import { type AppRoute, TopNav } from "./components/TopNav";
@@ -37,6 +38,9 @@ function parseRoute(): AppRoute {
   }
   if (parts[0] === "reports" && parts[1]) {
     return { kind: "report", id: decodeURIComponent(parts[1]) };
+  }
+  if (parts[0] === "c" && parts[1]) {
+    return { kind: "public_card", slug: decodeURIComponent(parts[1]) };
   }
   return { kind: "not_found" };
 }
@@ -253,6 +257,9 @@ export default function App() {
     if (route.kind === "admin") return <AdminPage onNavigate={navigate} />;
     if (route.kind === "history") return <HistoryPage onNavigate={navigate} />;
     if (route.kind === "collection") return <CollectionPage onNavigate={navigate} />;
+    if (route.kind === "public_card") {
+      return <PublicCardPage slug={route.slug} onNavigate={navigate} />;
+    }
     if (route.kind === "job" && job) {
       return (
         <JobProgress

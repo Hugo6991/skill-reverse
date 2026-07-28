@@ -4621,3 +4621,361 @@ footer {
     min-height: 360px;
   }
 }
+
+.share-note {
+  width: fit-content;
+  margin: var(--space-3) 0 0 auto;
+  padding: var(--space-2) var(--space-3);
+  color: hsl(252 46% 38%);
+  background: hsl(252 58% 94%);
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.share-poster-export {
+  position: fixed;
+  z-index: -100;
+  top: 0;
+  left: -12000px;
+  width: 1080px;
+  height: 1350px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.share-poster {
+  width: 1080px;
+  height: 1350px;
+  display: flex;
+  flex-direction: column;
+  padding: 64px 72px;
+  color: hsl(248 30% 17%);
+  background:
+    radial-gradient(circle at 50% 43%, hsl(260 74% 89%), transparent 31rem),
+    hsl(252 58% 98%);
+  font-family:
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Noto Sans TC",
+    sans-serif;
+}
+
+.share-poster > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: hsl(252 45% 38%);
+}
+
+.share-poster > header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  font-weight: 750;
+}
+
+.share-poster > header small {
+  color: hsl(250 14% 48%);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+}
+
+.share-poster-title {
+  display: grid;
+  justify-items: center;
+  margin-top: 72px;
+  text-align: center;
+}
+
+.share-poster-title > span {
+  color: hsl(250 14% 46%);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.share-poster-title h1 {
+  max-width: 820px;
+  margin: 10px 0 28px;
+  font-size: 54px;
+  line-height: 1.1;
+  font-weight: 720;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.share-poster-title > div {
+  min-height: 54px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px;
+  color: hsl(252 47% 40%);
+  background: hsl(0 0% 100% / 0.72);
+  border: 1px solid hsl(252 26% 78%);
+  border-radius: 999px;
+  font-size: 16px;
+}
+
+.share-poster-title strong {
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 27px;
+}
+
+.share-poster .game-radar {
+  height: 490px;
+  margin-top: 8px;
+}
+
+.share-poster-axes {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.share-poster-axes > div {
+  min-height: 78px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  background: hsl(0 0% 100% / 0.62);
+  border: 1px solid hsl(250 22% 84%);
+  border-radius: 12px;
+}
+
+.share-poster-axes span {
+  color: hsl(250 12% 43%);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.share-poster-axes strong {
+  color: hsl(252 48% 38%);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 24px;
+}
+
+.share-poster blockquote {
+  max-width: 840px;
+  margin: 54px auto 0;
+  color: hsl(252 38% 26%);
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 38px;
+  line-height: 1.42;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.share-poster > footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 0;
+}
+
+.share-poster > footer > div {
+  display: flex;
+  gap: 9px;
+}
+
+.share-poster > footer span {
+  padding: 8px 12px;
+  color: hsl(252 42% 39%);
+  background: hsl(252 58% 92%);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.share-poster > footer small {
+  color: hsl(250 12% 52%);
+  font-size: 12px;
+}
+
+.public-card-page {
+  width: min(760px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: var(--space-12) 0 96px;
+}
+
+.public-destiny-card {
+  padding: var(--space-8);
+  background:
+    radial-gradient(circle at 50% 38%, hsl(260 72% 91% / 0.74), transparent 23rem),
+    hsl(252 54% 98%);
+  border: 1px solid hsl(250 26% 82%);
+  border-radius: 18px;
+  box-shadow: 0 28px 72px hsl(249 34% 27% / 0.1);
+}
+
+.public-destiny-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.public-destiny-card > header > span {
+  color: hsl(252 48% 42%);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.public-destiny-card > header button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: hsl(252 42% 40%);
+  background: hsl(0 0% 100% / 0.72);
+  border: 1px solid hsl(250 24% 82%);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.public-card-title {
+  display: grid;
+  justify-items: center;
+  margin-top: var(--space-8);
+  text-align: center;
+}
+
+.public-card-title > span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.public-card-title h1 {
+  margin: var(--space-2) 0 var(--space-4);
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.public-card-title strong {
+  padding: 6px 13px;
+  color: hsl(252 50% 35%);
+  background: hsl(0 0% 100% / 0.7);
+  border: 1px solid hsl(252 28% 80%);
+  border-radius: 999px;
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 16px;
+}
+
+.public-destiny-card .game-radar {
+  height: 360px;
+}
+
+.public-axis-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.public-axis-grid > div {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  background: hsl(0 0% 100% / 0.62);
+  border: 1px solid hsl(250 22% 84%);
+  border-radius: var(--radius-md);
+}
+
+.public-axis-grid span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.public-axis-grid strong {
+  color: hsl(252 48% 38%);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+}
+
+.public-destiny-card blockquote {
+  margin: var(--space-8) auto;
+  color: hsl(252 36% 28%);
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 24px;
+  line-height: 1.45;
+  font-weight: 650;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.public-badges {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.public-badges span {
+  padding: 5px 9px;
+  color: hsl(252 42% 39%);
+  background: hsl(252 58% 92%);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.public-card-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.public-card-cta h2 {
+  margin: var(--space-1) 0 0;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 620px) {
+  .public-card-page {
+    width: calc(100% - 24px);
+    padding-top: var(--space-6);
+  }
+
+  .public-destiny-card {
+    padding: var(--space-6);
+  }
+
+  .public-card-title h1 {
+    font-size: 28px;
+  }
+
+  .public-destiny-card .game-radar {
+    height: 300px;
+  }
+
+  .public-axis-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .public-card-cta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

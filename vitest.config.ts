@@ -9,7 +9,9 @@ export default defineConfig({
       remoteBindings: false,
       miniflare: {
         bindings: {
-          TEST_MIGRATIONS: await readD1Migrations("./migrations")
+          TEST_MIGRATIONS: await readD1Migrations("./migrations"),
+          ANON_SESSION_SECRET: "test-only-anonymous-session-secret",
+          PUBLIC_APP_URL: "https://example.com"
         }
       }
     }))

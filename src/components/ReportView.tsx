@@ -16,11 +16,14 @@ import {
   ShieldCheck,
   TriangleAlert
 } from "lucide-react";
-import { useState } from "react";
+import { toPng } from "html-to-image";
+import { useRef, useState } from "react";
+import { gameArchetypeCopy, gameAxisCopy, gameRoastCopy } from "../game-copy";
 import { withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
 import { GameProfileHero } from "./GameProfileHero";
+import { SharePoster } from "./SharePoster";
 
 const confidenceLabels: Record<EvidenceStatus, string> = {
   verified: "Verified",
@@ -89,12 +92,67 @@ export function ReportView({
 }) {
   const [tab, setTab] = useState<"framework" | "baseline" | "evidence">("framework");
   const [copied, setCopied] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareNote, setShareNote] = useState("");
+  const posterRef = useRef<HTMLElement>(null);
   const chatPrompt = buildChatPrompt(report);
 
   async function copyChatPrompt() {
     await navigator.clipboard.writeText(chatPrompt);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  async function downloadPoster() {
+    if (!posterRef.current) return;
+    await document.fonts.ready;
+    const dataUrl = await toPng(posterRef.current, {
+      width: 1080,
+      height: 1350,
+      canvasWidth: 1080,
+      canvasHeight: 1350,
+      pixelRatio: 1,
+      backgroundColor: "#f7f5ff",
+      cacheBust: true
+    });
+    const link = document.createElement("a");
+    link.download = `${report.id === "demo" ? "skill-destiny-demo" : report.id}.png`;
+    link.href = dataUrl;
+    link.click();
+    setShareNote("命格圖已下載");
+  }
+
+  async function shareProfile() {
+    setShareBusy(true);
+    setShareNote("");
+    try {
+      const response = await fetch(`/api/cards/${encodeURIComponent(report.id)}/share`, {
+        method: "POST"
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        shareUrl?: string;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.shareUrl) {
+        throw new Error(body.error?.message ?? "公開連結開啟失敗");
+      }
+      const strongest = report.gameProfile.axes.find(
+        (axis) => axis.id === report.gameProfile.strongestAxisId
+      );
+      const text = `我挖到一套「${gameArchetypeCopy[report.gameProfile.archetypeId]}」型 Skill\n${gameAxisCopy[report.gameProfile.strongestAxisId].label} ${strongest?.value ?? "未知"}——${gameRoastCopy[report.gameProfile.roastId]}`;
+      if (navigator.share) {
+        await navigator.share({ title: report.title, text, url: body.shareUrl });
+        setShareNote("命格已分享");
+      } else {
+        await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
+        setShareNote("分享文字與連結已複製");
+      }
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      setShareNote(caught instanceof Error ? caught.message : "分享失敗");
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   return (
@@ -104,7 +162,17 @@ export function ReportView({
         New docket
       </button>
 
-      <GameProfileHero report={report} />
+      <GameProfileHero
+        report={report}
+        onDownload={() => void downloadPoster()}
+        onShare={report.id === "demo" ? undefined : () => void shareProfile()}
+        shareBusy={shareBusy}
+      />
+      {shareNote && (
+        <div className="share-note" role="status">
+          {shareNote}
+        </div>
+      )}
 
       <section className="report-verdict-strip" aria-label="目前建議">
         <span>目前建議</span>
@@ -380,6 +448,14 @@ export function ReportView({
           </section>
         </div>
       )}
+      <div className="share-poster-export" aria-hidden="true">
+        <SharePoster
+          ref={posterRef}
+          displayName={report.title}
+          occupationTitle={report.occupation.title}
+          profile={report.gameProfile}
+        />
+      </div>
     </main>
   );
 }

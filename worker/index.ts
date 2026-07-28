@@ -1151,6 +1151,85 @@ app.delete("/api/cards/:id", async (c) => {
   return attachActorCookie(c, c.body(null, 204));
 });
 
+app.post("/api/cards/:id/share", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ error: { code: "setup_required", message: "Sharing is unavailable" } }, 503);
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const existing = await c.env.DB.prepare(
+    `SELECT id, share_slug
+     FROM skill_cards
+     WHERE id = ?1 AND actor_hash = ?2 AND expires_at > ?3`
+  )
+    .bind(c.req.param("id"), actor.actorHash, new Date().toISOString())
+    .first<{ id: string; share_slug: string | null }>();
+  if (!existing) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "Manual not found" } }, 404)
+    );
+  }
+  const shareSlug =
+    existing.share_slug ?? crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  if (!existing.share_slug) {
+    await c.env.DB.prepare(
+      `UPDATE skill_cards
+       SET share_slug = ?1, updated_at = ?2
+       WHERE id = ?3 AND actor_hash = ?4 AND share_slug IS NULL`
+    )
+      .bind(shareSlug, new Date().toISOString(), existing.id, actor.actorHash)
+      .run();
+  }
+  const baseUrl = (c.env.PUBLIC_APP_URL || new URL(c.req.url).origin).replace(/\/$/, "");
+  return attachActorCookie(
+    c,
+    c.json({
+      shareSlug,
+      shareUrl: `${baseUrl}/c/${shareSlug}`
+    })
+  );
+});
+
+app.get("/api/public/cards/:slug", async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT id, target_url, display_name, occupation_title, game_profile_json, created_at
+     FROM skill_cards
+     WHERE share_slug = ?1 AND expires_at > ?2`
+  )
+    .bind(c.req.param("slug"), new Date().toISOString())
+    .first<{
+      id: string;
+      target_url: string;
+      display_name: string;
+      occupation_title: string;
+      game_profile_json: string;
+      created_at: string;
+    }>();
+  if (!row) {
+    return c.json({ error: { code: "not_found", message: "Shared manual not found" } }, 404);
+  }
+  const storedProfile = JSON.parse(row.game_profile_json) as GameProfile;
+  const publicProfile: GameProfile = {
+    ...storedProfile,
+    axes: storedProfile.axes.map((axis) => ({
+      ...axis,
+      evidenceIds: [],
+      signalIds: []
+    }))
+  };
+  return c.json({
+    id: row.id,
+    targetUrl: row.target_url,
+    displayName: row.display_name,
+    occupationTitle: row.occupation_title,
+    gameProfile: publicProfile,
+    createdAt: row.created_at
+  });
+});
+
 app.post("/api/setup/smoke", async (c) => {
   if (!isSetupAuthorized(c.req.raw, c.env)) {
     return c.json({ error: { code: "unauthorized", message: "Setup capability required" } }, 401);
@@ -1385,6 +1464,9 @@ app.delete("/api/admin/reports/:id", async (c) => {
     .bind(c.req.param("id"))
     .first<{ job_id: string }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
+  await c.env.DB.prepare("DELETE FROM skill_cards WHERE job_id = ?1")
+    .bind(row.job_id)
+    .run();
   await deleteJobAndArtifacts(c.env, row.job_id);
   return c.body(null, 204);
 });
