@@ -35,9 +35,12 @@ export interface AppEnv {
   APP_MODE: "locked" | "demo" | "public";
   JOB_USD_LIMIT: string;
   DAILY_USD_LIMIT: string;
+  ANON_DAILY_JOB_LIMIT: string;
+  OPENROUTER_SYNTHESIS_MODEL: string;
   REPORT_TTL_DAYS: string;
   ARTIFACT_TTL_DAYS: string;
   PERPLEXITY_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   TWITTERAPI_KEY?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;

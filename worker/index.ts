@@ -64,16 +64,21 @@ async function enqueueResearchJob(
   const day = new Date().toISOString().slice(0, 10);
   const reservedCents = Math.round(Number(env.JOB_USD_LIMIT || 0.5) * 100);
   const dailyLimitCents = Math.round(Number(env.DAILY_USD_LIMIT || 5) * 100);
+  const configuredActorLimit = Number(env.ANON_DAILY_JOB_LIMIT || 20);
+  const actorDailyJobLimit =
+    Number.isFinite(configuredActorLimit) && configuredActorLimit > 0
+      ? Math.max(1, Math.min(100, Math.floor(configuredActorLimit)))
+      : 20;
   const actorGate = env.ACTOR_GATE.getByName(input.actorHash);
   const dailyBudget = env.DAILY_BUDGET.getByName(day);
 
-  const actorReservation = await actorGate.reserve(jobId, day);
+  const actorReservation = await actorGate.reserve(jobId, day, actorDailyJobLimit);
   if (!actorReservation.ok) {
     throw new JobGateError(
       actorReservation.reason ?? "actor_limited",
       actorReservation.reason === "concurrent_job"
         ? "One research job is already running"
-        : "This anonymous session has reached its daily job limit"
+        : `This anonymous session has reached its daily limit of ${actorDailyJobLimit} research jobs`
     );
   }
 
@@ -697,6 +702,12 @@ app.get("/api/health", async (c) => {
   checks.perplexity = {
     ok: !requireProductionSecrets || Boolean(c.env.PERPLEXITY_API_KEY),
     detail: c.env.PERPLEXITY_API_KEY ? "configured" : "missing"
+  };
+  checks.openrouter = {
+    ok: Boolean(c.env.OPENROUTER_API_KEY),
+    detail: c.env.OPENROUTER_API_KEY
+      ? `${c.env.OPENROUTER_SYNTHESIS_MODEL || "openai/gpt-5.6-terra"} configured`
+      : "optional final synthesis unavailable"
   };
   checks.turnstile = {
     ok:

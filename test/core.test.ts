@@ -5,7 +5,7 @@ import { pilotOccupation } from "../worker/occupations";
 import { modelResultSchema } from "../worker/schema";
 import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
 import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
-import { assembleReport } from "../worker/services";
+import { assembleReport, runOpenRouterSynthesis } from "../worker/services";
 import type { AppEnv } from "../worker/types";
 import { withoutTerminalFullStop } from "../src/text";
 import { historyPresentation } from "../worker/history";
@@ -236,6 +236,55 @@ describe("evidence-aware report assembly", () => {
     expect(report.professionalDelta.every((item) => item.manifestation === "not_observable")).toBe(
       true
     );
+  });
+
+  it("uses an OpenAI model through OpenRouter for final structured synthesis", async () => {
+    const synthesized = {
+      ...baseModel,
+      author: { ...baseModel.author, handle: "" },
+      title: "OpenAI reviewed report"
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(synthesized) } }],
+          usage: { cost: 0.041 }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    const result = await runOpenRouterSynthesis(
+      {
+        OPENROUTER_API_KEY: "test-only",
+        OPENROUTER_SYNTHESIS_MODEL: "openai/gpt-5.6-terra"
+      } as AppEnv,
+      "https://example.com",
+      pilotOccupation,
+      [
+        {
+          id: "source-1",
+          url: "https://example.com",
+          title: "Example",
+          markdown: "# Example",
+          excerpt: "Example",
+          r2Key: "jobs/test/source-1.md"
+        }
+      ],
+      baseModel,
+      ["https://example.com"]
+    );
+
+    expect(result.result.title).toBe("OpenAI reviewed report");
+    expect(result.estimatedCents).toBe(5);
+    const request = fetchMock.mock.calls[0];
+    expect(request[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    const body = JSON.parse(String((request[1] as RequestInit).body));
+    expect(body).toMatchObject({
+      model: "openai/gpt-5.6-terra",
+      provider: { require_parameters: true },
+      response_format: { type: "json_schema" }
+    });
   });
 });
 

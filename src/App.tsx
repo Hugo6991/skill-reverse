@@ -158,33 +158,37 @@ export default function App() {
 
   async function startResearch(input: ResearchInput) {
     setBusy(true);
-    const result = await api<{
-      jobId: string;
-      status: string;
-      reportId?: string;
-      capabilityToken: string;
-    }>("/api/jobs", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(input)
-    });
-    sessionStorage.setItem(`skill-reverse:${result.jobId}`, result.capabilityToken);
-    if (result.reportId) {
-      navigate(`/reports/${encodeURIComponent(result.reportId)}`);
-      return;
+    try {
+      const result = await api<{
+        jobId: string;
+        status: string;
+        reportId?: string;
+        capabilityToken: string;
+      }>("/api/jobs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      sessionStorage.setItem(`skill-reverse:${result.jobId}`, result.capabilityToken);
+      if (result.reportId) {
+        navigate(`/reports/${encodeURIComponent(result.reportId)}`);
+        return;
+      }
+      setJob({
+        id: result.jobId,
+        status: "queued",
+        stage: "validate",
+        progress: 4,
+        targetUrl: input.targetUrl,
+        occupationCode: input.occupationCode,
+        degraded: [],
+        costUsd: 0,
+        sourceCollection: { open: true, submittedCount: 0 }
+      });
+      navigate(`/jobs/${encodeURIComponent(result.jobId)}`);
+    } finally {
+      setBusy(false);
     }
-    setJob({
-      id: result.jobId,
-      status: "queued",
-      stage: "validate",
-      progress: 4,
-      targetUrl: input.targetUrl,
-      occupationCode: input.occupationCode,
-      degraded: [],
-      costUsd: 0,
-      sourceCollection: { open: true, submittedCount: 0 }
-    });
-    navigate(`/jobs/${encodeURIComponent(result.jobId)}`);
   }
 
   async function submitSources(urls: string[], finalize: boolean) {

@@ -121,14 +121,16 @@ if (whoami.status !== 0) run(["login"]);
 
 const remoteSecrets = listRemoteSecrets();
 const hasPerplexityKey = remoteSecrets.has("PERPLEXITY_API_KEY");
+const hasOpenRouterKey = remoteSecrets.has("OPENROUTER_API_KEY");
 const hasTwitterKey = remoteSecrets.has("TWITTERAPI_KEY");
 const hasAnonSessionSecret = remoteSecrets.has("ANON_SESSION_SECRET");
 const hasTurnstileKeys =
   remoteSecrets.has("TURNSTILE_SITE_KEY") && remoteSecrets.has("TURNSTILE_SECRET_KEY");
-if (hasPerplexityKey || hasTwitterKey || hasTurnstileKeys) {
+if (hasPerplexityKey || hasOpenRouterKey || hasTwitterKey || hasTurnstileKeys) {
   console.log(
     `Existing Worker secrets: ${[
       hasPerplexityKey && "Perplexity",
+      hasOpenRouterKey && "OpenRouter",
       hasTwitterKey && "TwitterAPI.io",
       hasTurnstileKeys && "Turnstile"
     ]
@@ -148,6 +150,12 @@ if (deployment.protocol !== "https:") {
 const perplexityKey = await askSecret(
   hasPerplexityKey ? "Perplexity API key (leave blank to keep existing)" : "Perplexity API key",
   { optional: hasPerplexityKey }
+);
+const openRouterKey = await askSecret(
+  hasOpenRouterKey
+    ? "OpenRouter API key (leave blank to keep existing)"
+    : "OpenRouter API key for OpenAI synthesis",
+  { optional: true }
 );
 const twitterKey = await askSecret(
   hasTwitterKey ? "TwitterAPI.io key (leave blank to keep existing)" : "TwitterAPI.io key",
@@ -193,6 +201,7 @@ if (!hasAnonSessionSecret) {
   secrets.ANON_SESSION_SECRET = randomBytes(32).toString("hex");
 }
 if (perplexityKey) secrets.PERPLEXITY_API_KEY = perplexityKey;
+if (openRouterKey) secrets.OPENROUTER_API_KEY = openRouterKey;
 if (twitterKey) secrets.TWITTERAPI_KEY = twitterKey;
 
 run(["d1", "migrations", "apply", "DB", "--remote"]);
@@ -218,11 +227,11 @@ if (!health?.checks) {
 
 console.log("\nPreflight");
 for (const [name, result] of Object.entries(health.checks ?? {})) {
-  const optionalFailure = name === "social" && !result.ok;
+  const optionalFailure = (name === "social" || name === "openrouter") && !result.ok;
   console.log(`${result.ok ? "✓" : optionalFailure ? "!" : "✕"} ${name}: ${result.detail ?? ""}`);
 }
 const requiredFailures = Object.entries(health.checks ?? {}).filter(
-  ([name, result]) => name !== "social" && !result.ok
+  ([name, result]) => name !== "social" && name !== "openrouter" && !result.ok
 );
 if (requiredFailures.length) {
   console.error("\nProduction remains locked. Fix the red checks, then run setup:prod again.");

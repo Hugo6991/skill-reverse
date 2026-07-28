@@ -4,6 +4,7 @@ import {
   assembleReport,
   captureUrl,
   fetchSocialEvidence,
+  runOpenRouterSynthesis,
   runPerplexityResearch,
   type CapturedArtifact
 } from "./services";
@@ -208,6 +209,50 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
       );
       actualCents += researched.estimatedCents;
 
+      await updateJob(this.env.DB, jobId, {
+        stage: "hypothesis_generation",
+        progress: 76,
+        actualCents,
+        degraded
+      });
+      let synthesized:
+        | { result: typeof researched.result; estimatedCents: number; degraded?: undefined }
+        | { result: typeof researched.result; estimatedCents: 0; degraded: string };
+      if (!this.env.OPENROUTER_API_KEY) {
+        synthesized = {
+          result: researched.result,
+          estimatedCents: 0,
+          degraded: "OpenRouter synthesis unavailable; Perplexity research draft was used"
+        };
+      } else {
+        try {
+          const result = await step.do(
+            "synthesize final report with OpenAI via OpenRouter",
+            { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" } },
+            async () =>
+              runOpenRouterSynthesis(
+              this.env,
+              targetUrl,
+              occupation,
+              captured,
+              researched.result,
+              researched.citations
+              )
+          );
+          synthesized = { ...result, degraded: undefined };
+        } catch (error) {
+          synthesized = {
+            result: researched.result,
+            estimatedCents: 0,
+            degraded: `OpenRouter synthesis unavailable: ${
+              error instanceof Error ? error.message : "provider error"
+            }`
+          };
+        }
+      }
+      actualCents += synthesized.estimatedCents;
+      if (synthesized.degraded) degraded.push(synthesized.degraded);
+
       const report = await step.do("assemble evidence graph", async () => {
         await updateJob(this.env.DB, jobId, {
           stage: "hypothesis_generation",
@@ -219,7 +264,7 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           id: crypto.randomUUID(),
           targetUrl,
           occupation,
-          model: researched.result,
+          model: synthesized.result,
           captured,
           posts: social.posts,
           citations: researched.citations,

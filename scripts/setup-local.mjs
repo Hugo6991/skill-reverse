@@ -10,6 +10,7 @@ if (!existsSync(envPath)) {
   const values = [
     "APP_MODE=demo",
     "PERPLEXITY_API_KEY=",
+    "OPENROUTER_API_KEY=",
     "TWITTERAPI_KEY=",
     `TURNSTILE_SITE_KEY=${testSiteKey}`,
     `TURNSTILE_SECRET_KEY=${testSecret}`,

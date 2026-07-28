@@ -91,6 +91,7 @@ Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repositor
 | Name | Required | Purpose |
 |---|---:|---|
 | `PERPLEXITY_API_KEY` | yes | Sonar Pro research |
+| `OPENROUTER_API_KEY` | no | OpenAI final synthesis through OpenRouter |
 | `TURNSTILE_SITE_KEY` | yes | Browser widget |
 | `TURNSTILE_SECRET_KEY` | yes | Server-side Siteverify |
 | `ANON_SESSION_SECRET` | generated | Signed anonymous session |
@@ -105,11 +106,12 @@ Cloudflare service credentials不需要放進環境變數；D1、R2、Browser Ru
 Production 可以使用 owner 自己的 provider accounts，但應為這個網站建立獨立 API keys，不要重用日常開發 key：
 
 1. 在 Perplexity 建立專用 key，先只加入少量 prepaid credits，並關閉 Auto reload。應用固定使用 Sonar Pro 的 low search context，另由 Worker 的單工作與每日預算閘門控制建立研究工作。
-2. TwitterAPI.io key 是可選能力。使用獨立 key 與有限餘額；額度用完時只會降級 social provenance，不會讓整份報告失敗。
-3. 在 Cloudflare Turnstile 建立 Managed widget，hostname 限制為 production `workers.dev` hostname。
-4. 執行 `pnpm setup:prod`。Wizard 會辨識已存在的 Worker provider secrets，允許沿用而不必再次顯示或貼上；新增 secrets 仍只透過 stdin 寫入 Worker，永遠不進 GitHub、build variables 或前端 bundle。
+2. OpenRouter 使用獨立 key，預設模型為 `openai/gpt-5.6-terra`，只負責將 Perplexity 研究草稿與已擷取證據匯整成最終報告。缺少或故障時會保留 Perplexity 草稿並標記降級。
+3. TwitterAPI.io key 是可選能力。使用獨立 key 與有限餘額；額度用完時只會降級 social provenance，不會讓整份報告失敗。
+4. 在 Cloudflare Turnstile 建立 Managed widget，hostname 限制為 production `workers.dev` hostname。
+5. 執行 `pnpm setup:prod`。Wizard 會辨識已存在的 Worker provider secrets，允許沿用而不必再次顯示或貼上；新增 secrets 仍只透過 stdin 寫入 Worker，永遠不進 GitHub、build variables 或前端 bundle。
 
-公開 UI 不展示單工作成本、每日預算或內部研究準則；限制仍由 Durable Objects、Rate Limiting、Turnstile 與 provider 預付額度在後端執行。
+公開 UI 不展示單工作成本、每日預算或內部研究準則；限制仍由 Durable Objects、Rate Limiting、Turnstile 與 provider 預付額度在後端執行。匿名 session 預設每日最多 20 個研究工作，透過 `ANON_DAILY_JOB_LIMIT` 調整。
 
 ## 日常指令
 

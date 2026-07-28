@@ -22,17 +22,17 @@ describe("Cloudflare bindings in workerd", () => {
     });
   });
 
-  it("enforces one active job and two jobs per day in ActorGate", async () => {
+  it("enforces one active job and the configured daily limit in ActorGate", async () => {
     const actor = bindings.ACTOR_GATE.getByName(`test-${crypto.randomUUID()}`);
-    expect(await actor.reserve("job-1", "2026-07-28")).toEqual({ ok: true });
-    expect(await actor.reserve("job-2", "2026-07-28")).toMatchObject({
+    expect(await actor.reserve("job-1", "2026-07-28", 2)).toEqual({ ok: true });
+    expect(await actor.reserve("job-2", "2026-07-28", 2)).toMatchObject({
       ok: false,
       reason: "concurrent_job"
     });
     await actor.release("job-1");
-    expect(await actor.reserve("job-2", "2026-07-28")).toEqual({ ok: true });
+    expect(await actor.reserve("job-2", "2026-07-28", 2)).toEqual({ ok: true });
     await actor.release("job-2");
-    expect(await actor.reserve("job-3", "2026-07-28")).toMatchObject({
+    expect(await actor.reserve("job-3", "2026-07-28", 2)).toMatchObject({
       ok: false,
       reason: "daily_job_limit"
     });

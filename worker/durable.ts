@@ -8,14 +8,18 @@ interface ActorState {
 }
 
 export class ActorGate extends DurableObject<AppEnv> {
-  async reserve(jobId: string, day: string): Promise<{ ok: boolean; reason?: string }> {
+  async reserve(
+    jobId: string,
+    day: string,
+    dailyJobLimit: number
+  ): Promise<{ ok: boolean; reason?: string }> {
     const current = (await this.ctx.storage.get<ActorState>("state")) ?? {
       day,
       jobsToday: 0
     };
     const next = current.day === day ? current : { day, jobsToday: 0 };
     if (next.activeJobId) return { ok: false, reason: "concurrent_job" };
-    if (next.jobsToday >= 2) return { ok: false, reason: "daily_job_limit" };
+    if (next.jobsToday >= dailyJobLimit) return { ok: false, reason: "daily_job_limit" };
     await this.ctx.storage.put("state", {
       ...next,
       activeJobId: jobId,
