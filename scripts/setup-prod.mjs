@@ -262,5 +262,6 @@ console.log(`✓ Live report passed · ${smokeReport.sources.length} sources · 
 run(["secret", "put", "SETUP_COMPLETE"], { input: "true\n" });
 console.log("\n✓ Production unlocked");
 console.log(`  Health: ${deployment.origin}/api/health`);
-console.log("  Keep SETUP_CAPABILITY in your password manager if you want deep doctor checks later.");
+console.log(`  Setup capability (shown once): ${setupCapability}`);
+console.log("  Save it in your password manager for future deep doctor checks");
 rl.close();

@@ -69,6 +69,8 @@ setup wizard 會：
 
 locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 key 不會意外產生模型費用。完成 setup 後網站公開，但 GitHub repository 仍維持 Private。
 
+成功時 wizard 只顯示一次新產生的 setup capability；請存入密碼管理器，之後 `pnpm doctor` 的 binding-level 診斷會使用它。
+
 若提供只有 `Turnstile Sites Write` 權限的 scoped Cloudflare token，wizard 會自動建立 Managed widget 並限制正式 hostname；沒有 token 時則引導貼入 dashboard 建立的 site/secret keys。
 
 ### Private GitHub continuous deployment
