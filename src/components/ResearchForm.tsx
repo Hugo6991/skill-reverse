@@ -100,8 +100,8 @@ export function ResearchForm({
         <div className="locked-notice" role="status">
           <LockKeyhole size={20} aria-hidden="true" />
           <div>
-            <strong>Production is safely locked</strong>
-            <span>Run setup:prod to validate secrets and cost gates. The demo stays available.</span>
+            <strong>Research jobs are not available yet</strong>
+            <span>You can explore the pilot report while the service is being prepared.</span>
           </div>
         </div>
       )}
@@ -247,10 +247,6 @@ export function ResearchForm({
         )}
 
         <div className="form-actions">
-          <div className="cost-note">
-            <span>Hard cap</span>
-            <strong>${config.limits.maxJobUsd.toFixed(2)} / job</strong>
-          </div>
           {config.mode === "locked" ? (
             <button type="button" className="primary-button" onClick={onOpenDemo}>
               Open demo dossier

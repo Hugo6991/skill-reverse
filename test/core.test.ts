@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { demoReport } from "../worker/demo";
-import { resolveAppMode } from "../worker/index";
+import { publicConfig, resolveAppMode } from "../worker/index";
 import { pilotOccupation } from "../worker/occupations";
 import { modelResultSchema } from "../worker/schema";
 import { assertSafePublicUrl } from "../worker/security";
@@ -33,6 +33,21 @@ describe("deployment lock", () => {
       resolveAppMode({ APP_MODE: "locked", SETUP_COMPLETE: "true" } as AppEnv)
     ).toBe("public");
     expect(resolveAppMode({ APP_MODE: "demo" } as AppEnv)).toBe("demo");
+  });
+
+  it("keeps owner budget policy out of the public configuration", () => {
+    expect(
+      publicConfig({
+        APP_MODE: "locked",
+        SETUP_COMPLETE: "true",
+        TURNSTILE_SITE_KEY: "public-site-key",
+        JOB_USD_LIMIT: "0.50",
+        DAILY_USD_LIMIT: "5.00"
+      } as AppEnv)
+    ).toEqual({
+      mode: "public",
+      turnstileSiteKey: "public-site-key"
+    });
   });
 });
 

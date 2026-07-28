@@ -138,10 +138,4 @@ export interface JobStatus {
 export interface PublicConfig {
   mode: "locked" | "demo" | "public";
   turnstileSiteKey: string;
-  socialEnabled: boolean;
-  limits: {
-    jobsPerDay: number;
-    maxUrls: number;
-    maxJobUsd: number;
-  };
 }

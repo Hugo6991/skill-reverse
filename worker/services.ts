@@ -412,6 +412,9 @@ export async function runPerplexityResearch(
       ],
       temperature: 0.15,
       max_tokens: 3000,
+      web_search_options: {
+        search_context_size: "low"
+      },
       response_format: {
         type: "json_schema",
         json_schema: { name: "reverse_report", schema: MODEL_SCHEMA }

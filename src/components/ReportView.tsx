@@ -91,7 +91,7 @@ export function ReportView({
       {tab === "framework" && (
         <div className="report-grid">
           <section className="framework-panel">
-            <span className="eyebrow">One learning per run</span>
+            <span className="eyebrow">Core framework</span>
             <h2>{report.framework.name}</h2>
             <p className="framework-summary">{report.framework.summary}</p>
             <div className="when-grid">

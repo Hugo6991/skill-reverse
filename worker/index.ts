@@ -25,6 +25,13 @@ export function resolveAppMode(env: AppEnv): "locked" | "demo" | "public" {
   return env.SETUP_COMPLETE === "true" ? "public" : "locked";
 }
 
+export function publicConfig(env: AppEnv) {
+  return {
+    mode: resolveAppMode(env),
+    turnstileSiteKey: env.TURNSTILE_SITE_KEY ?? ""
+  };
+}
+
 app.use(
   "*",
   secureHeaders({
@@ -70,18 +77,7 @@ app.onError((error, c) => {
   );
 });
 
-app.get("/api/config", (c) =>
-  c.json({
-    mode: resolveAppMode(c.env),
-    turnstileSiteKey: c.env.TURNSTILE_SITE_KEY ?? "",
-    socialEnabled: Boolean(c.env.TWITTERAPI_KEY),
-    limits: {
-      jobsPerDay: 2,
-      maxUrls: 9,
-      maxJobUsd: Number(c.env.JOB_USD_LIMIT || 0.5)
-    }
-  })
-);
+app.get("/api/config", (c) => c.json(publicConfig(c.env)));
 
 app.get("/api/occupations", async (c) => {
   const query = c.req.query("q") ?? "";
