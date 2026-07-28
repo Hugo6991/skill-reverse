@@ -3839,3 +3839,562 @@ footer {
     width: 100%;
   }
 }
+
+/* Skill Destiny */
+
+.destiny-card {
+  position: relative;
+  overflow: hidden;
+  background: hsl(252 52% 98%);
+  border: 1px solid hsl(250 28% 84%);
+  border-radius: 18px;
+  box-shadow:
+    0 24px 64px hsl(249 32% 27% / 0.08),
+    0 2px 8px hsl(249 32% 27% / 0.05);
+  isolation: isolate;
+}
+
+.destiny-sky {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 42%, hsl(260 72% 92% / 0.72), transparent 23rem),
+    radial-gradient(circle at 14% 8%, hsl(220 82% 94% / 0.7), transparent 18rem);
+}
+
+.destiny-sky::before,
+.destiny-sky::after {
+  position: absolute;
+  content: "";
+  border: 1px solid hsl(252 35% 72% / 0.28);
+  border-radius: 50%;
+}
+
+.destiny-sky::before {
+  width: 680px;
+  height: 250px;
+  top: 170px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-9deg);
+}
+
+.destiny-sky::after {
+  width: 510px;
+  height: 510px;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.destiny-card-header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  border-bottom: 1px solid hsl(250 25% 86% / 0.8);
+}
+
+.destiny-card-header > div:first-child {
+  display: flex;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.destiny-kicker {
+  color: hsl(252 48% 45%);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.destiny-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.destiny-actions button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: hsl(252 45% 40%);
+  background: hsl(0 0% 100% / 0.72);
+  border: 1px solid hsl(250 28% 82%);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.destiny-actions button:hover {
+  background: white;
+  border-color: hsl(252 45% 66%);
+}
+
+.destiny-stage {
+  min-height: 500px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.72fr) minmax(390px, 1.5fr) minmax(200px, 0.78fr);
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-8);
+}
+
+.destiny-identity,
+.destiny-reading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.destiny-identity {
+  align-items: flex-start;
+}
+
+.destiny-avatar {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: hsl(252 38% 52%);
+  background: hsl(253 52% 92%);
+  border: 1px solid hsl(250 30% 81%);
+  border-radius: 50%;
+  box-shadow: 0 8px 24px hsl(249 35% 32% / 0.1);
+}
+
+.destiny-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.destiny-attribution {
+  margin-top: var(--space-4);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.destiny-identity h1 {
+  margin: var(--space-2) 0;
+  font-size: clamp(24px, 2.4vw, 34px);
+  line-height: 1.12;
+  font-weight: 680;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+}
+
+.destiny-identity > strong {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.destiny-identity > a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-4);
+  color: hsl(252 48% 45%);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.destiny-chart {
+  min-width: 0;
+  display: grid;
+  justify-items: stretch;
+}
+
+.destiny-seal {
+  width: fit-content;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 auto -14px;
+  padding: 0 var(--space-4);
+  color: hsl(252 40% 46%);
+  background: hsl(0 0% 100% / 0.76);
+  border: 1px solid hsl(250 30% 80%);
+  border-radius: 999px;
+  box-shadow: 0 8px 28px hsl(249 35% 32% / 0.08);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.destiny-seal strong {
+  color: hsl(252 54% 33%);
+  font-size: 17px;
+}
+
+.game-radar {
+  width: 100%;
+  height: 330px;
+}
+
+.game-radar-compact {
+  height: 124px;
+}
+
+.game-axis-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.game-axis-list button {
+  min-width: 0;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--text-secondary);
+  background: hsl(0 0% 100% / 0.58);
+  border: 1px solid hsl(250 24% 86%);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.game-axis-list button:hover,
+.game-axis-list button.active {
+  color: hsl(252 50% 34%);
+  background: hsl(0 0% 100% / 0.9);
+  border-color: hsl(252 38% 70%);
+}
+
+.game-axis-list button strong {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+}
+
+.destiny-reading {
+  gap: var(--space-6);
+}
+
+.destiny-reading blockquote {
+  margin: 0;
+  color: hsl(252 35% 29%);
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 23px;
+  line-height: 1.45;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.destiny-reading dl {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.destiny-reading dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid hsl(250 22% 84%);
+}
+
+.destiny-reading dt {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.destiny-reading dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.destiny-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.destiny-badges span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  color: hsl(252 42% 39%);
+  background: hsl(252 58% 93%);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.destiny-axis-detail {
+  min-height: 94px;
+  display: grid;
+  grid-template-columns: 160px minmax(220px, 0.8fr) minmax(260px, 1fr);
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-8);
+  background: hsl(0 0% 100% / 0.72);
+  border-top: 1px solid hsl(250 25% 84%);
+}
+
+.destiny-axis-detail > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.destiny-axis-detail > div span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.destiny-axis-detail > div strong {
+  color: hsl(252 52% 38%);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 22px;
+}
+
+.destiny-axis-detail > div small {
+  grid-column: 1 / -1;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.destiny-axis-detail > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.destiny-axis-detail ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.destiny-axis-detail li {
+  padding: 4px 8px;
+  color: var(--text-secondary);
+  background: var(--fill);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+}
+
+.destiny-money-note {
+  grid-column: 2 / -1;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.report-verdict-strip {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.report-verdict-strip > span {
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-verdict-strip > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.report-verdict-strip .decision-path {
+  margin: 0;
+  font-size: 10px;
+}
+
+.report-verdict-strip .decision-path strong {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .destiny-card {
+    animation: destiny-reveal 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .destiny-seal {
+    animation: destiny-seal 620ms 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  .destiny-badges span {
+    animation: destiny-badge 360ms 460ms ease-out both;
+  }
+
+  .destiny-badges span:nth-child(2) {
+    animation-delay: 540ms;
+  }
+
+  .destiny-badges span:nth-child(3) {
+    animation-delay: 620ms;
+  }
+}
+
+@keyframes destiny-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes destiny-seal {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+}
+
+@keyframes destiny-badge {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+}
+
+@media (max-width: 960px) {
+  .destiny-stage {
+    grid-template-columns: minmax(160px, 0.7fr) minmax(360px, 1.4fr);
+  }
+
+  .destiny-reading {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) minmax(220px, 0.8fr);
+    align-items: center;
+  }
+
+  .destiny-badges {
+    grid-column: 1 / -1;
+  }
+
+  .destiny-axis-detail {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+
+  .destiny-axis-detail ul {
+    grid-column: 1 / -1;
+  }
+
+  .report-verdict-strip {
+    grid-template-columns: 84px minmax(0, 1fr);
+  }
+
+  .report-verdict-strip .decision-path {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 700px) {
+  .report-page {
+    width: calc(100% - 24px);
+  }
+
+  .destiny-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: var(--space-4);
+  }
+
+  .destiny-card-header > div:first-child {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .destiny-actions {
+    width: 100%;
+  }
+
+  .destiny-actions button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .destiny-stage {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+    padding: var(--space-6);
+  }
+
+  .destiny-identity {
+    align-items: center;
+    text-align: center;
+  }
+
+  .destiny-identity h1 {
+    font-size: 28px;
+  }
+
+  .game-radar {
+    height: 290px;
+  }
+
+  .game-axis-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .destiny-reading {
+    display: flex;
+  }
+
+  .destiny-reading blockquote {
+    font-size: 21px;
+  }
+
+  .destiny-axis-detail {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: var(--space-6);
+  }
+
+  .destiny-money-note,
+  .report-verdict-strip .decision-path {
+    grid-column: auto;
+  }
+
+  .report-verdict-strip {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .report-verdict-strip .decision-path {
+    width: 100%;
+    overflow-x: auto;
+  }
+}

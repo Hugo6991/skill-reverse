@@ -20,6 +20,7 @@ import { useState } from "react";
 import { withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
+import { GameProfileHero } from "./GameProfileHero";
 
 const confidenceLabels: Record<EvidenceStatus, string> = {
   verified: "Verified",
@@ -103,24 +104,19 @@ export function ReportView({
         New docket
       </button>
 
-      <header className="report-hero">
-        <div className="report-kicker">
-          <span>Decision brief · 先理解，再決定要不要採用</span>
-          <span>{new Date(report.generatedAt).toLocaleDateString("zh-TW")}</span>
-        </div>
-        <h1>{withoutTerminalFullStop(report.title)}</h1>
-        <div className="decision-verdict">
-          <span className="decision-label">目前建議</span>
-          <p>{withoutTerminalFullStop(report.verdict)}</p>
-        </div>
+      <GameProfileHero report={report} />
+
+      <section className="report-verdict-strip" aria-label="目前建議">
+        <span>目前建議</span>
+        <p>{withoutTerminalFullStop(report.verdict)}</p>
         <div className="decision-path" aria-label="Recommended adoption path">
-          <span className="active">讀懂思維</span>
+          <strong>讀懂思維</strong>
           <i aria-hidden="true" />
-          <span>丟進 Chat 試一次</span>
+          <strong>丟進 Chat 試一次</strong>
           <i aria-hidden="true" />
-          <span>反覆需要時才封裝</span>
+          <strong>反覆需要時才封裝</strong>
         </div>
-      </header>
+      </section>
 
       {report.degraded.length > 0 && (
         <div className="report-degraded">
