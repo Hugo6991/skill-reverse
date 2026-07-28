@@ -3842,6 +3842,10 @@ footer {
 
 /* Skill Destiny */
 
+.report-page {
+  width: min(1240px, calc(100% - 48px));
+}
+
 .destiny-card {
   position: relative;
   overflow: hidden;
@@ -4249,6 +4253,12 @@ footer {
     animation: destiny-reveal 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  .destiny-chart .recharts-radar-polygon {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: destiny-radar 720ms 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
   .destiny-seal {
     animation: destiny-seal 620ms 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
@@ -4277,6 +4287,13 @@ footer {
   from {
     opacity: 0;
     transform: scale(0.92);
+  }
+}
+
+@keyframes destiny-radar {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
   }
 }
 

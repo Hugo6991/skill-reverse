@@ -44,8 +44,7 @@ export function GameRadar({
             fill="hsl(254 73% 59%)"
             fillOpacity={0.22}
             strokeWidth={compact ? 1.5 : 2.5}
-            isAnimationActive={!compact}
-            animationDuration={720}
+            isAnimationActive={false}
           />
         </RadarChart>
       </ResponsiveContainer>
