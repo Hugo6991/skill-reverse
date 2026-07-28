@@ -34,7 +34,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
   }, [refresh]);
 
   async function remove(item: HistoryItem) {
-    if (!window.confirm(`Remove ${new URL(item.targetUrl).hostname} from history?`)) return;
+    if (!window.confirm(`Remove ${item.displayName} from history?`)) return;
     const response = await fetch(`/api/history/${encodeURIComponent(item.jobId)}`, {
       method: "DELETE"
     });
@@ -107,8 +107,25 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
                     )}
                   </span>
                   <span className="history-copy">
-                    <strong>{new URL(item.targetUrl).hostname}</strong>
-                    <small>{item.occupationTitle}</small>
+                    <strong>{item.displayName}</strong>
+                    <small>
+                      {item.sourceHost} · {item.occupationTitle}
+                    </small>
+                    {item.skillLabels.length > 0 && (
+                      <span className="history-skills">
+                        <span className="history-skill-label">New skill</span>
+                        {item.skillLabels.slice(0, 2).map((skill) => (
+                          <span className="history-skill" key={skill} title={skill}>
+                            {skill}
+                          </span>
+                        ))}
+                        {item.skillLabels.length > 2 && (
+                          <span className="history-skill-more">
+                            +{item.skillLabels.length - 2}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </span>
                   <span className={`history-status status-${item.status}`}>
                     {item.status === "running" || item.status === "queued"
@@ -129,7 +146,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
                   <button
                     className="history-delete"
                     type="button"
-                    aria-label={`${uiCopy.history.delete} ${new URL(item.targetUrl).hostname}`}
+                    aria-label={`${uiCopy.history.delete} ${item.displayName}`}
                     onClick={() => void remove(item)}
                   >
                     <Trash2 size={16} aria-hidden="true" />

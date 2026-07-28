@@ -8,11 +8,52 @@ import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources"
 import { assembleReport } from "../worker/services";
 import type { AppEnv } from "../worker/types";
 import { withoutTerminalFullStop } from "../src/text";
+import { historyPresentation } from "../worker/history";
 
 describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
     expect(withoutTerminalFullStop(`流程時使用\u3002`)).toBe("流程時使用");
     expect(withoutTerminalFullStop(`先確認\u3002再執行`)).toBe(`先確認\u3002再執行`);
+  });
+});
+
+describe("history presentation", () => {
+  it("uses a GitHub repository name instead of the host", () => {
+    expect(historyPresentation("https://github.com/antfu/antfu.me/tree/main")).toMatchObject({
+      displayName: "antfu.me",
+      sourceHost: "github.com",
+      skillLabels: []
+    });
+  });
+
+  it("uses the captured website title and extracted skills", () => {
+    const report = JSON.stringify({
+      framework: { name: "可檢查的設計工程。" },
+      sources: [
+        {
+          url: "https://antfu.me/",
+          title: "Anthony Fu"
+        }
+      ],
+      professionalDelta: [
+        {
+          manifestation: "author_specific_extension",
+          competency: { label: "Design systems。" }
+        }
+      ]
+    });
+    expect(historyPresentation("https://antfu.me", report)).toEqual({
+      displayName: "Anthony Fu",
+      sourceHost: "antfu.me",
+      skillLabels: ["可檢查的設計工程", "Design systems"]
+    });
+  });
+
+  it("falls back safely when an older report cannot be parsed", () => {
+    expect(historyPresentation("https://my-cool-site.dev", "{")).toMatchObject({
+      displayName: "My Cool Site",
+      skillLabels: []
+    });
   });
 });
 

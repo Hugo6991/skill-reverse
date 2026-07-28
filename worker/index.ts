@@ -3,6 +3,7 @@ import { secureHeaders } from "hono/secure-headers";
 import type { JobStatus } from "../src/types";
 import { ActorGate, DailyBudget } from "./durable";
 import { demoReport } from "./demo";
+import { historyPresentation } from "./history";
 import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import { getOccupation, searchOccupations } from "./occupations";
 import { createJobSchema, updateJobSourcesSchema } from "./schema";
@@ -541,9 +542,11 @@ app.get("/api/history", async (c) => {
   const cursor = c.req.query("cursor");
   const rows = await c.env.DB.prepare(
     `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
-            j.status, j.stage, j.progress, j.report_id, j.created_at, j.updated_at
+            j.status, j.stage, j.progress, j.report_id, j.created_at, j.updated_at,
+            r.payload_json AS report_payload_json
      FROM jobs j
      LEFT JOIN occupations o ON o.code = j.occupation_code
+     LEFT JOIN reports r ON r.id = j.report_id AND r.expires_at > ?2
      WHERE j.actor_hash = ?1
        AND j.expires_at > ?2
        AND (?3 IS NULL OR j.created_at < ?3)
@@ -560,23 +563,28 @@ app.get("/api/history", async (c) => {
       stage: string;
       progress: number;
       report_id: string | null;
+      report_payload_json: string | null;
       created_at: string;
       updated_at: string;
     }>();
   const page = rows.results.slice(0, limit);
   const response = c.json({
-    items: page.map((item) => ({
-      jobId: item.id,
-      targetUrl: item.target_url,
-      occupationCode: item.occupation_code,
-      occupationTitle: item.occupation_title ?? item.occupation_code,
-      status: item.status,
-      stage: item.stage,
-      progress: item.progress,
-      reportId: item.report_id ?? undefined,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at
-    })),
+    items: page.map((item) => {
+      const presentation = historyPresentation(item.target_url, item.report_payload_json);
+      return {
+        jobId: item.id,
+        targetUrl: item.target_url,
+        occupationCode: item.occupation_code,
+        occupationTitle: item.occupation_title ?? item.occupation_code,
+        ...presentation,
+        status: item.status,
+        stage: item.stage,
+        progress: item.progress,
+        reportId: item.report_id ?? undefined,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at
+      };
+    }),
     nextCursor: rows.results.length > limit ? page.at(-1)?.created_at : undefined
   });
   return attachActorCookie(c, response);

@@ -147,6 +147,9 @@ export interface JobStatus {
 export interface HistoryItem {
   jobId: string;
   targetUrl: string;
+  displayName: string;
+  sourceHost: string;
+  skillLabels: string[];
   occupationCode: string;
   occupationTitle: string;
   status: JobStatus["status"];
