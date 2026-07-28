@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
-import type { JobStatus } from "../src/types";
+import type { GameProfile, JobStatus, SkillCardSummary } from "../src/types";
 import { authorizeAdmin } from "./access";
 import { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import { demoReport } from "./demo";
@@ -1047,6 +1047,110 @@ app.get("/api/history", async (c) => {
   });
 });
 
+app.get("/api/collection", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) return c.json({ cards: [], activity: [] });
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const now = new Date().toISOString();
+  const [cardRows, activityRows] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, report_id, target_url, display_name, occupation_code, occupation_title,
+              game_profile_json, share_slug, created_at, updated_at
+       FROM skill_cards
+       WHERE actor_hash = ?1 AND expires_at > ?2
+       ORDER BY updated_at DESC
+       LIMIT 50`
+    )
+      .bind(actor.actorHash, now)
+      .all<{
+        id: string;
+        report_id: string | null;
+        target_url: string;
+        display_name: string;
+        occupation_code: string;
+        occupation_title: string;
+        game_profile_json: string;
+        share_slug: string | null;
+        created_at: string;
+        updated_at: string;
+      }>(),
+    c.env.DB.prepare(
+      `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
+              j.status, j.stage, j.progress, j.report_id, j.created_at, j.updated_at
+       FROM jobs j
+       LEFT JOIN occupations o ON o.code = j.occupation_code
+       WHERE j.actor_hash = ?1
+         AND j.expires_at > ?2
+         AND j.status != 'completed'
+       ORDER BY j.updated_at DESC
+       LIMIT 20`
+    )
+      .bind(actor.actorHash, now)
+      .all<{
+        id: string;
+        target_url: string;
+        occupation_code: string;
+        occupation_title: string | null;
+        status: string;
+        stage: string;
+        progress: number;
+        report_id: string | null;
+        created_at: string;
+        updated_at: string;
+      }>()
+  ]);
+  const cards: SkillCardSummary[] = cardRows.results.map((row) => ({
+    id: row.id,
+    reportId: row.report_id ?? undefined,
+    targetUrl: row.target_url,
+    displayName: row.display_name,
+    occupationCode: row.occupation_code,
+    occupationTitle: row.occupation_title,
+    gameProfile: JSON.parse(row.game_profile_json) as GameProfile,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    shareSlug: row.share_slug ?? undefined
+  }));
+  const activity = activityRows.results.map((row) => ({
+    jobId: row.id,
+    targetUrl: row.target_url,
+    occupationCode: row.occupation_code,
+    occupationTitle: row.occupation_title ?? row.occupation_code,
+    ...historyPresentation(row.target_url),
+    status: row.status,
+    stage: row.stage,
+    progress: row.progress,
+    reportId: row.report_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+  return attachActorCookie(c, c.json({ cards, activity }));
+});
+
+app.delete("/api/cards/:id", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ error: { code: "setup_required", message: "Collection is unavailable" } }, 503);
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const deleted = await c.env.DB.prepare(
+    "DELETE FROM skill_cards WHERE id = ?1 AND actor_hash = ?2"
+  )
+    .bind(c.req.param("id"), actor.actorHash)
+    .run();
+  if (!deleted.meta.changes) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "Manual not found" } }, 404)
+    );
+  }
+  return attachActorCookie(c, c.body(null, 204));
+});
+
 app.post("/api/setup/smoke", async (c) => {
   if (!isSetupAuthorized(c.req.raw, c.env)) {
     return c.json({ error: { code: "unauthorized", message: "Setup capability required" } }, 401);
@@ -1292,7 +1396,7 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-    checks.database = { ok: schema?.value === "6", detail: `schema ${schema?.value ?? "missing"}` };
+  checks.database = { ok: schema?.value === "6", detail: `schema ${schema?.value ?? "missing"}` };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }
@@ -1467,6 +1571,9 @@ async function cleanupExpired(env: AppEnv): Promise<void> {
     await Promise.all(objects.objects.map((object) => env.ARTIFACTS.delete(object.key)));
     await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(job.id).run();
   }
+  await env.DB.prepare("DELETE FROM skill_cards WHERE expires_at <= ?1")
+    .bind(new Date().toISOString())
+    .run();
 }
 
 async function failDeadLetterJob(env: AppEnv, jobId: string): Promise<void> {

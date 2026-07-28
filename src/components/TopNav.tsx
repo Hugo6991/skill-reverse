@@ -1,10 +1,18 @@
-import { FileSearch2, Globe2, Plus, ScanSearch, ShieldCheck } from "lucide-react";
+import {
+  BookMarked,
+  FileSearch2,
+  Globe2,
+  Plus,
+  ScanSearch,
+  ShieldCheck
+} from "lucide-react";
 import { uiCopy } from "../copy";
 
 export type AppRoute =
   | { kind: "home" }
   | { kind: "admin" }
   | { kind: "history" }
+  | { kind: "collection" }
   | { kind: "job"; id: string }
   | { kind: "report"; id: string }
   | { kind: "not_found" };
@@ -67,11 +75,19 @@ export function TopNav({
           </NavLink>
           <NavLink
             href="/history"
-            active={route.kind === "history" || route.kind === "job"}
+            active={route.kind === "history"}
             onNavigate={onNavigate}
           >
             <Globe2 size={15} aria-hidden="true" />
             {uiCopy.nav.history}
+          </NavLink>
+          <NavLink
+            href="/collection"
+            active={route.kind === "collection" || route.kind === "job"}
+            onNavigate={onNavigate}
+          >
+            <BookMarked size={15} aria-hidden="true" />
+            藏經閣
           </NavLink>
           <NavLink
             href="/reports/demo"

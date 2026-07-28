@@ -4398,3 +4398,226 @@ footer {
     overflow-x: auto;
   }
 }
+
+.collection-page {
+  width: min(1080px, calc(100% - 48px));
+}
+
+.collection-heading {
+  margin-bottom: var(--space-8);
+}
+
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.manual-card {
+  overflow: hidden;
+  background: hsl(252 45% 98%);
+  border: 1px solid hsl(250 24% 84%);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.manual-card-main {
+  width: 100%;
+  min-height: 390px;
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  padding: var(--space-6);
+  color: var(--text);
+  background:
+    radial-gradient(circle at 50% 28%, hsl(260 70% 92% / 0.72), transparent 11rem),
+    transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.manual-card-main:hover {
+  background:
+    radial-gradient(circle at 50% 28%, hsl(260 73% 90% / 0.82), transparent 11rem),
+    white;
+}
+
+.manual-card-main:disabled {
+  cursor: default;
+}
+
+.manual-volume {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.manual-archetype {
+  width: fit-content;
+  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  margin: -8px 0 var(--space-4);
+  padding: 0 var(--space-3);
+  color: hsl(252 50% 36%);
+  background: hsl(0 0% 100% / 0.78);
+  border: 1px solid hsl(252 30% 80%);
+  border-radius: 999px;
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.manual-card-main > strong {
+  overflow: hidden;
+  font-size: 18px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-card-main > small {
+  margin-top: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.manual-card-main > p {
+  min-height: 42px;
+  margin: var(--space-4) 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.manual-card-main > time {
+  margin-top: auto;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.manual-card-actions {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-4);
+  background: hsl(0 0% 100% / 0.74);
+  border-top: 1px solid hsl(250 22% 86%);
+}
+
+.manual-card-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.manual-card-actions button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.manual-card-actions button:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.collection-activity {
+  margin-top: var(--space-12);
+}
+
+.collection-activity h2 {
+  margin: var(--space-1) 0 var(--space-4);
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.collection-activity-list {
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.collection-activity-list button {
+  width: 100%;
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--stroke);
+  cursor: pointer;
+  text-align: left;
+}
+
+.collection-activity-list button:last-child {
+  border-bottom: 0;
+}
+
+.collection-activity-list button:hover {
+  background: var(--surface-subtle);
+}
+
+.collection-activity-list button > span {
+  display: grid;
+}
+
+.collection-activity-list strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.collection-activity-list small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.collection-empty {
+  padding: var(--space-12);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+}
+
+.collection-empty .primary-button {
+  margin-top: var(--space-3);
+}
+
+@media (max-width: 900px) {
+  .collection-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .collection-page {
+    width: calc(100% - 32px);
+  }
+
+  .collection-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .manual-card-main {
+    min-height: 360px;
+  }
+}

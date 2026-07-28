@@ -2,6 +2,7 @@ import { ArrowRight, Brain, MessageSquareText, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uiCopy } from "./copy";
 import { AdminPage } from "./components/AdminPage";
+import { CollectionPage } from "./components/CollectionPage";
 import { HistoryPage } from "./components/HistoryPage";
 import { JobProgress } from "./components/JobProgress";
 import { ReportView } from "./components/ReportView";
@@ -30,6 +31,7 @@ function parseRoute(): AppRoute {
   if (parts.length === 0) return { kind: "home" };
   if (parts[0] === "admin") return { kind: "admin" };
   if (parts[0] === "history" && parts.length === 1) return { kind: "history" };
+  if (parts[0] === "collection" && parts.length === 1) return { kind: "collection" };
   if (parts[0] === "jobs" && parts[1]) {
     return { kind: "job", id: decodeURIComponent(parts[1]) };
   }
@@ -250,6 +252,7 @@ export default function App() {
     }
     if (route.kind === "admin") return <AdminPage onNavigate={navigate} />;
     if (route.kind === "history") return <HistoryPage onNavigate={navigate} />;
+    if (route.kind === "collection") return <CollectionPage onNavigate={navigate} />;
     if (route.kind === "job" && job) {
       return (
         <JobProgress
@@ -258,7 +261,7 @@ export default function App() {
           onSubmitSources={submitSources}
           onRetry={retryResearch}
           onStartNew={() => navigate("/")}
-          onBack={() => navigate("/history")}
+          onBack={() => navigate("/collection")}
         />
       );
     }
