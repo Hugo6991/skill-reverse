@@ -98,6 +98,68 @@ export interface FrameworkStep {
   failureType: "discipline" | "shape" | "omission" | "conditional";
 }
 
+export type GameAxisId =
+  | "money"
+  | "spectacle"
+  | "potency"
+  | "activation"
+  | "renown"
+  | "ascension";
+
+export type GameArchetypeId =
+  | "wealth_with_proof"
+  | "all_aura"
+  | "quiet_power"
+  | "hard_ascension"
+  | "famous_sect"
+  | "hidden_manual"
+  | "instant_magic"
+  | "money"
+  | "spectacle"
+  | "potency"
+  | "activation"
+  | "renown"
+  | "ascension";
+
+export type GameRoastId =
+  | "all_aura"
+  | "famous_but_unproven"
+  | "expensive_unknown_return"
+  | "valuable_hard_start"
+  | "quiet_power"
+  | "portable_manual"
+  | "balanced";
+
+export type GameBadgeId =
+  | "evidence_rich"
+  | "low_dependency"
+  | "portable"
+  | "field_tested"
+  | "well_maintained";
+
+export interface GameAxis {
+  id: GameAxisId;
+  value?: number;
+  coverage: number;
+  evidenceIds: string[];
+  signalIds: string[];
+}
+
+export interface GameProfile {
+  rubricVersion: "game-profile-v1";
+  axes: GameAxis[];
+  archetypeId: GameArchetypeId;
+  roastId: GameRoastId;
+  badges: GameBadgeId[];
+  strongestAxisId: GameAxisId;
+  weakestAxisId: GameAxisId;
+  author: {
+    avatarUrl?: string;
+    profileUrl?: string;
+    attribution: "repository_owner" | "identified_creator" | "source_creator";
+  };
+}
+
 export interface ReverseReport {
   id: string;
   title: string;
@@ -117,6 +179,7 @@ export interface ReverseReport {
     background: string;
     context: string;
   };
+  gameProfile: GameProfile;
   occupation: OccupationProfile;
   professionalDelta: ProfessionalDelta[];
   observations: Observation[];
@@ -217,6 +280,34 @@ export interface AdminReportItem {
   hiddenAt: string | null;
   moderationNote: string | null;
   occupationTitle: string | null;
+}
+
+export interface SkillCardSummary {
+  id: string;
+  reportId?: string;
+  targetUrl: string;
+  displayName: string;
+  occupationCode: string;
+  occupationTitle: string;
+  gameProfile: GameProfile;
+  createdAt: string;
+  updatedAt: string;
+  shareSlug?: string;
+}
+
+export interface CollectionPage {
+  cards: SkillCardSummary[];
+  activity: HistoryItem[];
+  nextCursor?: string;
+}
+
+export interface PublicSkillCard {
+  id: string;
+  targetUrl: string;
+  displayName: string;
+  occupationTitle: string;
+  gameProfile: GameProfile;
+  createdAt: string;
 }
 
 export interface PublicConfig {

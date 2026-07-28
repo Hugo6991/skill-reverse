@@ -20,6 +20,7 @@ import {
   normalizeTargetUrl,
   targetKey
 } from "../worker/publication";
+import { computeGameProfile } from "../worker/game-profile";
 
 describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
@@ -33,6 +34,52 @@ describe("report presentation copy", () => {
     expect(demoReport.verdict).toContain("不必急著安裝");
     expect(demoReport.adoption.some((item) => item.includes("聊天 AI"))).toBe(true);
     expect(demoReport.degraded).toEqual([]);
+  });
+});
+
+describe("deterministic game profile", () => {
+  it("returns the same destiny for the same report signals", () => {
+    const first = computeGameProfile(demoReport);
+    const second = computeGameProfile(demoReport);
+    expect(first).toEqual(second);
+    expect(first.axes.every((axis) => axis.value === undefined || axis.value % 5 === 0)).toBe(true);
+  });
+
+  it("leaves renown unknown when public discussion is not verified", () => {
+    const profile = computeGameProfile({
+      ...demoReport,
+      sources: demoReport.sources.filter((source) => source.kind !== "x_post")
+    });
+    expect(profile.axes.find((axis) => axis.id === "renown")).toMatchObject({
+      value: undefined,
+      coverage: 25
+    });
+  });
+
+  it("does not feed entertainment dimensions back into claim confidence", () => {
+    const before = demoReport.claims.map((claim) => claim.confidence);
+    const profile = computeGameProfile({
+      ...demoReport,
+      framework: {
+        ...demoReport.framework,
+        summary: `${demoReport.framework.summary} SDK plugin install dependency framework agent`
+      },
+      sources: [
+        ...demoReport.sources,
+        {
+          id: "social-extra",
+          url: "https://x.com/example/status/1",
+          kind: "x_post",
+          status: "verified_at_retrieval",
+          title: "Public discussion",
+          retrievedAt: demoReport.generatedAt
+        }
+      ]
+    });
+    expect(profile.axes.find((axis) => axis.id === "activation")?.value).toBeGreaterThan(
+      demoReport.gameProfile.axes.find((axis) => axis.id === "activation")?.value ?? 0
+    );
+    expect(demoReport.claims.map((claim) => claim.confidence)).toEqual(before);
   });
 });
 

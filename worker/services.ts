@@ -14,6 +14,7 @@ import {
   type ModelResult,
   type ResearchDraft
 } from "./schema";
+import { computeGameProfile } from "./game-profile";
 import { addJobCost, ProviderCallError, recordProviderCall } from "./provider-ledger";
 import { assertSafePublicUrl } from "./security";
 import type { AppEnv } from "./types";
@@ -1115,7 +1116,7 @@ export function assembleReport(input: {
     });
   });
 
-  return {
+  const report = {
     id,
     title: model.title,
     targetUrl,
@@ -1136,5 +1137,9 @@ export function assembleReport(input: {
       "職業基準用於比較，不構成對作者能力的評價。"
     ],
     degraded
+  };
+  return {
+    ...report,
+    gameProfile: computeGameProfile(report)
   };
 }

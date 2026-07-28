@@ -46,6 +46,63 @@ export const demoReport: ReverseReport = {
     context:
       "skill-creator 先要求釐清意圖，再建立測試案例、比較結果並迭代。可支持的形成動機是：把對話中有效但容易流失的工作方式，變成可重複驗證的行為；更深的組織或個人哲學仍需第一方訪談才能確認。"
   },
+  gameProfile: {
+    rubricVersion: "game-profile-v1",
+    axes: [
+      {
+        id: "money",
+        value: 70,
+        coverage: 80,
+        evidenceIds: ["source-skill", "source-repo"],
+        signalIds: ["professional_delta", "adoption_signals", "reproducibility"]
+      },
+      {
+        id: "spectacle",
+        value: 45,
+        coverage: 85,
+        evidenceIds: ["source-skill", "source-repo"],
+        signalIds: ["framework_shape", "source_surface", "presentation_density"]
+      },
+      {
+        id: "potency",
+        value: 90,
+        coverage: 95,
+        evidenceIds: ["source-skill", "source-repo"],
+        signalIds: ["claim_strength", "verified_claims", "evidence_coverage"]
+      },
+      {
+        id: "activation",
+        value: 35,
+        coverage: 85,
+        evidenceIds: ["source-skill"],
+        signalIds: ["workflow_depth", "dependency_mentions", "conditional_setup"]
+      },
+      {
+        id: "renown",
+        value: 55,
+        coverage: 45,
+        evidenceIds: ["source-repo"],
+        signalIds: ["verified_social_sources", "third_party_sources"]
+      },
+      {
+        id: "ascension",
+        value: 85,
+        coverage: 90,
+        evidenceIds: ["source-skill", "source-repo"],
+        signalIds: ["professional_delta", "conditional_rules", "dependency_surface"]
+      }
+    ],
+    archetypeId: "quiet_power",
+    roastId: "quiet_power",
+    badges: ["evidence_rich", "low_dependency", "portable"],
+    strongestAxisId: "potency",
+    weakestAxisId: "activation",
+    author: {
+      avatarUrl: "https://github.com/anthropics.png?size=160",
+      profileUrl: "https://github.com/anthropics",
+      attribution: "repository_owner"
+    }
+  },
   occupation: pilotOccupation,
   professionalDelta: [
     {
