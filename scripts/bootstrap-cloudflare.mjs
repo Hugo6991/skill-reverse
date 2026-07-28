@@ -168,5 +168,10 @@ async function main() {
 main().catch((error) => {
   console.error(`\n✕ Bootstrap stopped: ${error instanceof Error ? error.message : String(error)}`);
   console.error("  It is safe to rerun pnpm bootstrap:cloudflare; existing D1/R2 resources are reused.");
+  if (!process.env.CLOUDFLARE_API_TOKEN) {
+    console.error(
+      "  If OAuth is intentionally disabled, set CLOUDFLARE_API_TOKEN in your terminal and rerun."
+    );
+  }
   process.exit(1);
 });

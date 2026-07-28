@@ -41,6 +41,15 @@ pnpm bootstrap:cloudflare
 
 Bootstrap 會要求 Wrangler OAuth，查找或建立 `skill-reverse-db` D1 與 `skill-reverse-artifacts` R2，將真正的 D1 UUID 寫回 `wrangler.jsonc`，套用 migrations 並部署 locked Worker。它可以安全重跑；已存在的資源會被復用。
 
+若不允許 Wrangler OAuth，可在本機終端以隱藏輸入設定具 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit 權限的 scoped token；不要把 token 貼到聊天、command argument 或 repository：
+
+```bash
+read -s CLOUDFLARE_API_TOKEN
+export CLOUDFLARE_API_TOKEN
+pnpm bootstrap:cloudflare
+unset CLOUDFLARE_API_TOKEN
+```
+
 確認 locked deployment 的 `workers.dev` URL 後執行：
 
 ```bash
