@@ -51,7 +51,7 @@ pnpm bootstrap:cloudflare
 unset CLOUDFLARE_API_TOKEN
 ```
 
-確認 locked deployment 的 `https://vibeencode.dev` URL 後執行：
+確認 locked deployment 的 `https://skill-reverse.vibeencode.dev` URL 後執行：
 
 ```bash
 pnpm setup:prod
@@ -108,7 +108,7 @@ Production 可以使用 owner 自己的 provider accounts，但應為這個網�
 1. 在 Perplexity 建立專用 key，先只加入少量 prepaid credits，並關閉 Auto reload。應用固定使用 Sonar Pro 的 low search context，另由 Worker 的單工作與每日預算閘門控制建立研究工作。
 2. OpenRouter 使用獨立 key，預設模型為 `openai/gpt-5.6-terra`，只負責將 Perplexity 研究草稿與已擷取證據匯整成最終報告。缺少或故障時會保留 Perplexity 草稿並標記降級。
 3. TwitterAPI.io key 是可選能力。使用獨立 key 與有限餘額；額度用完時只會降級 social provenance，不會讓整份報告失敗。
-4. 在 Cloudflare Turnstile 建立 Managed widget，hostname 至少允許 `vibeencode.dev`；保留 `skill-reverse.6991hugo.workers.dev` 可讓原始 Worker URL 繼續作為緊急回退。
+4. 在 Cloudflare Turnstile 建立 Managed widget，hostname 至少允許 `skill-reverse.vibeencode.dev`；保留 `skill-reverse.6991hugo.workers.dev` 可讓原始 Worker URL 繼續作為緊急回退。
 5. 執行 `pnpm setup:prod`。Wizard 會辨識已存在的 Worker provider secrets，允許沿用而不必再次顯示或貼上；新增 secrets 仍只透過 stdin 寫入 Worker，永遠不進 GitHub、build variables 或前端 bundle。
 
 公開 UI 不展示單工作成本、每日預算或內部研究準則；限制仍由 Durable Objects、Rate Limiting、Turnstile 與 provider 預付額度在後端執行。匿名 session 預設每日最多 20 個研究工作，透過 `ANON_DAILY_JOB_LIMIT` 調整。
@@ -122,7 +122,7 @@ pnpm build
 pnpm check
 pnpm bootstrap:cloudflare:dry-run
 pnpm bootstrap:cloudflare
-pnpm doctor https://vibeencode.dev
+pnpm doctor https://skill-reverse.vibeencode.dev
 pnpm deploy
 ```
 

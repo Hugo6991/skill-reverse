@@ -8,7 +8,7 @@
   "preview_urls": true,
   "routes": [
     {
-      "pattern": "vibeencode.dev",
+      "pattern": "skill-reverse.vibeencode.dev",
       "custom_domain": true
     }
   ],
@@ -21,7 +21,7 @@
     "JOB_USD_LIMIT": "0.50",
     "DAILY_USD_LIMIT": "5.00",
     "ANON_DAILY_JOB_LIMIT": "20",
-    "PUBLIC_APP_URL": "https://vibeencode.dev",
+    "PUBLIC_APP_URL": "https://skill-reverse.vibeencode.dev",
     "OPENROUTER_SYNTHESIS_MODEL": "openai/gpt-5.6-terra",
     "REPORT_TTL_DAYS": "30",
     "ARTIFACT_TTL_DAYS": "7"
