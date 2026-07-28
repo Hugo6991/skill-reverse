@@ -2,9 +2,9 @@
 
 從一個已完成的公開成果，反向提取「可遷移的方法」、作者脈絡、可追溯證據與單一職業基準。
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Hugo6991/skill-reverse)
-
 這不是網站複製器，也不是權威排行榜。followers、GitHub stars 與職業吻合度不會提高 claim 的真實性分數。
+
+這是 owner-operated production application。原始碼 repository 維持 Private，不是公開 template，也不提供 fork 或一鍵複製部署流程。
 
 ## 目前可用
 
@@ -30,13 +30,18 @@ pnpm dev
 
 開啟 `http://localhost:5173`。本地預設為 demo mode，使用 Cloudflare 官方 Turnstile 測試 keys，不會呼叫 Perplexity、TwitterAPI.io 或 Browser Run。
 
-## 部署到 Cloudflare
+## Private production deployment
 
-Repository 設為 Public 後，使用 README 頂部的 Deploy to Cloudflare 按鈕。Cloudflare 的 deploy button 不支援 Private repository；若要維持 Private，請改從 Cloudflare Workers & Pages 的 **Import a repository** 連接 GitHub。
+第一次部署由 owner 在本機執行：
 
-Deploy to Cloudflare 會建立 locked preview，並依 `wrangler.jsonc` provision D1、R2、Durable Objects 與 Workers Builds。locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 key 不會意外產生模型費用。
+```bash
+pnpm bootstrap:cloudflare:dry-run
+pnpm bootstrap:cloudflare
+```
 
-部署後執行：
+Bootstrap 會要求 Wrangler OAuth，查找或建立 `skill-reverse-db` D1 與 `skill-reverse-artifacts` R2，將真正的 D1 UUID 寫回 `wrangler.jsonc`，套用 migrations 並部署 locked Worker。它可以安全重跑；已存在的資源會被復用。
+
+確認 locked deployment 的 `workers.dev` URL 後執行：
 
 ```bash
 pnpm setup:prod
@@ -51,7 +56,22 @@ setup wizard 會：
 5. 驗證 D1、R2、Durable Objects、Workflow 與必要 provider 設定
 6. 所有必要檢查通過後才設定 `SETUP_COMPLETE=true`
 
+locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 key 不會意外產生模型費用。完成 setup 後網站公開，但 GitHub repository 仍維持 Private。
+
 若提供只有 `Turnstile Sites Write` 權限的 scoped Cloudflare token，wizard 會自動建立 Managed widget 並限制正式 hostname；沒有 token 時則引導貼入 dashboard 建立的 site/secret keys。
+
+### Private GitHub continuous deployment
+
+首次部署與 `setup:prod` 完成後，在 Cloudflare Dashboard 的 `skill-reverse → Settings → Builds` 連接 GitHub：
+
+- GitHub App repository access：只允許 `Hugo6991/skill-reverse`
+- Production branch：`main`
+- Root directory：`/`
+- Build command：留空
+- Deploy command：`pnpm deploy`
+- Build API token：Account scope 至少包含 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit
+
+Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repository variables 或 Workers Builds build variables。`main` push 會部署 production；其他 branch 只上傳 preview version。
 
 ### Production secrets
 
@@ -74,6 +94,8 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm check
+pnpm bootstrap:cloudflare:dry-run
+pnpm bootstrap:cloudflare
 pnpm doctor https://your-deployment.example
 pnpm deploy
 ```
@@ -124,4 +146,4 @@ TwitterAPI.io 是獨立第三方服務，與 X Corp. 無關。應用只使用讀
 - repository 內是可跑通 pilot 的 O*NET 30.3 starter catalog，不是 900+ occupations 的完整發行包；完整匯入器是下一個資料任務
 - Browser Run Quick Actions 在本地需要 remote binding；一般本地開發刻意使用 demo/mock，避免付費與 remote 依賴
 - D1 單庫為單執行序且上限 10 GB；若持續 overload 或 p95 query 超過 50 ms，應切分 D1 或遷移至 Postgres + Hyperdrive
-- Deploy to Cloudflare button 需要 Public GitHub/GitLab repository；Private repository 必須使用 Workers Builds Git integration
+- Production 使用 Cloudflare Workers Builds 的 private GitHub integration；repository 不提供公開 Deploy Button

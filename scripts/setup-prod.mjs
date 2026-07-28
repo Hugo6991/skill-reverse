@@ -78,7 +78,7 @@ async function createTurnstileWidget({ apiToken, accountId, hostname }) {
 console.log("\nSkill Reverse production setup");
 console.log("Secrets are sent to Wrangler over stdin and are never written to this repository.\n");
 
-const whoami = spawnSync("pnpm", ["exec", "wrangler", "whoami"], {
+const whoami = spawnSync("pnpm", ["exec", "wrangler", "whoami", "--json"], {
   stdio: "inherit",
   shell: process.platform === "win32"
 });
