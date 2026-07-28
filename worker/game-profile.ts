@@ -3,10 +3,12 @@ import type {
   GameArchetypeId,
   GameAxis,
   GameAxisId,
+  GameAxisSignal,
   GameBadgeId,
   GameProfile,
   GameRoastId,
   ProfessionalDelta,
+  RepositoryMetrics,
   ReverseReport
 } from "../src/types";
 
@@ -55,14 +57,16 @@ function axis(
   value: number | undefined,
   coverage: number,
   axisEvidence: string[],
-  signalIds: string[]
+  signalIds: string[],
+  signalDetails?: GameAxisSignal[]
 ): GameAxis {
   return {
     id,
     value: value === undefined ? undefined : roundToFive(value),
     coverage: roundToFive(coverage),
     evidenceIds: unique(axisEvidence),
-    signalIds
+    signalIds,
+    ...(signalDetails?.length ? { signalDetails } : {})
   };
 }
 
@@ -76,11 +80,137 @@ function dependencyMentions(input: ProfileInput): number {
   return (text.match(/\b(api|sdk|cli|plugin|install|dependency|framework|agent)\b/gi) ?? []).length;
 }
 
-function githubOwner(targetUrl: string): string | undefined {
+interface GithubCoordinates {
+  owner: string;
+  repository: string;
+  fullName: string;
+}
+
+function githubCoordinates(targetUrl: string): GithubCoordinates | undefined {
   const url = new URL(targetUrl);
   if (url.hostname.replace(/^www\./, "").toLowerCase() !== "github.com") return undefined;
-  const owner = url.pathname.split("/").filter(Boolean)[0];
-  return owner ? decodeURIComponent(owner) : undefined;
+  const [owner, repository] = url.pathname.split("/").filter(Boolean);
+  if (!owner || !repository) return undefined;
+  return {
+    owner: decodeURIComponent(owner),
+    repository: decodeURIComponent(repository).replace(/\.git$/i, ""),
+    fullName: `${decodeURIComponent(owner)}/${decodeURIComponent(repository).replace(/\.git$/i, "")}`
+      .toLowerCase()
+  };
+}
+
+function logarithmicReach(value: number, ceiling: number): number {
+  if (value <= 0) return 0;
+  return Math.min(1, Math.log10(value + 1) / Math.log10(ceiling + 1));
+}
+
+function daysSince(date: string, now: Date): number | undefined {
+  const timestamp = Date.parse(date);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.max(0, Math.floor((now.getTime() - timestamp) / 86_400_000));
+}
+
+function maintenanceStrength(ageInDays: number): number {
+  if (ageInDays <= 30) return 1;
+  if (ageInDays <= 90) return 0.8;
+  if (ageInDays <= 180) return 0.55;
+  if (ageInDays <= 365) return 0.25;
+  return 0;
+}
+
+function renownProfile(input: ProfileInput): {
+  value?: number;
+  coverage: number;
+  evidenceIds: string[];
+  signalDetails: GameAxisSignal[];
+  recentlyMaintained: boolean;
+} {
+  const targetRepository = githubCoordinates(input.targetUrl);
+  const targetSource = targetRepository
+    ? input.sources.find((source) => {
+        const coordinates = githubCoordinates(source.url);
+        return (
+          source.status === "verified_at_retrieval" &&
+          coordinates?.fullName === targetRepository.fullName
+        );
+      })
+    : undefined;
+  const metricSource = targetRepository
+    ? input.sources.find(
+        (source) =>
+          source.status === "verified_at_retrieval" &&
+          source.repositoryMetrics?.fullName.toLowerCase() === targetRepository.fullName
+      )
+    : undefined;
+  const metrics: RepositoryMetrics | undefined = metricSource?.repositoryMetrics;
+  const publicDiscussionSources = input.sources.filter(
+    (source) =>
+      source.status === "verified_at_retrieval" &&
+      source.kind === "x_post" &&
+      source.url !== input.targetUrl
+  );
+  const details: GameAxisSignal[] = [];
+
+  if (targetSource) {
+    details.push({
+      id: "publisher_repository",
+      points: 15,
+      maxPoints: 15,
+      evidenceIds: [targetSource.id]
+    });
+  }
+  if (metrics && metricSource) {
+    details.push({
+      id: "github_stars",
+      value: metrics.stars,
+      points: 40 * logarithmicReach(metrics.stars, 100_000),
+      maxPoints: 40,
+      evidenceIds: [metricSource.id]
+    });
+    details.push({
+      id: "github_forks",
+      value: metrics.forks,
+      points: 25 * logarithmicReach(metrics.forks, 10_000),
+      maxPoints: 25,
+      evidenceIds: [metricSource.id]
+    });
+  }
+  if (publicDiscussionSources.length) {
+    details.push({
+      id: "public_discussion",
+      value: publicDiscussionSources.length,
+      points: 10 * Math.min(1, publicDiscussionSources.length / 5),
+      maxPoints: 10,
+      evidenceIds: publicDiscussionSources.map((source) => source.id)
+    });
+  }
+  const maintenanceAge = metrics?.pushedAt
+    ? daysSince(metrics.pushedAt, new Date(metrics.retrievedAt))
+    : undefined;
+  if (maintenanceAge !== undefined && metricSource) {
+    details.push({
+      id: "maintenance_recency",
+      value: maintenanceAge,
+      points: 10 * maintenanceStrength(maintenanceAge),
+      maxPoints: 10,
+      evidenceIds: [metricSource.id]
+    });
+  }
+
+  const coverage = details.reduce((sum, detail) => sum + detail.maxPoints, 0);
+  const value = coverage >= 30
+    ? details.reduce((sum, detail) => sum + detail.points, 0)
+    : undefined;
+  return {
+    value,
+    coverage,
+    evidenceIds: unique(details.flatMap((detail) => detail.evidenceIds)),
+    signalDetails: details.map((detail) => ({
+      ...detail,
+      points: Math.round(detail.points)
+    })),
+    recentlyMaintained: maintenanceAge !== undefined && maintenanceAge <= 90
+  };
 }
 
 function resolveArchetype(values: Map<GameAxisId, number>): GameArchetypeId {
@@ -91,13 +221,13 @@ function resolveArchetype(values: Map<GameAxisId, number>): GameArchetypeId {
   if ((score("spectacle") ?? 0) >= 75 && (score("potency") ?? 100) <= 50) {
     return "all_aura";
   }
+  if ((score("renown") ?? 0) >= 75) return "famous_sect";
   if ((score("potency") ?? 0) >= 75 && (score("spectacle") ?? 100) <= 50) {
     return "quiet_power";
   }
   if ((score("activation") ?? 0) >= 70 && (score("ascension") ?? 0) >= 70) {
     return "hard_ascension";
   }
-  if ((score("renown") ?? 0) >= 75) return "famous_sect";
   if ((score("ascension") ?? 0) >= 75 && (score("renown") ?? 100) <= 45) {
     return "hidden_manual";
   }
@@ -215,18 +345,7 @@ export function computeGameProfile(input: ProfileInput): GameProfile {
     ? Math.min(100, 50 + input.framework.steps.length * 8)
     : 25;
 
-  const socialSources = input.sources.filter((source) => source.kind === "x_post");
-  const thirdPartySources = input.sources.filter(
-    (source) => source.status === "verified_at_retrieval" && source.url !== input.targetUrl
-  );
-  const renownCoverage = socialSources.length
-    ? Math.min(100, 55 + socialSources.length * 8)
-    : input.sources.some((source) => source.kind === "github")
-      ? 25
-      : 0;
-  const renown = renownCoverage >= 30
-    ? 20 + Math.min(50, socialSources.length * 12) + Math.min(25, thirdPartySources.length * 5)
-    : undefined;
+  const renown = renownProfile(input);
 
   const conditionalSteps = input.framework.steps.filter(
     (step) => step.failureType === "conditional"
@@ -265,10 +384,14 @@ export function computeGameProfile(input: ProfileInput): GameProfile {
       "dependency_mentions",
       "conditional_setup"
     ]),
-    axis("renown", renown, renownCoverage, socialSources.map((source) => source.id), [
-      "verified_social_sources",
-      "third_party_sources"
-    ]),
+    axis(
+      "renown",
+      renown.value,
+      renown.coverage,
+      renown.evidenceIds,
+      renown.signalDetails.map((detail) => detail.id),
+      renown.signalDetails
+    ),
     axis("ascension", ascension, ascensionCoverage, allEvidence, [
       "professional_delta",
       "conditional_rules",
@@ -288,11 +411,11 @@ export function computeGameProfile(input: ProfileInput): GameProfile {
   }
   if ((values.get("ascension") ?? 0) >= 70 && ascensionCoverage >= 60) badges.push("portable");
   if (input.adoption.length >= 2 && allEvidence.length >= 2) badges.push("field_tested");
-  if (socialSources.length >= 2) badges.push("well_maintained");
+  if (renown.recentlyMaintained) badges.push("well_maintained");
 
-  const owner = githubOwner(input.targetUrl);
+  const owner = githubCoordinates(input.targetUrl)?.owner;
   return {
-    rubricVersion: "game-profile-v1",
+    rubricVersion: "game-profile-v1.1",
     axes,
     archetypeId: resolveArchetype(values),
     roastId: resolveRoast(values),

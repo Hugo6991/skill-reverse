@@ -51,15 +51,34 @@ describe("deterministic game profile", () => {
     expect(first.axes.every((axis) => axis.value === undefined || axis.value % 5 === 0)).toBe(true);
   });
 
-  it("leaves renown unknown when public discussion is not verified", () => {
+  it("leaves renown unknown when repository reach cannot be observed", () => {
     const profile = computeGameProfile({
       ...demoReport,
-      sources: demoReport.sources.filter((source) => source.kind !== "x_post")
+      sources: demoReport.sources
+        .filter((source) => source.kind !== "x_post")
+        .map(({ repositoryMetrics: _repositoryMetrics, ...source }) => source)
     });
     expect(profile.axes.find((axis) => axis.id === "renown")).toMatchObject({
       value: undefined,
-      coverage: 25
+      coverage: 15
     });
+  });
+
+  it("scores official repositories from verified reach instead of brand recognition", () => {
+    const axis = computeGameProfile(demoReport).axes.find((item) => item.id === "renown");
+    expect(axis).toMatchObject({
+      value: 80,
+      coverage: 80,
+      signalIds: ["publisher_repository", "github_stars", "github_forks"]
+    });
+    expect(axis?.signalDetails).toEqual([
+      expect.objectContaining({ id: "publisher_repository", points: 15, maxPoints: 15 }),
+      expect.objectContaining({ id: "github_stars", value: 164_700, points: 40, maxPoints: 40 }),
+      expect.objectContaining({ id: "github_forks", value: 19_600, points: 25, maxPoints: 25 })
+    ]);
+    const profile = computeGameProfile(demoReport);
+    expect(profile.archetypeId).toBe("wealth_with_proof");
+    expect(profile.roastId).not.toBe("quiet_power");
   });
 
   it("does not feed entertainment dimensions back into claim confidence", () => {

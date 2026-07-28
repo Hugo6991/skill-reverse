@@ -59,7 +59,7 @@ export function PublicCardPage({
     return (
       <main className="page-frame page-state" role="status">
         <LoaderCircle className="spin" size={22} aria-hidden="true" />
-        <span>展開命盤中</span>
+        <span>展開畫像中</span>
       </main>
     );
   }

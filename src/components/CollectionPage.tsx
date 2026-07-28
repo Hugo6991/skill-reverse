@@ -73,7 +73,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
       <header className="page-heading collection-heading">
         <span className="eyebrow">MY COLLECTION</span>
         <h1>我的藏經閣</h1>
-        <p>每次鑑定留下一卷命格 同一目標與職業只保留最新版</p>
+        <p>每次鑑定留下一卷畫像 同一目標與職業只保留最新版</p>
       </header>
 
       {loading ? (
@@ -121,7 +121,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                     <GameRadar
                       axes={card.gameProfile.axes}
                       compact
-                      ariaLabel={`${card.displayName} 六維命盤`}
+                      ariaLabel={`${card.displayName} 六維畫像`}
                     />
                     <span className="manual-archetype">
                       {gameArchetypeCopy[card.gameProfile.archetypeId]}

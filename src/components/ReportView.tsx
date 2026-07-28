@@ -119,7 +119,7 @@ export function ReportView({
     link.download = `${report.id === "demo" ? "skill-destiny-demo" : report.id}.png`;
     link.href = dataUrl;
     link.click();
-    setShareNote("命格圖已下載");
+    setShareNote("畫像卡已下載");
   }
 
   async function shareProfile() {
@@ -142,7 +142,7 @@ export function ReportView({
       const text = `我挖到一套「${gameArchetypeCopy[report.gameProfile.archetypeId]}」型 Skill\n${gameAxisCopy[report.gameProfile.strongestAxisId].label} ${strongest?.value ?? "未知"}——${gameRoastCopy[report.gameProfile.roastId]}`;
       if (navigator.share) {
         await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
-        setShareNote("命格已分享");
+        setShareNote("畫像已分享");
       } else {
         await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
         setShareNote("分享文字與連結已複製");

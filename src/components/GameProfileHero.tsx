@@ -14,6 +14,7 @@ import {
   gameAxisCopy,
   gameBadgeCopy,
   gameRoastCopy,
+  gameSignalLabel,
   gameSignalCopy
 } from "../game-copy";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
@@ -54,13 +55,13 @@ export const GameProfileHero = forwardRef<
           {onDownload && (
             <button type="button" onClick={onDownload}>
               <ImageDown size={15} aria-hidden="true" />
-              下載命格圖
+              下載畫像卡
             </button>
           )}
           {onShare && (
             <button type="button" onClick={onShare} disabled={shareBusy}>
               <Share2 size={15} aria-hidden="true" />
-              {shareBusy ? "開啟中" : "分享命格"}
+              {shareBusy ? "開啟中" : "分享畫像"}
             </button>
           )}
         </div>
@@ -96,7 +97,6 @@ export const GameProfileHero = forwardRef<
         <div className="destiny-chart">
           <div className="destiny-seal">
             <Sparkles size={15} aria-hidden="true" />
-            命格
             <strong>{gameArchetypeCopy[profile.archetypeId]}</strong>
           </div>
           <GameRadar axes={profile.axes} />
@@ -145,9 +145,18 @@ export const GameProfileHero = forwardRef<
         </div>
         <p>{gameAxisCopy[selectedAxis.id].description}</p>
         <ul>
-          {selectedAxis.signalIds.slice(0, 3).map((signalId) => (
-            <li key={signalId}>{gameSignalCopy[signalId] ?? signalId}</li>
-          ))}
+          {selectedAxis.signalDetails?.length
+            ? selectedAxis.signalDetails.map((signal) => (
+                <li className="destiny-scored-signal" key={signal.id}>
+                  <span>{gameSignalLabel(signal.id, signal.value)}</span>
+                  <small>
+                    +{signal.points} / {signal.maxPoints}
+                  </small>
+                </li>
+              ))
+            : selectedAxis.signalIds.slice(0, 3).map((signalId) => (
+                <li key={signalId}>{gameSignalCopy[signalId] ?? signalId}</li>
+              ))}
           {selectedAxis.evidenceIds.slice(0, 2).map((evidenceId) => {
             const evidence =
               sourceById.get(evidenceId)?.title ??

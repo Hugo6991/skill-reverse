@@ -4205,6 +4205,19 @@ footer {
   font-size: 10px;
 }
 
+.destiny-axis-detail .destiny-scored-signal {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.destiny-scored-signal small {
+  color: hsl(252 52% 38%);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+  font-weight: 700;
+}
+
 .destiny-money-note {
   grid-column: 2 / -1;
   color: var(--text-tertiary);

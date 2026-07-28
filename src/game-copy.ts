@@ -32,7 +32,7 @@ export const gameAxisCopy: Record<
   renown: {
     label: "江湖聲量",
     english: "Renown",
-    description: "公開討論 第三方來源與近期活動留下的信號"
+    description: "發布歸屬 Repository 觸達 採用線索 公開討論與近期維護"
   },
   ascension: {
     label: "飛升潛力",
@@ -88,11 +88,25 @@ export const gameSignalCopy: Record<string, string> = {
   workflow_depth: "流程深度",
   dependency_mentions: "依賴線索",
   conditional_setup: "條件設定",
-  verified_social_sources: "公開討論",
-  third_party_sources: "第三方來源",
+  publisher_repository: "原始發布 repository",
+  github_stars: "GitHub stars",
+  github_forks: "GitHub forks",
+  public_discussion: "公開討論",
+  maintenance_recency: "最近維護",
   conditional_rules: "條件規則",
   dependency_surface: "依賴面"
 };
+
+export function gameSignalLabel(id: string, value?: number): string {
+  const base = gameSignalCopy[id] ?? id;
+  if (value === undefined) return base;
+  if (id === "github_stars" || id === "github_forks") {
+    return `${base} ${new Intl.NumberFormat("en", { notation: "compact" }).format(value)}`;
+  }
+  if (id === "public_discussion") return `${base} ${value}`;
+  if (id === "maintenance_recency") return `${base} ${value} 天前`;
+  return base;
+}
 
 export const attributionCopy = {
   repository_owner: "Repository owner",

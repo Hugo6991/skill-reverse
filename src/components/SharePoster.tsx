@@ -31,11 +31,10 @@ export const SharePoster = forwardRef<
         <h1>{displayName}</h1>
         <div>
           <Sparkles size={22} aria-hidden="true" />
-          <span>命格</span>
           <strong>{gameArchetypeCopy[profile.archetypeId]}</strong>
         </div>
       </div>
-      <GameRadar axes={profile.axes} ariaLabel={`${displayName} 六維命盤`} />
+      <GameRadar axes={profile.axes} ariaLabel={`${displayName} 六維畫像`} />
       <div className="share-poster-axes">
         {profile.axes.map((axis) => (
           <div key={axis.id}>

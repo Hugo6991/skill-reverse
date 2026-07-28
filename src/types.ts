@@ -49,11 +49,23 @@ export interface SourceArtifact {
   retrievedAt: string;
   excerpt?: string;
   archive?: ArchivedArtifact;
+  repositoryMetrics?: RepositoryMetrics;
 }
 
 export interface ArchivedArtifact {
   snapshotUrl: string;
   screenshotUrl?: string;
+}
+
+export interface RepositoryMetrics {
+  provider: "github";
+  fullName: string;
+  ownerType: "Organization" | "User" | "Unknown";
+  stars: number;
+  forks: number;
+  watchers: number;
+  pushedAt?: string;
+  retrievedAt: string;
 }
 
 export interface Observation {
@@ -143,10 +155,19 @@ export interface GameAxis {
   coverage: number;
   evidenceIds: string[];
   signalIds: string[];
+  signalDetails?: GameAxisSignal[];
+}
+
+export interface GameAxisSignal {
+  id: string;
+  value?: number;
+  points: number;
+  maxPoints: number;
+  evidenceIds: string[];
 }
 
 export interface GameProfile {
-  rubricVersion: "game-profile-v1";
+  rubricVersion: "game-profile-v1" | "game-profile-v1.1";
   axes: GameAxis[];
   archetypeId: GameArchetypeId;
   roastId: GameRoastId;

@@ -1,9 +1,10 @@
 import type { ReverseReport } from "../src/types";
+import { computeGameProfile } from "./game-profile";
 import { pilotOccupation } from "./occupations";
 
 const generatedAt = "2026-07-28T00:00:00.000Z";
 
-export const demoReport: ReverseReport = {
+const demoReportBase: Omit<ReverseReport, "gameProfile"> = {
   id: "demo",
   title: "從 Anthropic skill-creator 提煉「先驗證，再封裝」",
   targetUrl: "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
@@ -45,63 +46,6 @@ export const demoReport: ReverseReport = {
       "Anthropic 在官方 Agent Skills repository 公開 skill 規格、範例與實際使用的文件能力；這個案例取自其中的 skill-creator。",
     context:
       "skill-creator 先要求釐清意圖，再建立測試案例、比較結果並迭代。可支持的形成動機是：把對話中有效但容易流失的工作方式，變成可重複驗證的行為；更深的組織或個人哲學仍需第一方訪談才能確認。"
-  },
-  gameProfile: {
-    rubricVersion: "game-profile-v1",
-    axes: [
-      {
-        id: "money",
-        value: 70,
-        coverage: 80,
-        evidenceIds: ["source-skill", "source-repo"],
-        signalIds: ["professional_delta", "adoption_signals", "reproducibility"]
-      },
-      {
-        id: "spectacle",
-        value: 45,
-        coverage: 85,
-        evidenceIds: ["source-skill", "source-repo"],
-        signalIds: ["framework_shape", "source_surface", "presentation_density"]
-      },
-      {
-        id: "potency",
-        value: 90,
-        coverage: 95,
-        evidenceIds: ["source-skill", "source-repo"],
-        signalIds: ["claim_strength", "verified_claims", "evidence_coverage"]
-      },
-      {
-        id: "activation",
-        value: 35,
-        coverage: 85,
-        evidenceIds: ["source-skill"],
-        signalIds: ["workflow_depth", "dependency_mentions", "conditional_setup"]
-      },
-      {
-        id: "renown",
-        value: 55,
-        coverage: 45,
-        evidenceIds: ["source-repo"],
-        signalIds: ["verified_social_sources", "third_party_sources"]
-      },
-      {
-        id: "ascension",
-        value: 85,
-        coverage: 90,
-        evidenceIds: ["source-skill", "source-repo"],
-        signalIds: ["professional_delta", "conditional_rules", "dependency_surface"]
-      }
-    ],
-    archetypeId: "quiet_power",
-    roastId: "quiet_power",
-    badges: ["evidence_rich", "low_dependency", "portable"],
-    strongestAxisId: "potency",
-    weakestAxisId: "activation",
-    author: {
-      avatarUrl: "https://github.com/anthropics.png?size=160",
-      profileUrl: "https://github.com/anthropics",
-      attribution: "repository_owner"
-    }
   },
   occupation: pilotOccupation,
   professionalDelta: [
@@ -191,7 +135,16 @@ export const demoReport: ReverseReport = {
       status: "verified_at_retrieval",
       title: "anthropics/skills",
       retrievedAt: generatedAt,
-      excerpt: "官方 repository 說明與 Agent Skills 範例集合。"
+      excerpt: "官方 repository 說明與 Agent Skills 範例集合。",
+      repositoryMetrics: {
+        provider: "github",
+        fullName: "anthropics/skills",
+        ownerType: "Organization",
+        stars: 164_700,
+        forks: 19_600,
+        watchers: 1_100,
+        retrievedAt: generatedAt
+      }
     }
   ],
   edges: [
@@ -226,4 +179,9 @@ export const demoReport: ReverseReport = {
     "應用場景用於比較，不用於評斷創作者能力。"
   ],
   degraded: []
+};
+
+export const demoReport: ReverseReport = {
+  ...demoReportBase,
+  gameProfile: computeGameProfile(demoReportBase)
 };

@@ -5,6 +5,7 @@ import type {
   Observation,
   OccupationProfile,
   ProfessionalDelta,
+  RepositoryMetrics,
   ReverseReport,
   SourceArtifact
 } from "../src/types";
@@ -27,6 +28,7 @@ export interface CapturedArtifact {
   excerpt: string;
   r2Key: string;
   screenshotKey?: string;
+  repositoryMetrics?: RepositoryMetrics;
 }
 
 async function preflightPublicHtmlUrl(input: string): Promise<string> {
@@ -329,6 +331,65 @@ function artifactKind(url: string): SourceArtifact["kind"] {
   return "website";
 }
 
+function githubRepositoryCoordinates(input: string): { owner: string; repository: string } | undefined {
+  const url = new URL(input);
+  if (url.hostname.replace(/^www\./, "").toLowerCase() !== "github.com") return undefined;
+  const [owner, repository] = url.pathname.split("/").filter(Boolean);
+  if (!owner || !repository) return undefined;
+  return {
+    owner: decodeURIComponent(owner),
+    repository: decodeURIComponent(repository).replace(/\.git$/i, "")
+  };
+}
+
+async function fetchGithubRepositoryMetrics(input: string): Promise<RepositoryMetrics | undefined> {
+  const coordinates = githubRepositoryCoordinates(input);
+  if (!coordinates) return undefined;
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(coordinates.owner)}/${encodeURIComponent(coordinates.repository)}`,
+      {
+        headers: {
+          accept: "application/vnd.github+json",
+          "user-agent": "SkillReverse/0.1",
+          "x-github-api-version": "2022-11-28"
+        }
+      }
+    );
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as {
+      full_name?: string;
+      stargazers_count?: number;
+      forks_count?: number;
+      subscribers_count?: number;
+      pushed_at?: string;
+      owner?: { type?: string };
+    };
+    if (
+      !body.full_name ||
+      !Number.isFinite(body.stargazers_count) ||
+      !Number.isFinite(body.forks_count)
+    ) {
+      return undefined;
+    }
+    return {
+      provider: "github",
+      fullName: body.full_name,
+      ownerType:
+        body.owner?.type === "Organization" || body.owner?.type === "User"
+          ? body.owner.type
+          : "Unknown",
+      stars: Number(body.stargazers_count),
+      forks: Number(body.forks_count),
+      watchers: Number(body.subscribers_count ?? 0),
+      ...(body.pushed_at ? { pushedAt: body.pushed_at } : {}),
+      retrievedAt: new Date().toISOString()
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function captureUrl(
   env: AppEnv,
   jobId: string,
@@ -336,12 +397,15 @@ export async function captureUrl(
   index: number
 ): Promise<CapturedArtifact> {
   const finalUrl = await preflightPublicHtmlUrl(url);
-  const response = await env.BROWSER.quickAction("snapshot", {
-    url: finalUrl,
-    gotoOptions: { waitUntil: "networkidle2", timeout: 30_000 },
-    rejectResourceTypes: ["media", "font"],
-    viewport: { width: 1440, height: 1000 }
-  });
+  const [response, repositoryMetrics] = await Promise.all([
+    env.BROWSER.quickAction("snapshot", {
+      url: finalUrl,
+      gotoOptions: { waitUntil: "networkidle2", timeout: 30_000 },
+      rejectResourceTypes: ["media", "font"],
+      viewport: { width: 1440, height: 1000 }
+    }),
+    fetchGithubRepositoryMetrics(finalUrl)
+  ]);
   if (!response.ok) throw new Error(`Browser Run returned ${response.status} for ${url}`);
   const envelope = (await response.json()) as {
     success?: boolean;
@@ -379,7 +443,8 @@ export async function captureUrl(
     markdown,
     excerpt: markdown.replace(/\s+/g, " ").slice(0, 360),
     r2Key: `${baseKey}.md`,
-    screenshotKey
+    screenshotKey,
+    ...(repositoryMetrics ? { repositoryMetrics } : {})
   };
 }
 
@@ -987,7 +1052,8 @@ export function assembleReport(input: {
     status: "verified_at_retrieval",
     title: artifact.title,
     retrievedAt: now,
-    excerpt: artifact.excerpt
+    excerpt: artifact.excerpt,
+    ...(artifact.repositoryMetrics ? { repositoryMetrics: artifact.repositoryMetrics } : {})
   }));
 
   for (const post of posts.slice(0, 30)) {

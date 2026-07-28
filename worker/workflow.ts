@@ -371,7 +371,10 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             publishedAt,
             artifact.r2Key,
             artifact.excerpt,
-            JSON.stringify({ screenshotKey: artifact.screenshotKey ?? null })
+            JSON.stringify({
+              screenshotKey: artifact.screenshotKey ?? null,
+              repositoryMetrics: artifact.repositoryMetrics ?? null
+            })
           )
         );
         const reportInsert = this.env.DB.prepare(

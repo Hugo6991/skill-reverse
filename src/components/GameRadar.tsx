@@ -11,7 +11,7 @@ import type { GameAxis, GameAxisId } from "../types";
 export function GameRadar({
   axes,
   compact = false,
-  ariaLabel = "六維命盤"
+  ariaLabel = "六維畫像"
 }: {
   axes: GameAxis[];
   compact?: boolean;
@@ -70,7 +70,7 @@ export function GameAxisList({
   onSelect(id: GameAxisId): void;
 }) {
   return (
-    <div className="game-axis-list" aria-label="選擇命盤維度">
+    <div className="game-axis-list" aria-label="選擇畫像維度">
       {axes.map((axis) => (
         <button
           className={selected === axis.id ? "active" : ""}

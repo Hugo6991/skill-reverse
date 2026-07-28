@@ -51,4 +51,43 @@
 - Focused comparison was used because the requested change affects only the title copy treatment
 - Fonts typography spacing colors assets and surrounding content remain unchanged
 
+## Archetype and renown iteration
+
+- Source visual truth: `/var/folders/fq/yt9wyj6548q33d4qsw9_zf2w0000gn/T/codex-clipboard-e72ce5b5-0358-4ec2-bc30-910f27a56897.png`
+- Browser implementation: `/Users/hugo/Downloads/Code-camp/2026-07-skill-destiny-v1/design-qa-implementation.png`
+- Focused renown state: `/Users/hugo/Downloads/Code-camp/2026-07-skill-destiny-v1/design-qa-renown-detail.png`
+- Full-view comparison: `/Users/hugo/Downloads/Code-camp/2026-07-skill-destiny-v1/design-qa-renown-comparison.png`
+- Source pixels: 1698 × 1486
+- Implementation viewport and pixels: 1280 × 720 CSS px at 1×
+- Normalization: both views downscaled to 640 px maximum width and top aligned
+- State: demo report after reveal animation with a separate focused capture after selecting 江湖聲量
+
+### Findings and fixes
+
+- P1 the source state labels the result as `命格` and pairs an official repository with `沒什麼名氣`
+  - Fix: the literal category label was removed from the hero and poster
+  - Fix: repository renown now uses publisher provenance GitHub reach fork adoption public discussion and maintenance recency
+  - Post-fix evidence: the hero shows only `生財有道`
+  - Post-fix evidence: 江湖聲量 is 80 with 80% coverage
+  - Post-fix evidence: the expanded basis shows repository +15 stars +40 and forks +25
+- P2 the old detail layer showed generic signal names without their contribution
+  - Fix: verified renown signals now show observed values points and caps
+  - Post-fix evidence: `GitHub stars 165K +40 / 40` and `GitHub forks 20K +25 / 25`
+
+### Required fidelity surfaces
+
+- Typography: existing hierarchy and serif roast treatment remain unchanged
+- Spacing: the shorter floating title reduces density without changing card geometry
+- Colors: existing observatory palette and contrast remain unchanged
+- Images: avatar fallback and radar rendering remain unchanged
+- Copy: no visible `命格` or `命盤` remains in the product UI
+
+### Interaction and runtime
+
+- 江湖聲量 button remains keyboard reachable and exposes the selected state
+- Axis selection reveals deterministic scoring evidence
+- Console errors: none
+- Focused comparison was required because the scoring basis sits below the first viewport
+- No actionable P0 P1 or P2 findings remain after the second capture
+
 final result: passed
