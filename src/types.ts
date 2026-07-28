@@ -48,6 +48,12 @@ export interface SourceArtifact {
   title: string;
   retrievedAt: string;
   excerpt?: string;
+  archive?: ArchivedArtifact;
+}
+
+export interface ArchivedArtifact {
+  snapshotUrl: string;
+  screenshotUrl?: string;
 }
 
 export interface Observation {
@@ -155,7 +161,9 @@ export interface JobStatus {
   };
 }
 
-export interface HistoryItem {
+export type PublicationStatus = "unpublished" | "published" | "hidden";
+
+export interface PublicHistoryItem {
   jobId: string;
   targetUrl: string;
   displayName: string;
@@ -163,16 +171,19 @@ export interface HistoryItem {
   skillLabels: string[];
   occupationCode: string;
   occupationTitle: string;
-  status: JobStatus["status"];
-  stage: JobStage;
-  progress: number;
-  reportId?: string;
+  status: "completed";
+  stage: "report";
+  progress: 100;
+  reportId: string;
   createdAt: string;
   updatedAt: string;
+  publishedAt: string;
 }
 
+export type HistoryItem = PublicHistoryItem;
+
 export interface HistoryPage {
-  items: HistoryItem[];
+  items: PublicHistoryItem[];
   nextCursor?: string;
 }
 
@@ -194,6 +205,18 @@ export interface MyResearchItem {
 
 export interface MyResearchPage {
   items: MyResearchItem[];
+}
+
+export interface AdminReportItem {
+  reportId: string;
+  jobId: string;
+  title: string;
+  targetUrl: string;
+  publicationStatus: Extract<PublicationStatus, "published" | "hidden">;
+  publishedAt: string | null;
+  hiddenAt: string | null;
+  moderationNote: string | null;
+  occupationTitle: string | null;
 }
 
 export interface PublicConfig {

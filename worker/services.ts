@@ -25,6 +25,7 @@ export interface CapturedArtifact {
   markdown: string;
   excerpt: string;
   r2Key: string;
+  screenshotKey?: string;
 }
 
 async function preflightPublicHtmlUrl(input: string): Promise<string> {
@@ -363,8 +364,9 @@ export async function captureUrl(
     httpMetadata: { contentType: "text/markdown; charset=utf-8" },
     customMetadata: { sourceUrl: url, jobId }
   });
-  if (envelope.result.screenshot) {
-    await env.ARTIFACTS.put(`${baseKey}.png`, decodeBase64(envelope.result.screenshot), {
+  const screenshotKey = envelope.result.screenshot ? `${baseKey}.png` : undefined;
+  if (envelope.result.screenshot && screenshotKey) {
+    await env.ARTIFACTS.put(screenshotKey, decodeBase64(envelope.result.screenshot), {
       httpMetadata: { contentType: "image/png" },
       customMetadata: { sourceUrl: url, jobId }
     });
@@ -375,7 +377,8 @@ export async function captureUrl(
     title,
     markdown,
     excerpt: markdown.replace(/\s+/g, " ").slice(0, 360),
-    r2Key: `${baseKey}.md`
+    r2Key: `${baseKey}.md`,
+    screenshotKey
   };
 }
 

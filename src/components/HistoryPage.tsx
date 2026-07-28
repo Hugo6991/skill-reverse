@@ -1,4 +1,11 @@
-import { ArrowRight, CircleAlert, Clock3, FileSearch2, LoaderCircle, Trash2 } from "lucide-react";
+import {
+  ArrowRight,
+  CircleAlert,
+  Clock3,
+  FileSearch2,
+  Globe2,
+  LoaderCircle
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { uiCopy } from "../copy";
 import type {
@@ -8,8 +15,10 @@ import type {
   MyResearchPage
 } from "../types";
 
-async function loadHistory(): Promise<HistoryResponse> {
-  const response = await fetch("/api/history?limit=20");
+async function loadHistory(cursor?: string): Promise<HistoryResponse> {
+  const search = new URLSearchParams({ limit: "20" });
+  if (cursor) search.set("cursor", cursor);
+  const response = await fetch(`/api/history?${search}`);
   const body = (await response.json().catch(() => ({}))) as HistoryResponse & {
     error?: { message?: string };
   };
@@ -30,14 +39,18 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [myResearch, setMyResearch] = useState<MyResearchItem[]>([]);
   const [myResearchLoading, setMyResearchLoading] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string>();
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      setItems((await loadHistory()).items);
+      const page = await loadHistory();
+      setItems(page.items);
+      setNextCursor(page.nextCursor);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : uiCopy.history.loadError);
     } finally {
@@ -69,19 +82,19 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
     return () => window.clearInterval(timer);
   }, [myResearch, refreshMyResearch]);
 
-  async function remove(item: HistoryItem) {
-    if (!window.confirm(`Remove ${item.displayName} from history?`)) return;
-    const response = await fetch(`/api/history/${encodeURIComponent(item.jobId)}`, {
-      method: "DELETE"
-    });
-    if (!response.ok) {
-      const body = (await response.json().catch(() => ({}))) as {
-        error?: { message?: string };
-      };
-      setError(body.error?.message ?? "History item could not be removed");
-      return;
+  async function loadNextPage() {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setError("");
+    try {
+      const page = await loadHistory(nextCursor);
+      setItems((current) => [...current, ...page.items]);
+      setNextCursor(page.nextCursor);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : uiCopy.history.loadError);
+    } finally {
+      setLoadingMore(false);
     }
-    setItems((current) => current.filter((candidate) => candidate.jobId !== item.jobId));
   }
 
   return (
@@ -90,6 +103,10 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
         <span className="eyebrow">{uiCopy.history.eyebrow}</span>
         <h1>{uiCopy.history.title}</h1>
         <p>{uiCopy.history.description}</p>
+        <span className="public-archive-note">
+          <Globe2 size={15} aria-hidden="true" />
+          {uiCopy.history.publicNote}
+        </span>
       </header>
 
       {(myResearchLoading || myResearch.length > 0) && (
@@ -172,9 +189,9 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
       {loading ? (
         <div className="page-state" role="status">
           <LoaderCircle className="spin" size={22} aria-hidden="true" />
-          <span>Loading history…</span>
+          <span>Loading public archive…</span>
         </div>
-      ) : error ? (
+      ) : error && items.length === 0 ? (
         <div className="page-state error-state" role="alert">
           <strong>{uiCopy.history.loadError}</strong>
           <span>{error}</span>
@@ -185,7 +202,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
       ) : items.length === 0 ? (
         <div className="page-state history-empty">
           <span className="empty-icon">
-            <Clock3 size={22} aria-hidden="true" />
+            <Globe2 size={22} aria-hidden="true" />
           </span>
           <strong>{uiCopy.history.emptyTitle}</strong>
           <span>{uiCopy.history.emptyBody}</span>
@@ -195,29 +212,28 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
           </button>
         </div>
       ) : (
-        <div className="history-list">
-          {items.map((item) => {
-            const destination = item.reportId
-              ? `/reports/${encodeURIComponent(item.reportId)}`
-              : `/jobs/${encodeURIComponent(item.jobId)}`;
-            const terminal = item.status === "completed" || item.status === "failed";
-            return (
+        <>
+          {error && (
+            <div className="inline-notice error-state" role="alert">
+              <span>{error}</span>
+            </div>
+          )}
+          <div className="history-section-heading public-history-heading">
+            <div>
+              <span className="eyebrow">Shared archive</span>
+              <h2>Published reports</h2>
+            </div>
+          </div>
+          <div className="history-list">
+            {items.map((item) => (
               <article className="history-row" key={item.jobId}>
                 <button
                   className="history-main"
                   type="button"
-                  onClick={() => onNavigate(destination)}
+                  onClick={() => onNavigate(`/reports/${encodeURIComponent(item.reportId)}`)}
                 >
                   <span className="history-icon">
-                    {item.reportId ? (
-                      <FileSearch2 size={17} aria-hidden="true" />
-                    ) : (
-                      <LoaderCircle
-                        className={terminal ? undefined : "spin"}
-                        size={17}
-                        aria-hidden="true"
-                      />
-                    )}
+                    <FileSearch2 size={17} aria-hidden="true" />
                   </span>
                   <span className="history-copy">
                     <strong>{item.displayName}</strong>
@@ -226,7 +242,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
                     </small>
                     {item.skillLabels.length > 0 && (
                       <span className="history-skills">
-                        <span className="history-skill-label">New skill</span>
+                        <span className="history-skill-label">Extracted</span>
                         {item.skillLabels.slice(0, 2).map((skill) => (
                           <span className="history-skill" key={skill} title={skill}>
                             {skill}
@@ -240,35 +256,32 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
                       </span>
                     )}
                   </span>
-                  <span className={`history-status status-${item.status}`}>
-                    {item.status === "running" || item.status === "queued"
-                      ? `${item.progress}%`
-                      : item.status}
-                  </span>
-                  <time dateTime={item.createdAt}>
+                  <span className="history-status status-completed">Published</span>
+                  <time dateTime={item.publishedAt}>
                     {new Intl.DateTimeFormat("zh-TW", {
                       month: "short",
                       day: "numeric",
                       hour: "2-digit",
                       minute: "2-digit"
-                    }).format(new Date(item.createdAt))}
+                    }).format(new Date(item.publishedAt))}
                   </time>
                   <ArrowRight className="history-arrow" size={16} aria-hidden="true" />
                 </button>
-                {terminal && (
-                  <button
-                    className="history-delete"
-                    type="button"
-                    aria-label={`${uiCopy.history.delete} ${item.displayName}`}
-                    onClick={() => void remove(item)}
-                  >
-                    <Trash2 size={16} aria-hidden="true" />
-                  </button>
-                )}
               </article>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+          {nextCursor && (
+            <button
+              className="secondary-button history-load-more"
+              type="button"
+              onClick={() => void loadNextPage()}
+              disabled={loadingMore}
+            >
+              {loadingMore && <LoaderCircle className="spin" size={17} aria-hidden="true" />}
+              {loadingMore ? uiCopy.history.loadingMore : uiCopy.history.loadMore}
+            </button>
+          )}
+        </>
       )}
     </main>
   );

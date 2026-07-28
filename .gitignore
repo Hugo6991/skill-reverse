@@ -8,5 +8,6 @@ dist/
 .env.*
 !.env.example
 coverage/
+.backups/
 *.log
 .DS_Store

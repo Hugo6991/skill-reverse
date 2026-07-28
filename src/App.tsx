@@ -1,6 +1,7 @@
 import { ArrowRight, Brain, MessageSquareText, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uiCopy } from "./copy";
+import { AdminPage } from "./components/AdminPage";
 import { HistoryPage } from "./components/HistoryPage";
 import { JobProgress } from "./components/JobProgress";
 import { ReportView } from "./components/ReportView";
@@ -27,6 +28,7 @@ function parseRoute(): AppRoute {
   if (legacyReport) return { kind: "report", id: legacyReport };
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts.length === 0) return { kind: "home" };
+  if (parts[0] === "admin") return { kind: "admin" };
   if (parts[0] === "history" && parts.length === 1) return { kind: "history" };
   if (parts[0] === "jobs" && parts[1]) {
     return { kind: "job", id: decodeURIComponent(parts[1]) };
@@ -239,12 +241,14 @@ export default function App() {
               busy={busy}
               onSubmit={startResearch}
               onOpenDemo={() => navigate("/reports/demo")}
+              onOpenReport={(reportId) => navigate(`/reports/${encodeURIComponent(reportId)}`)}
             />
             <OutputModel />
           </div>
         </main>
       );
     }
+    if (route.kind === "admin") return <AdminPage onNavigate={navigate} />;
     if (route.kind === "history") return <HistoryPage onNavigate={navigate} />;
     if (route.kind === "job" && job) {
       return (

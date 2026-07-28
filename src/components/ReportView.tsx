@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Archive,
   BookOpen,
   Check,
   CheckCircle2,
@@ -9,6 +10,7 @@ import {
   ExternalLink,
   Fingerprint,
   Lightbulb,
+  Image,
   MessageSquareText,
   Network,
   ShieldCheck,
@@ -341,14 +343,35 @@ export function ReportView({
           <section className="source-ledger">
             <h2>Source ledger</h2>
             {report.sources.map((source, index) => (
-              <a href={source.url} target="_blank" rel="noreferrer" key={source.id}>
-                <span className="source-number">{String(index + 1).padStart(2, "0")}</span>
-                <span>
-                  <strong>{source.title}</strong>
-                  <small>{source.status.replaceAll("_", " ")}</small>
-                </span>
-                <ExternalLink size={15} aria-hidden="true" />
-              </a>
+              <article className="source-ledger-row" key={source.id}>
+                <a
+                  className="source-original-link"
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="source-number">{String(index + 1).padStart(2, "0")}</span>
+                  <span>
+                    <strong>{source.title}</strong>
+                    <small>{source.status.replaceAll("_", " ")}</small>
+                  </span>
+                  <ExternalLink size={15} aria-hidden="true" />
+                </a>
+                {source.archive && (
+                  <div className="source-archive-actions" aria-label={`Archived evidence for ${source.title}`}>
+                    <a href={source.archive.snapshotUrl} target="_blank" rel="noreferrer">
+                      <Archive size={14} aria-hidden="true" />
+                      Saved text
+                    </a>
+                    {source.archive.screenshotUrl && (
+                      <a href={source.archive.screenshotUrl} target="_blank" rel="noreferrer">
+                        <Image size={14} aria-hidden="true" />
+                        Screenshot
+                      </a>
+                    )}
+                  </div>
+                )}
+              </article>
             ))}
           </section>
           <section className="caveat-list">

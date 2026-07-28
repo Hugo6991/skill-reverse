@@ -139,14 +139,19 @@ describe("Cloudflare bindings in workerd", () => {
     ]);
   });
 
-  it("keeps history and supporting sources scoped to the signed actor cookie", async () => {
-    const session = await SELF.fetch("https://example.com/api/history");
-    const setCookie = session.headers.get("set-cookie");
-    expect(setCookie).toContain("sr_actor=");
-    const cookie = setCookie?.split(";")[0] ?? "";
+  it("shares published history globally while keeping job controls scoped to a cookie", async () => {
+    const session = await SELF.fetch(`https://example.com/api/jobs/missing/sources`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ urls: [], finalize: false })
+    });
+    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(cookie).toContain("sr_actor=");
     const actorId = cookie.slice("sr_actor=".length).split(".")[0];
     const actorHash = await sha256(actorId);
-    const jobId = crypto.randomUUID();
+    const runningJobId = crypto.randomUUID();
+    const publicJobId = crypto.randomUUID();
+    const publicReportId = crypto.randomUUID();
     const now = new Date().toISOString();
     const expires = new Date(Date.now() + 86_400_000).toISOString();
     await bindings.DB.prepare(
@@ -157,18 +162,60 @@ describe("Cloudflare bindings in workerd", () => {
        VALUES (?1, ?2, 'https://example.com', '[]', '15-1255.00', 'capture', 'running',
         12, 50, 0, NULL, '[]', ?3, ?3, ?4)`
     )
-      .bind(jobId, actorHash, now, expires)
+      .bind(runningJobId, actorHash, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, report_id, degraded_json,
+        publication_status, published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, 'another-actor', 'https://example.com/public', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, ?2, '[]', 'published', ?3,
+        'https://example.com/public', ?3, ?3, ?4)`
+    )
+      .bind(publicJobId, publicReportId, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO reports
+       (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+       VALUES (?1, ?2, 'test-capability', 'Public report', ?3, ?4, ?5)`
+    )
+      .bind(
+        publicReportId,
+        publicJobId,
+        JSON.stringify({
+          id: publicReportId,
+          title: "Public report",
+          targetUrl: "https://example.com/public",
+          sources: []
+        }),
+        now,
+        "9999-12-31T23:59:59.999Z"
+      )
       .run();
 
-    const history = await SELF.fetch("https://example.com/api/history", {
+    const history = await SELF.fetch("https://another-domain.example/api/history");
+    expect(history.status).toBe(200);
+    expect(history.headers.get("set-cookie")).toBeNull();
+    const historyBody = (await history.json()) as { items: Array<{ jobId: string }> };
+    expect(historyBody.items.some((item) => item.jobId === publicJobId)).toBe(true);
+    expect(historyBody.items.some((item) => item.jobId === runningJobId)).toBe(false);
+
+    const myJobs = await SELF.fetch("https://example.com/api/my-jobs", {
       headers: { cookie }
     });
-    expect(history.status).toBe(200);
-    expect(await history.json()).toMatchObject({
-      items: [{ jobId, targetUrl: "https://example.com", status: "running" }]
+    expect(myJobs.status).toBe(200);
+    expect(await myJobs.json()).toMatchObject({
+      items: [
+        {
+          jobId: runningJobId,
+          targetUrl: "https://example.com",
+          status: "running"
+        }
+      ]
     });
 
-    const sources = await SELF.fetch(`https://example.com/api/jobs/${jobId}/sources`, {
+    const sources = await SELF.fetch(`https://example.com/api/jobs/${runningJobId}/sources`, {
       method: "PUT",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({
@@ -186,16 +233,20 @@ describe("Cloudflare bindings in workerd", () => {
       submittedCount: 2
     });
 
-    const repeated = await SELF.fetch(`https://example.com/api/jobs/${jobId}/sources`, {
+    const repeated = await SELF.fetch(`https://example.com/api/jobs/${runningJobId}/sources`, {
       method: "PUT",
       headers: { cookie, "content-type": "application/json" },
       body: JSON.stringify({ urls: [], finalize: true })
     });
     expect(repeated.status).toBe(409);
 
-    const otherSession = await SELF.fetch("https://example.com/api/history");
+    const otherSession = await SELF.fetch(`https://example.com/api/jobs/another-missing/sources`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ urls: [], finalize: false })
+    });
     const otherCookie = otherSession.headers.get("set-cookie")?.split(";")[0] ?? "";
-    const forbidden = await SELF.fetch(`https://example.com/api/jobs/${jobId}/sources`, {
+    const forbidden = await SELF.fetch(`https://example.com/api/jobs/${runningJobId}/sources`, {
       method: "PUT",
       headers: { cookie: otherCookie, "content-type": "application/json" },
       body: JSON.stringify({ urls: [], finalize: false })
@@ -203,32 +254,142 @@ describe("Cloudflare bindings in workerd", () => {
     expect(forbidden.status).toBe(404);
   });
 
-  it("removes only terminal history owned by the current actor", async () => {
-    const session = await SELF.fetch("https://example.com/api/history");
-    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
-    const actorId = cookie.slice("sr_actor=".length).split(".")[0];
-    const actorHash = await sha256(actorId);
+  it("lets only the owner moderation API hide, restore and permanently delete reports", async () => {
     const jobId = crypto.randomUUID();
+    const reportId = crypto.randomUUID();
     const now = new Date().toISOString();
     const expires = new Date(Date.now() + 86_400_000).toISOString();
     await bindings.DB.prepare(
       `INSERT INTO jobs
        (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
-        progress, reserved_cents, actual_cents, degraded_json, created_at, updated_at, expires_at)
+        progress, reserved_cents, actual_cents, report_id, degraded_json,
+        publication_status, published_at, target_key, created_at, updated_at, expires_at)
        VALUES (?1, ?2, 'https://example.com/report', '[]', '15-1255.00', 'report',
-        'completed', 100, 50, 10, '[]', ?3, ?3, ?4)`
+        'completed', 100, 50, 10, ?3, '[]', 'published', ?4,
+        'https://example.com/report', ?4, ?4, ?5)`
     )
-      .bind(jobId, actorHash, now, expires)
+      .bind(jobId, "public-actor", reportId, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO reports
+       (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+       VALUES (?1, ?2, 'test-capability', 'Moderated report', ?3, ?4, ?5)`
+    )
+      .bind(
+        reportId,
+        jobId,
+        JSON.stringify({
+          id: reportId,
+          title: "Moderated report",
+          targetUrl: "https://example.com/report",
+          sources: []
+        }),
+        now,
+        "9999-12-31T23:59:59.999Z"
+      )
       .run();
 
-    const removed = await SELF.fetch(`https://example.com/api/history/${jobId}`, {
-      method: "DELETE",
-      headers: { cookie }
+    const publicDelete = await SELF.fetch(`https://example.com/api/reports/${reportId}`, {
+      method: "DELETE"
+    });
+    expect(publicDelete.status).toBe(404);
+
+    const hidden = await SELF.fetch(`https://example.com/api/admin/reports/${reportId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "hide", reason: "Test moderation" })
+    });
+    expect(hidden.status).toBe(200);
+    expect((await SELF.fetch(`https://example.com/api/reports/${reportId}`)).status).toBe(404);
+
+    const restored = await SELF.fetch(`https://example.com/api/admin/reports/${reportId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "restore" })
+    });
+    expect(restored.status).toBe(200);
+    expect((await SELF.fetch(`https://example.com/api/reports/${reportId}`)).status).toBe(200);
+
+    const removed = await SELF.fetch(`https://example.com/api/admin/reports/${reportId}`, {
+      method: "DELETE"
     });
     expect(removed.status).toBe(204);
     expect(
       await bindings.DB.prepare("SELECT id FROM jobs WHERE id = ?1").bind(jobId).first()
     ).toBeNull();
+  });
+
+  it("serves archived evidence only through its published report and source id", async () => {
+    const jobId = crypto.randomUUID();
+    const reportId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 86_400_000).toISOString();
+    const r2Key = `jobs/${jobId}/source-1.md`;
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, report_id, degraded_json,
+        publication_status, published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, 'archive-actor', 'https://example.com/evidence', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, ?2, '[]', 'published', ?3,
+        'https://example.com/evidence', ?3, ?3, ?4)`
+    )
+      .bind(jobId, reportId, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO reports
+       (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+       VALUES (?1, ?2, 'test-capability', 'Evidence report', ?3, ?4, ?5)`
+    )
+      .bind(
+        reportId,
+        jobId,
+        JSON.stringify({
+          id: reportId,
+          title: "Evidence report",
+          targetUrl: "https://example.com/evidence",
+          sources: [{ id: "source-1", title: "Evidence", url: "https://example.com/evidence" }]
+        }),
+        now,
+        "9999-12-31T23:59:59.999Z"
+      )
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO source_artifacts
+       (id, job_id, url, kind, status, title, retrieved_at, r2_key, metadata_json)
+       VALUES (?1, ?2, 'https://example.com/evidence', 'website',
+        'verified_at_retrieval', 'Evidence', ?3, ?4, '{}')`
+    )
+      .bind(`${jobId}-source-1`, jobId, now, r2Key)
+      .run();
+    await bindings.ARTIFACTS.put(r2Key, "# Archived evidence");
+
+    const report = await SELF.fetch(`https://example.com/api/reports/${reportId}`);
+    expect(report.status).toBe(200);
+    expect(await report.json()).toMatchObject({
+      sources: [
+        {
+          id: "source-1",
+          archive: {
+            snapshotUrl: `/api/reports/${reportId}/artifacts/source-1`
+          }
+        }
+      ]
+    });
+
+    const artifact = await SELF.fetch(
+      `https://example.com/api/reports/${reportId}/artifacts/source-1`
+    );
+    expect(artifact.status).toBe(200);
+    expect(artifact.headers.get("content-type")).toContain("text/plain");
+    expect(await artifact.text()).toBe("# Archived evidence");
+    expect(
+      (
+        await SELF.fetch(
+          `https://example.com/api/reports/${reportId}/artifacts/source-2`
+        )
+      ).status
+    ).toBe(404);
   });
 
   it("records provider usage and cost even when structured output parsing fails", async () => {

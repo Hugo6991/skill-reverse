@@ -351,48 +351,46 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
 
       await step.do("persist report", async () => {
         const now = new Date();
-        const expires = new Date(
-          now.getTime() + Number(this.env.REPORT_TTL_DAYS || 30) * 86_400_000
-        ).toISOString();
+        const publishedAt = now.toISOString();
+        const permanentExpiry = "9999-12-31T23:59:59.999Z";
         const statements = captured.map((artifact) =>
           this.env.DB.prepare(
             `INSERT OR REPLACE INTO source_artifacts
              (id, job_id, url, kind, status, title, retrieved_at, r2_key, excerpt, metadata_json)
-             VALUES (?1, ?2, ?3, ?4, 'verified_at_retrieval', ?5, ?6, ?7, ?8, '{}')`
+             VALUES (?1, ?2, ?3, ?4, 'verified_at_retrieval', ?5, ?6, ?7, ?8, ?9)`
           ).bind(
             `${jobId}-${artifact.id}`,
             jobId,
             artifact.url,
             artifact.url.includes("github.com") ? "github" : "website",
             artifact.title,
-            now.toISOString(),
+            publishedAt,
             artifact.r2Key,
-            artifact.excerpt
+            artifact.excerpt,
+            JSON.stringify({ screenshotKey: artifact.screenshotKey ?? null })
           )
         );
-        await this.env.DB.batch(statements);
-        await this.env.DB.prepare(
+        const reportInsert = this.env.DB.prepare(
           `INSERT INTO reports
            (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-        )
-          .bind(
-            report.id,
-            jobId,
-            capabilityHash,
-            report.title,
-            JSON.stringify(report),
-            now.toISOString(),
-            expires
-          )
-          .run();
-        await updateJob(this.env.DB, jobId, {
-          stage: "report",
-          status: "completed",
-          progress: 100,
-          reportId: report.id,
-          degraded
-        });
+        ).bind(
+          report.id,
+          jobId,
+          capabilityHash,
+          report.title,
+          JSON.stringify(report),
+          publishedAt,
+          permanentExpiry
+        );
+        const publishJob = this.env.DB.prepare(
+          `UPDATE jobs
+           SET stage = 'report', status = 'completed', progress = 100, report_id = ?1,
+               degraded_json = ?2, finished_at = ?3, publication_status = 'published',
+               published_at = ?3, hidden_at = NULL, moderation_note = NULL, updated_at = ?3
+           WHERE id = ?4`
+        ).bind(report.id, JSON.stringify(degraded), publishedAt, jobId);
+        await this.env.DB.batch([...statements, reportInsert, publishJob]);
       });
 
       await step.do("settle gates", async () => {

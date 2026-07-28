@@ -1,5 +1,6 @@
 import type { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import type { ResearchWorkflowParams } from "./workflow";
+import type { PublicationStatus } from "./publication";
 
 export interface ResearchQueueMessage {
   jobId: string;
@@ -64,6 +65,9 @@ export interface AppEnv {
   OPENROUTER_SYNTHESIS_MODEL: string;
   REPORT_TTL_DAYS: string;
   ARTIFACT_TTL_DAYS: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+  CF_ACCESS_ALLOWED_EMAIL?: string;
   PERPLEXITY_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   TWITTERAPI_KEY?: string;
@@ -111,6 +115,11 @@ export interface JobRow {
   finished_at: string | null;
   auto_retry_count: number;
   last_auto_retry_at: string | null;
+  publication_status: PublicationStatus;
+  published_at: string | null;
+  hidden_at: string | null;
+  moderation_note: string | null;
+  target_key: string | null;
   created_at: string;
   updated_at: string;
   expires_at: string;

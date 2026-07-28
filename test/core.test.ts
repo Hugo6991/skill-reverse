@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { authorizeAdmin, resetAccessCertificateCacheForTest } from "../worker/access";
 import { demoReport } from "../worker/demo";
 import { publicConfig, resolveAppMode } from "../worker/index";
 import { pilotOccupation } from "../worker/occupations";
@@ -13,6 +14,12 @@ import {
 import type { AppEnv } from "../worker/types";
 import { withoutTerminalFullStop } from "../src/text";
 import { historyPresentation } from "../worker/history";
+import {
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  normalizeTargetUrl,
+  targetKey
+} from "../worker/publication";
 
 describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
@@ -69,6 +76,26 @@ describe("history presentation", () => {
   });
 });
 
+describe("public archive URL and cursor normalization", () => {
+  it("matches equivalent public target URLs without collapsing the path", () => {
+    expect(targetKey("https://WWW.Example.com/guide/?utm_source=test#intro")).toBe(
+      "https://example.com/guide"
+    );
+    expect(normalizeTargetUrl("https://example.com/Guide")).toBe(
+      "https://example.com/Guide"
+    );
+  });
+
+  it("round-trips an opaque stable history cursor", () => {
+    const cursor = {
+      publishedAt: "2026-07-28T12:00:00.000Z",
+      jobId: "job-123"
+    };
+    expect(decodeHistoryCursor(encodeHistoryCursor(cursor))).toEqual(cursor);
+    expect(decodeHistoryCursor("not-a-cursor")).toBeUndefined();
+  });
+});
+
 describe("public URL safety", () => {
   it("accepts a public HTTPS URL", () => {
     expect(assertSafePublicUrl("https://antfu.me").hostname).toBe("antfu.me");
@@ -109,6 +136,167 @@ describe("Turnstile verification", () => {
         { TURNSTILE_SECRET_KEY: "production-secret" } as AppEnv
       )
     ).resolves.toEqual({ success: false, code: "turnstile_action_mismatch" });
+  });
+});
+
+describe("Cloudflare Access owner verification", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetAccessCertificateCacheForTest();
+  });
+
+  it("verifies the Access signature, issuer and audience", async () => {
+    const keys = (await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256"
+      },
+      true,
+      ["sign", "verify"]
+    )) as CryptoKeyPair;
+    const publicJwk = (await crypto.subtle.exportKey("jwk", keys.publicKey)) as JsonWebKey & {
+      kid?: string;
+    };
+    publicJwk.kid = "owner-key";
+
+    const encode = (value: unknown) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(value));
+      let binary = "";
+      bytes.forEach((byte) => {
+        binary += String.fromCharCode(byte);
+      });
+      return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+    };
+    const header = encode({ alg: "RS256", kid: "owner-key" });
+    const claims = encode({
+      aud: ["owner-aud"],
+      email: "owner@example.com",
+      exp: Math.floor(Date.now() / 1000) + 300,
+      iss: "https://owner.cloudflareaccess.com"
+    });
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      keys.privateKey,
+      new TextEncoder().encode(`${header}.${claims}`)
+    );
+    let signatureBinary = "";
+    new Uint8Array(signature).forEach((byte) => {
+      signatureBinary += String.fromCharCode(byte);
+    });
+    const token = `${header}.${claims}.${btoa(signatureBinary)
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "")}`;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ keys: [publicJwk] }))
+    );
+    const result = await authorizeAdmin(
+      new Request("https://skill-reverse.vibeencode.dev/api/admin/reports", {
+        headers: { "Cf-Access-Jwt-Assertion": token }
+      }),
+      {
+        APP_MODE: "public",
+        CF_ACCESS_TEAM_DOMAIN: "owner.cloudflareaccess.com",
+        CF_ACCESS_AUD: "owner-aud",
+        CF_ACCESS_ALLOWED_EMAIL: "owner@example.com"
+      } as AppEnv
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      claims: { email: "owner@example.com" }
+    });
+    await expect(
+      authorizeAdmin(
+        new Request("https://skill-reverse.vibeencode.dev/api/admin/reports", {
+          headers: { "Cf-Access-Jwt-Assertion": token }
+        }),
+        {
+          APP_MODE: "public",
+          CF_ACCESS_TEAM_DOMAIN: "owner.cloudflareaccess.com",
+          CF_ACCESS_AUD: "different-aud",
+          CF_ACCESS_ALLOWED_EMAIL: "owner@example.com"
+        } as AppEnv
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 401,
+      code: "admin_auth_rejected"
+    });
+  });
+
+  it("rejects a signed Access token for a different identity", async () => {
+    const keys = (await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256"
+      },
+      true,
+      ["sign", "verify"]
+    )) as CryptoKeyPair;
+    const publicJwk = (await crypto.subtle.exportKey("jwk", keys.publicKey)) as JsonWebKey & {
+      kid?: string;
+    };
+    publicJwk.kid = "intruder-key";
+    const encode = (value: unknown) =>
+      btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))))
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replaceAll("=", "");
+    const header = encode({ alg: "RS256", kid: "intruder-key" });
+    const claims = encode({
+      aud: "owner-aud",
+      email: "intruder@example.com",
+      exp: Math.floor(Date.now() / 1000) + 300,
+      iss: "https://owner.cloudflareaccess.com"
+    });
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      keys.privateKey,
+      new TextEncoder().encode(`${header}.${claims}`)
+    );
+    const token = `${header}.${claims}.${btoa(
+      String.fromCharCode(...new Uint8Array(signature))
+    )
+      .replaceAll("+", "-")
+      .replaceAll("/", "_")
+      .replaceAll("=", "")}`;
+
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ keys: [publicJwk] })));
+    await expect(
+      authorizeAdmin(
+        new Request("https://skill-reverse.vibeencode.dev/api/admin/reports", {
+          headers: { "Cf-Access-Jwt-Assertion": token }
+        }),
+        {
+          APP_MODE: "public",
+          CF_ACCESS_TEAM_DOMAIN: "owner.cloudflareaccess.com",
+          CF_ACCESS_AUD: "owner-aud",
+          CF_ACCESS_ALLOWED_EMAIL: "owner@example.com"
+        } as AppEnv
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 401,
+      code: "admin_auth_rejected"
+    });
+  });
+
+  it("fails closed when owner access is not configured", async () => {
+    await expect(
+      authorizeAdmin(new Request("https://example.com/api/admin/reports"), {
+        APP_MODE: "public"
+      } as AppEnv)
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 503,
+      code: "admin_not_configured"
+    });
   });
 });
 

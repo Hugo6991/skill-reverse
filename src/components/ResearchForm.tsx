@@ -1,7 +1,12 @@
-import { ArrowRight, Link2, LockKeyhole, Search } from "lucide-react";
+import { ArrowRight, FileSearch2, Globe2, Link2, LoaderCircle, LockKeyhole, Search } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { uiCopy } from "../copy";
-import type { OccupationProfile, PublicConfig } from "../types";
+import type {
+  HistoryItem,
+  HistoryPage as HistoryResponse,
+  OccupationProfile,
+  PublicConfig
+} from "../types";
 import { Turnstile } from "./Turnstile";
 
 export interface ResearchInput {
@@ -24,12 +29,14 @@ export function ResearchForm({
   config,
   busy,
   onSubmit,
-  onOpenDemo
+  onOpenDemo,
+  onOpenReport
 }: {
   config: PublicConfig;
   busy: boolean;
   onSubmit(input: ResearchInput): Promise<void>;
   onOpenDemo(): void;
+  onOpenReport(reportId: string): void;
 }) {
   const [targetUrl, setTargetUrl] = useState("");
   const [urlReady, setUrlReady] = useState(false);
@@ -38,6 +45,8 @@ export function ResearchForm({
   const [occupation, setOccupation] = useState<OccupationProfile>();
   const [token, setToken] = useState(config.mode === "demo" ? "demo-token" : "");
   const [error, setError] = useState("");
+  const [previousRuns, setPreviousRuns] = useState<HistoryItem[]>([]);
+  const [checkingHistory, setCheckingHistory] = useState(false);
   const occupationInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -72,6 +81,34 @@ export function ResearchForm({
   useEffect(() => {
     if (urlReady) occupationInput.current?.focus();
   }, [urlReady]);
+
+  useEffect(() => {
+    if (!urlReady) {
+      setPreviousRuns([]);
+      setCheckingHistory(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCheckingHistory(true);
+    const search = new URLSearchParams({ limit: "3", targetUrl });
+    void fetch(`/api/history?${search}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as HistoryResponse & {
+          error?: { message?: string };
+        };
+        if (!response.ok) throw new Error(body.error?.message ?? "Previous reports are unavailable");
+        setPreviousRuns(body.items);
+      })
+      .catch((caught) => {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) {
+          setPreviousRuns([]);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCheckingHistory(false);
+      });
+    return () => controller.abort();
+  }, [targetUrl, urlReady]);
 
   const onToken = useCallback((value: string) => setToken(value), []);
   const onTurnstileError = useCallback((message: string) => setError(message), []);
@@ -163,6 +200,49 @@ export function ResearchForm({
           )}
         </div>
 
+        {urlReady && (checkingHistory || previousRuns.length > 0) && (
+          <section className="previous-runs" aria-labelledby="previous-runs-title">
+            <div className="previous-runs-heading">
+              <span className="previous-runs-icon">
+                {checkingHistory ? (
+                  <LoaderCircle className="spin" size={17} aria-hidden="true" />
+                ) : (
+                  <FileSearch2 size={17} aria-hidden="true" />
+                )}
+              </span>
+              <div>
+                <h2 id="previous-runs-title">
+                  {checkingHistory ? uiCopy.home.checkingPrevious : uiCopy.home.previousTitle}
+                </h2>
+                <p>{uiCopy.home.previousBody}</p>
+              </div>
+            </div>
+            {!checkingHistory && (
+              <div className="previous-runs-list">
+                {previousRuns.map((run) => (
+                  <button
+                    type="button"
+                    key={run.reportId}
+                    onClick={() => onOpenReport(run.reportId)}
+                  >
+                    <span>
+                      <strong>{run.displayName}</strong>
+                      <small>{run.occupationTitle}</small>
+                    </span>
+                    <time dateTime={run.publishedAt}>
+                      {new Intl.DateTimeFormat("zh-TW", {
+                        month: "short",
+                        day: "numeric"
+                      }).format(new Date(run.publishedAt))}
+                    </time>
+                    <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {urlReady && (
           <div className="occupation-stage">
             <div className="stage-heading">
@@ -226,10 +306,16 @@ export function ResearchForm({
                 </button>
               </div>
             ) : (
-              <button className="start-button primary-button" type="submit" disabled={busy}>
-                {busy ? uiCopy.home.starting : uiCopy.home.start}
-                <ArrowRight size={18} aria-hidden="true" />
-              </button>
+              <>
+                <div className="public-submission-note">
+                  <Globe2 size={17} aria-hidden="true" />
+                  <span>{uiCopy.home.publicNotice}</span>
+                </div>
+                <button className="start-button primary-button" type="submit" disabled={busy}>
+                  {busy ? uiCopy.home.starting : uiCopy.home.start}
+                  <ArrowRight size={18} aria-hidden="true" />
+                </button>
+              </>
             )}
           </div>
         )}

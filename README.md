@@ -15,7 +15,8 @@
 - Perplexity Sonar Pro 結構化 research
 - TwitterAPI.io 定向作者貼文搜尋，可安全降級
 - O*NET 30.3 starter catalog 與 Professional Delta
-- 頂部導航、兩階段 URL composer、匿名 History 與可恢復進度頁
+- 頂部導航、兩階段 URL composer、永久公開研究 archive 與可恢復進度頁
+- Cloudflare Access 站長管理頁、公開來源快照與 evidence screenshot
 - locked → doctor → 真實研究 smoke → public 的安全部署流程
 - 內建 Anthropic `skill-creator` example brief，不會呼叫付費服務
 
@@ -60,7 +61,7 @@ pnpm setup:prod
 setup wizard 會：
 
 1. 確認 Wrangler 登入
-2. 以隱藏輸入讀取 Perplexity、TwitterAPI.io、Turnstile keys
+2. 以隱藏輸入讀取 Perplexity、TwitterAPI.io、Turnstile keys 與 Cloudflare Access 設定
 3. 部署 locked version 後，透過 stdin 逐項執行 `wrangler secret put`，不把 secrets 寫到檔案
 4. 套用 D1 migrations
 5. 驗證 D1、R2、Durable Objects、Workflow 與必要 provider 設定
@@ -98,6 +99,9 @@ Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repositor
 | `SETUP_CAPABILITY` | generated | Deep doctor authorization |
 | `SETUP_COMPLETE` | generated | Unlocks public job creation |
 | `TWITTERAPI_KEY` | no | Social provenance; missing means degraded report |
+| `CF_ACCESS_TEAM_DOMAIN` | yes | Cloudflare Access issuer for owner moderation |
+| `CF_ACCESS_AUD` | yes | Cloudflare Access application audience |
+| `CF_ACCESS_ALLOWED_EMAIL` | yes | Owner email accepted by the Worker after Access verification |
 
 Cloudflare service credentials不需要放進環境變數；Queues、D1、R2、Browser Run、Workflow、Rate Limiting 與 Durable Objects 全部透過 bindings。
 
@@ -129,10 +133,11 @@ pnpm check
 pnpm bootstrap:cloudflare:dry-run
 pnpm bootstrap:cloudflare
 pnpm doctor https://skill-reverse.vibeencode.dev
+pnpm backup:prod
 pnpm deploy
 ```
 
-`pnpm deploy` 會先 typecheck、test、build、套用向後相容 migration，再部署 Worker。設定 `SKILL_REVERSE_URL` 後會追加 public health check。
+第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 會先 typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。設定 `SKILL_REVERSE_URL` 後會追加 public health check。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
 ## API
 
@@ -140,10 +145,10 @@ pnpm deploy
 - `GET /api/jobs/:id`：查詢排隊順位、階段、重試與降級狀態
 - `GET /api/my-jobs`：讀取目前匿名 actor 的排隊中、執行中與失敗工作
 - `PUT /api/jobs/:id/sources`：在 90 秒視窗補充或略過來源
-- `GET /api/history`：讀取目前匿名 actor 的搜尋紀錄
-- `DELETE /api/history/:jobId`：刪除目前匿名 actor 的終止工作與相關資料
-- `GET /api/reports/:id`：取得互動報告資料
-- `DELETE /api/reports/:id`：用 capability token 刪除報告
+- `GET /api/history?limit=&cursor=&targetUrl=`：讀取全站 completed + published 公開 archive
+- `GET /api/reports/:id`：取得 published 互動報告資料
+- `GET /api/reports/:reportId/artifacts/:sourceId`：讀取保存時文字快照或 screenshot
+- `GET/PATCH/DELETE /api/admin/reports...`：Cloudflare Access 保護的站長審核
 - `GET /api/occupations?q=`：搜尋唯一職業
 - `POST /api/setup/smoke`：用 setup capability 啟動 production acceptance
 - `GET /api/health`：公開健康摘要

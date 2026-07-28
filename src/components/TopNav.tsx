@@ -1,8 +1,9 @@
-import { Clock3, FileSearch2, Plus, ScanSearch } from "lucide-react";
+import { FileSearch2, Globe2, Plus, ScanSearch, ShieldCheck } from "lucide-react";
 import { uiCopy } from "../copy";
 
 export type AppRoute =
   | { kind: "home" }
+  | { kind: "admin" }
   | { kind: "history" }
   | { kind: "job"; id: string }
   | { kind: "report"; id: string }
@@ -69,7 +70,7 @@ export function TopNav({
             active={route.kind === "history" || route.kind === "job"}
             onNavigate={onNavigate}
           >
-            <Clock3 size={15} aria-hidden="true" />
+            <Globe2 size={15} aria-hidden="true" />
             {uiCopy.nav.history}
           </NavLink>
           <NavLink
@@ -80,6 +81,12 @@ export function TopNav({
             <FileSearch2 size={15} aria-hidden="true" />
             {uiCopy.nav.pilot}
           </NavLink>
+          {route.kind === "admin" && (
+            <NavLink href="/admin" active onNavigate={onNavigate}>
+              <ShieldCheck size={15} aria-hidden="true" />
+              Owner
+            </NavLink>
+          )}
         </nav>
       </div>
     </header>

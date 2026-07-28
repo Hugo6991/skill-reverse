@@ -14,6 +14,7 @@ run("pnpm", ["typecheck"]);
 run("pnpm", ["test"]);
 run("pnpm", ["build"]);
 run("pnpm", ["db:migrate:remote"]);
+run("node", ["scripts/backfill-target-keys.mjs"]);
 run("pnpm", ["exec", "wrangler", "deploy"]);
 
 if (process.env.SKILL_REVERSE_URL) {

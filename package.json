@@ -22,7 +22,10 @@
     "bootstrap:cloudflare:dry-run": "node scripts/bootstrap-cloudflare.mjs --dry-run",
     "setup:prod": "node scripts/setup-prod.mjs",
     "doctor": "node scripts/doctor.mjs",
-    "deploy": "node scripts/deploy.mjs"
+    "backup:prod": "node scripts/backup-prod.mjs",
+    "db:backfill-targets:remote": "node scripts/backfill-target-keys.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "release": "pnpm run backup:prod && pnpm run deploy"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.6",

@@ -1,7 +1,7 @@
 export const uiCopy = {
   nav: {
     newReverse: "New reverse",
-    history: "History",
+    history: "Public archive",
     pilot: "Example brief"
   },
   home: {
@@ -16,6 +16,11 @@ export const uiCopy = {
     occupationLabel: "你想把這套思維帶進哪類工作？",
     occupationHelp: "這只決定應用視角，不用來替作者打分，也不代表你需要某種 agent",
     occupationPlaceholder: "Search a work context",
+    checkingPrevious: "Checking the public archive…",
+    previousTitle: "This source has earlier reports",
+    previousBody: "Open a previous result for context, or continue below to create a fresh run.",
+    publicNotice:
+      "Submitted URLs, completed reports and captured evidence are published to the permanent public archive.",
     start: "Reverse the thinking",
     starting: "Reading the thinking…",
     lockedTitle: "Research is not available yet",
@@ -46,14 +51,16 @@ export const uiCopy = {
     saving: "Continuing research…"
   },
   history: {
-    eyebrow: "Your browser",
-    title: "Research history",
-    description: "最近 30 天從這個瀏覽器建立的研究",
-    emptyTitle: "No research yet",
-    emptyBody: "Start with a public result and completed reports will appear here",
+    eyebrow: "Shared evidence library",
+    title: "Public research archive",
+    description: "所有訪客完成的研究都保存在這裡；同一來源的不同批次會並列呈現",
+    publicNote: "Public, permanent and shared across browsers",
+    emptyTitle: "The public archive is ready",
+    emptyBody: "Complete the first research run and its report will appear here",
     emptyAction: "Start a reverse",
-    delete: "Remove",
-    loadError: "History could not be loaded",
-    retry: "Try again"
+    loadError: "The public archive could not be loaded",
+    retry: "Try again",
+    loadMore: "Load older reports",
+    loadingMore: "Loading older reports…"
   }
 } as const;

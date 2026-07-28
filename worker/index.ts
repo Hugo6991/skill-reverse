@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import type { JobStatus } from "../src/types";
+import { authorizeAdmin } from "./access";
 import { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import { demoReport } from "./demo";
 import { historyPresentation } from "./history";
@@ -8,6 +9,12 @@ import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import { getOccupation, searchOccupations } from "./occupations";
 import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
 import { isRetryableJobError } from "./provider-ledger";
+import {
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  targetKey,
+  type PublicationStatus
+} from "./publication";
 import {
   assertSafePublicUrl,
   attachActorCookie,
@@ -134,10 +141,10 @@ async function enqueueResearchJob(
       `INSERT INTO jobs
        (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
         progress, reserved_cents, actual_cents, capability_hash, degraded_json,
-        sources_finalized_at, queued_at,
+        sources_finalized_at, queued_at, target_key, publication_status,
         created_at, updated_at, expires_at)
        VALUES (?1, ?2, ?3, ?4, ?5, 'validate', 'queued', 4, ?6, 0, ?7, '[]',
-               ?8, ?9, ?9, ?9, ?10)`
+               ?8, ?9, ?10, 'unpublished', ?9, ?9, ?11)`
     )
       .bind(
         jobId,
@@ -149,6 +156,7 @@ async function enqueueResearchJob(
         capabilityHash,
         input.sourcesFinalized ? now.toISOString() : null,
         now.toISOString(),
+        targetKey(input.targetUrl),
         expiresAt
       )
       .run();
@@ -212,6 +220,22 @@ app.use("/api/*", async (c, next) => {
   await next();
   c.header("cache-control", "no-store");
   c.header("x-robots-tag", "noindex, nofollow");
+});
+
+app.use("/api/admin/*", async (c, next) => {
+  const authorization = await authorizeAdmin(c.req.raw, c.env);
+  if (!authorization.ok) {
+    return c.json(
+      {
+        error: {
+          code: authorization.code,
+          message: authorization.message
+        }
+      },
+      authorization.status
+    );
+  }
+  await next();
 });
 
 app.onError((error, c) => {
@@ -393,6 +417,9 @@ app.get("/api/jobs/:id", async (c) => {
     .bind(c.req.param("id"))
     .first<JobRow & { submitted_count: number; queue_position: number }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Job not found" } }, 404);
+  if (row.publication_status === "hidden") {
+    return c.json({ error: { code: "not_found", message: "Job not found" } }, 404);
+  }
   const sourceStageOpen = ["validate", "capture", "source_collection"].includes(row.stage);
   const beforeDeadline =
     !row.source_window_closes_at ||
@@ -923,30 +950,60 @@ app.put("/api/jobs/:id/sources", async (c) => {
 });
 
 app.get("/api/history", async (c) => {
-  if (!c.env.ANON_SESSION_SECRET) return c.json({ items: [] });
-  const actor = await getOrCreateActor(c.req.raw, c.env);
-  c.set("actorId", actor.actorId);
-  c.set("actorHash", actor.actorHash);
-  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
   const requestedLimit = Number(c.req.query("limit") ?? 20);
   const limit = Number.isFinite(requestedLimit)
     ? Math.max(1, Math.min(50, Math.floor(requestedLimit)))
     : 20;
-  const cursor = c.req.query("cursor");
+  const cursor = decodeHistoryCursor(c.req.query("cursor"));
+  if (c.req.query("cursor") && !cursor) {
+    return c.json(
+      { error: { code: "invalid_cursor", message: "The history cursor is invalid" } },
+      400
+    );
+  }
+  let requestedTargetKey: string | null = null;
+  const targetUrl = c.req.query("targetUrl");
+  if (targetUrl) {
+    try {
+      assertSafePublicUrl(targetUrl);
+      requestedTargetKey = targetKey(targetUrl);
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "invalid_target",
+            message: error instanceof Error ? error.message : "The target URL is invalid"
+          }
+        },
+        400
+      );
+    }
+  }
   const rows = await c.env.DB.prepare(
     `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
             j.status, j.stage, j.progress, j.report_id, j.created_at, j.updated_at,
-            r.payload_json AS report_payload_json
+            j.published_at, r.payload_json AS report_payload_json
      FROM jobs j
      LEFT JOIN occupations o ON o.code = j.occupation_code
-     LEFT JOIN reports r ON r.id = j.report_id AND r.expires_at > ?2
-     WHERE j.actor_hash = ?1
-       AND j.expires_at > ?2
-       AND (?3 IS NULL OR j.created_at < ?3)
-     ORDER BY j.created_at DESC
+     JOIN reports r ON r.id = j.report_id
+     WHERE j.status = 'completed'
+       AND j.publication_status = 'published'
+       AND j.published_at IS NOT NULL
+       AND (?1 IS NULL OR j.target_key = ?1)
+       AND (
+         ?2 IS NULL
+         OR j.published_at < ?2
+         OR (j.published_at = ?2 AND j.id < ?3)
+       )
+     ORDER BY j.published_at DESC, j.id DESC
      LIMIT ?4`
   )
-    .bind(actor.actorHash, new Date().toISOString(), cursor ?? null, limit + 1)
+    .bind(
+      requestedTargetKey,
+      cursor?.publishedAt ?? null,
+      cursor?.jobId ?? null,
+      limit + 1
+    )
     .all<{
       id: string;
       target_url: string;
@@ -959,9 +1016,10 @@ app.get("/api/history", async (c) => {
       report_payload_json: string | null;
       created_at: string;
       updated_at: string;
+      published_at: string;
     }>();
   const page = rows.results.slice(0, limit);
-  const response = c.json({
+  return c.json({
     items: page.map((item) => {
       const presentation = historyPresentation(item.target_url, item.report_payload_json);
       return {
@@ -970,54 +1028,23 @@ app.get("/api/history", async (c) => {
         occupationCode: item.occupation_code,
         occupationTitle: item.occupation_title ?? item.occupation_code,
         ...presentation,
-        status: item.status,
-        stage: item.stage,
-        progress: item.progress,
-        reportId: item.report_id ?? undefined,
+        status: "completed" as const,
+        stage: "report" as const,
+        progress: 100,
+        reportId: item.report_id,
         createdAt: item.created_at,
-        updatedAt: item.updated_at
+        updatedAt: item.updated_at,
+        publishedAt: item.published_at
       };
     }),
-    nextCursor: rows.results.length > limit ? page.at(-1)?.created_at : undefined
+    nextCursor:
+      rows.results.length > limit && page.at(-1)
+        ? encodeHistoryCursor({
+            publishedAt: page.at(-1)!.published_at,
+            jobId: page.at(-1)!.id
+          })
+        : undefined
   });
-  return attachActorCookie(c, response);
-});
-
-app.delete("/api/history/:jobId", async (c) => {
-  if (!c.env.ANON_SESSION_SECRET) {
-    return c.json({ error: { code: "setup_required", message: "History is unavailable" } }, 503);
-  }
-  const actor = await getOrCreateActor(c.req.raw, c.env);
-  c.set("actorId", actor.actorId);
-  c.set("actorHash", actor.actorHash);
-  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
-  const row = await c.env.DB.prepare(
-    "SELECT id, status FROM jobs WHERE id = ?1 AND actor_hash = ?2"
-  )
-    .bind(c.req.param("jobId"), actor.actorHash)
-    .first<{ id: string; status: string }>();
-  if (!row) {
-    return attachActorCookie(
-      c,
-      c.json({ error: { code: "not_found", message: "History item not found" } }, 404)
-    );
-  }
-  if (row.status !== "completed" && row.status !== "failed") {
-    return attachActorCookie(
-      c,
-      c.json(
-        {
-          error: {
-            code: "job_running",
-            message: "Running research cannot be removed"
-          }
-        },
-        409
-      )
-    );
-  }
-  await deleteJobAndArtifacts(c.env, row.id);
-  return attachActorCookie(c, c.body(null, 204));
 });
 
 app.post("/api/setup/smoke", async (c) => {
@@ -1050,28 +1077,210 @@ app.post("/api/setup/smoke", async (c) => {
 app.get("/api/reports/:id", async (c) => {
   if (c.req.param("id") === "demo") return c.json(demoReport);
   const row = await c.env.DB.prepare(
-    "SELECT payload_json FROM reports WHERE id = ?1 AND expires_at > ?2"
+    `SELECT r.payload_json, r.job_id
+     FROM reports r
+     JOIN jobs j ON j.id = r.job_id
+     WHERE r.id = ?1
+       AND j.status = 'completed'
+       AND j.publication_status = 'published'`
   )
-    .bind(c.req.param("id"), new Date().toISOString())
-    .first<{ payload_json: string }>();
+    .bind(c.req.param("id"))
+    .first<{ payload_json: string; job_id: string }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
-  return c.json(JSON.parse(row.payload_json));
+  const report = JSON.parse(row.payload_json) as {
+    sources?: Array<{ id: string; [key: string]: unknown }>;
+    [key: string]: unknown;
+  };
+  if (Array.isArray(report.sources)) {
+    const artifacts = await c.env.DB.prepare(
+      `SELECT id, r2_key, metadata_json
+       FROM source_artifacts
+       WHERE job_id = ?1 AND r2_key IS NOT NULL`
+    )
+      .bind(row.job_id)
+      .all<{ id: string; r2_key: string; metadata_json: string }>();
+    const archived = new Map(
+      artifacts.results.map((artifact) => {
+        let screenshotKey: string | undefined;
+        try {
+          const metadata = JSON.parse(artifact.metadata_json) as { screenshotKey?: unknown };
+          if (typeof metadata.screenshotKey === "string") screenshotKey = metadata.screenshotKey;
+        } catch {
+          // Older archived sources only have the text snapshot.
+        }
+        return [
+          artifact.id.slice(`${row.job_id}-`.length),
+          {
+            snapshot: true,
+            screenshot: Boolean(screenshotKey)
+          }
+        ] as const;
+      })
+    );
+    report.sources = report.sources.map((source) => {
+      const artifact = archived.get(source.id);
+      return artifact
+        ? {
+            ...source,
+            archive: {
+              snapshotUrl: `/api/reports/${encodeURIComponent(c.req.param("id"))}/artifacts/${encodeURIComponent(source.id)}`,
+              screenshotUrl: artifact.screenshot
+                ? `/api/reports/${encodeURIComponent(c.req.param("id"))}/artifacts/${encodeURIComponent(source.id)}?view=screenshot`
+                : undefined
+            }
+          }
+        : source;
+    });
+  }
+  return c.json(report);
 });
 
-app.delete("/api/reports/:id", async (c) => {
-  if (c.req.param("id") === "demo") {
-    return c.json({ error: { code: "demo_readonly", message: "Demo report cannot be deleted" } }, 400);
-  }
-  const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return c.json({ error: { code: "unauthorized", message: "Capability required" } }, 401);
-  const capabilityHash = await sha256(token);
+app.get("/api/reports/:reportId/artifacts/:sourceId", async (c) => {
+  const view = c.req.query("view") === "screenshot" ? "screenshot" : "snapshot";
   const row = await c.env.DB.prepare(
-    "SELECT job_id FROM reports WHERE id = ?1 AND capability_hash = ?2"
+    `SELECT a.r2_key, a.metadata_json
+     FROM source_artifacts a
+     JOIN reports r ON r.job_id = a.job_id
+     JOIN jobs j ON j.id = a.job_id
+     WHERE r.id = ?1
+       AND a.id = a.job_id || '-' || ?2
+       AND j.status = 'completed'
+       AND j.publication_status = 'published'`
   )
-    .bind(c.req.param("id"), capabilityHash)
-    .first<{ job_id: string }>();
-  if (!row) return c.json({ error: { code: "unauthorized", message: "Capability rejected" } }, 403);
+    .bind(c.req.param("reportId"), c.req.param("sourceId"))
+    .first<{ r2_key: string | null; metadata_json: string }>();
+  if (!row?.r2_key) {
+    return c.json({ error: { code: "not_found", message: "Archived source not found" } }, 404);
+  }
+  let objectKey = row.r2_key;
+  if (view === "screenshot") {
+    try {
+      const metadata = JSON.parse(row.metadata_json) as { screenshotKey?: unknown };
+      if (typeof metadata.screenshotKey !== "string") {
+        return c.json({ error: { code: "not_found", message: "Archived screenshot not found" } }, 404);
+      }
+      objectKey = metadata.screenshotKey;
+    } catch {
+      return c.json({ error: { code: "not_found", message: "Archived screenshot not found" } }, 404);
+    }
+  }
+  const object = await c.env.ARTIFACTS.get(objectKey);
+  if (!object?.body) {
+    return c.json({ error: { code: "not_found", message: "Archived source not found" } }, 404);
+  }
+  const extension = view === "screenshot" ? "png" : "md";
+  return new Response(object.body, {
+    headers: {
+      "content-type": view === "screenshot" ? "image/png" : "text/plain; charset=utf-8",
+      "content-disposition": `inline; filename="${c.req.param("sourceId")}.${extension}"`,
+      "x-content-type-options": "nosniff",
+      "cross-origin-resource-policy": "same-origin",
+      "content-security-policy": "default-src 'none'; sandbox"
+    }
+  });
+});
 
+app.get("/api/admin/reports", async (c) => {
+  const statusQuery = c.req.query("status");
+  const status: PublicationStatus | null =
+    statusQuery === "published" || statusQuery === "hidden" ? statusQuery : null;
+  const query = (c.req.query("query") ?? "").trim().slice(0, 160);
+  const requestedLimit = Number(c.req.query("limit") ?? 50);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(100, Math.floor(requestedLimit)))
+    : 50;
+  const rows = await c.env.DB.prepare(
+    `SELECT r.id AS report_id, r.title, j.id AS job_id, j.target_url,
+            j.publication_status, j.published_at, j.hidden_at, j.moderation_note,
+            o.title AS occupation_title
+     FROM reports r
+     JOIN jobs j ON j.id = r.job_id
+     LEFT JOIN occupations o ON o.code = j.occupation_code
+     WHERE j.publication_status IN ('published', 'hidden')
+       AND (?1 IS NULL OR j.publication_status = ?1)
+       AND (
+         ?2 = ''
+         OR lower(r.title) LIKE '%' || lower(?2) || '%'
+         OR lower(j.target_url) LIKE '%' || lower(?2) || '%'
+       )
+     ORDER BY COALESCE(j.published_at, j.created_at) DESC, j.id DESC
+     LIMIT ?3`
+  )
+    .bind(status, query, limit)
+    .all<{
+      report_id: string;
+      title: string;
+      job_id: string;
+      target_url: string;
+      publication_status: PublicationStatus;
+      published_at: string | null;
+      hidden_at: string | null;
+      moderation_note: string | null;
+      occupation_title: string | null;
+    }>();
+  return c.json({
+    items: rows.results.map((row) => ({
+      reportId: row.report_id,
+      jobId: row.job_id,
+      title: row.title,
+      targetUrl: row.target_url,
+      publicationStatus: row.publication_status,
+      publishedAt: row.published_at,
+      hiddenAt: row.hidden_at,
+      moderationNote: row.moderation_note,
+      occupationTitle: row.occupation_title
+    }))
+  });
+});
+
+app.patch("/api/admin/reports/:id", async (c) => {
+  const body = (await c.req.json().catch(() => null)) as
+    | { action?: unknown; reason?: unknown }
+    | null;
+  const action = body?.action;
+  if (action !== "hide" && action !== "restore") {
+    return c.json(
+      { error: { code: "invalid_request", message: "Choose hide or restore" } },
+      400
+    );
+  }
+  const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+  const now = new Date().toISOString();
+  const updated =
+    action === "hide"
+      ? await c.env.DB.prepare(
+          `UPDATE jobs
+           SET publication_status = 'hidden', hidden_at = ?1, moderation_note = ?2,
+               updated_at = ?1
+           WHERE report_id = ?3 AND publication_status = 'published'`
+        )
+          .bind(now, reason || null, c.req.param("id"))
+          .run()
+      : await c.env.DB.prepare(
+          `UPDATE jobs
+           SET publication_status = 'published', hidden_at = NULL, moderation_note = NULL,
+               updated_at = ?1
+           WHERE report_id = ?2 AND publication_status = 'hidden'`
+        )
+          .bind(now, c.req.param("id"))
+          .run();
+  if (!updated.meta.changes) {
+    return c.json(
+      { error: { code: "not_found", message: "Report was not found in that state" } },
+      404
+    );
+  }
+  return c.json({
+    reportId: c.req.param("id"),
+    publicationStatus: action === "hide" ? "hidden" : "published"
+  });
+});
+
+app.delete("/api/admin/reports/:id", async (c) => {
+  const row = await c.env.DB.prepare("SELECT job_id FROM reports WHERE id = ?1")
+    .bind(c.req.param("id"))
+    .first<{ job_id: string }>();
+  if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
   await deleteJobAndArtifacts(c.env, row.job_id);
   return c.body(null, 204);
 });
@@ -1083,7 +1292,7 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-    checks.database = { ok: schema?.value === "5", detail: `schema ${schema?.value ?? "missing"}` };
+    checks.database = { ok: schema?.value === "6", detail: `schema ${schema?.value ?? "missing"}` };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }
@@ -1111,6 +1320,13 @@ app.get("/api/health", async (c) => {
 
   const requiredOk = checks.database.ok && checks.perplexity.ok && checks.turnstile.ok;
   if (authorized && c.req.query("deep") === "1") {
+    checks.adminAccess = {
+      ok: Boolean(c.env.CF_ACCESS_TEAM_DOMAIN && c.env.CF_ACCESS_AUD),
+      detail:
+        c.env.CF_ACCESS_TEAM_DOMAIN && c.env.CF_ACCESS_AUD
+          ? "team domain and audience configured"
+          : "owner moderation is fail-closed until Access is configured"
+    };
     const canary = `doctor/${crypto.randomUUID()}.txt`;
     try {
       await c.env.ARTIFACTS.put(canary, "ok");
@@ -1181,6 +1397,20 @@ app.get("/api/health", async (c) => {
   });
 });
 
+async function serveAdminShell(c: Context<HonoEnv>) {
+  const authorization = await authorizeAdmin(c.req.raw, c.env);
+  if (!authorization.ok) {
+    return c.json(
+      { error: { code: authorization.code, message: authorization.message } },
+      authorization.status
+    );
+  }
+  if (!c.env.ASSETS) return c.text("Not found", 404);
+  return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
+}
+
+app.get("/admin", serveAdminShell);
+app.get("/admin/*", serveAdminShell);
 app.get("/favicon.ico", (c) => c.body(null, 204));
 app.all("*", async (c) => {
   if (!c.env.ASSETS) return c.text("Not found", 404);
@@ -1196,15 +1426,28 @@ async function cleanupExpired(env: AppEnv): Promise<void> {
     Date.now() - Number(env.ARTIFACT_TTL_DAYS || 7) * 86_400_000
   ).toISOString();
   const staleArtifacts = await env.DB.prepare(
-    `SELECT id, r2_key
-     FROM source_artifacts
-     WHERE r2_key IS NOT NULL AND retrieved_at <= ?1
+    `SELECT a.id, a.r2_key, a.metadata_json
+     FROM source_artifacts a
+     JOIN jobs j ON j.id = a.job_id
+     WHERE a.r2_key IS NOT NULL
+       AND a.retrieved_at <= ?1
+       AND j.publication_status != 'published'
      LIMIT 250`
   )
     .bind(artifactCutoff)
-    .all<{ id: string; r2_key: string }>();
+    .all<{ id: string; r2_key: string; metadata_json: string }>();
   for (const artifact of staleArtifacts.results) {
-    await env.ARTIFACTS.delete(artifact.r2_key);
+    let screenshotKey: string | undefined;
+    try {
+      const metadata = JSON.parse(artifact.metadata_json) as { screenshotKey?: unknown };
+      if (typeof metadata.screenshotKey === "string") screenshotKey = metadata.screenshotKey;
+    } catch {
+      // Older artifacts may not have structured metadata.
+    }
+    await Promise.all([
+      env.ARTIFACTS.delete(artifact.r2_key),
+      screenshotKey ? env.ARTIFACTS.delete(screenshotKey) : Promise.resolve()
+    ]);
     await env.DB.prepare("UPDATE source_artifacts SET r2_key = NULL WHERE id = ?1")
       .bind(artifact.id)
       .run();
@@ -1214,6 +1457,7 @@ async function cleanupExpired(env: AppEnv): Promise<void> {
     `SELECT j.id
      FROM jobs j
      WHERE j.expires_at <= ?1
+       AND j.publication_status != 'published'
      LIMIT 100`
   )
     .bind(new Date().toISOString())
