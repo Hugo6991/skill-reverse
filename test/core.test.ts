@@ -283,6 +283,7 @@ describe("evidence-aware report assembly", () => {
     const result = await runOpenRouterSynthesis(
       {
         OPENROUTER_API_KEY: "test-only",
+        PUBLIC_APP_URL: "https://vibeencode.dev",
         OPENROUTER_SYNTHESIS_MODEL: "openai/gpt-5.6-terra"
       } as AppEnv,
       "https://example.com",
@@ -305,6 +306,9 @@ describe("evidence-aware report assembly", () => {
     expect(result.estimatedCents).toBe(5);
     const request = fetchMock.mock.calls[0];
     expect(request[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect((request[1] as RequestInit).headers).toMatchObject({
+      "http-referer": "https://vibeencode.dev"
+    });
     const body = JSON.parse(String((request[1] as RequestInit).body));
     expect(body).toMatchObject({
       model: "openai/gpt-5.6-terra",

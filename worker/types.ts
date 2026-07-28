@@ -37,6 +37,7 @@ export interface AppEnv {
   JOB_USD_LIMIT: string;
   DAILY_USD_LIMIT: string;
   ANON_DAILY_JOB_LIMIT: string;
+  PUBLIC_APP_URL: string;
   OPENROUTER_SYNTHESIS_MODEL: string;
   REPORT_TTL_DAYS: string;
   ARTIFACT_TTL_DAYS: string;

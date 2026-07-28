@@ -760,7 +760,7 @@ export async function runOpenRouterSynthesis(
       headers: {
         authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
         "content-type": "application/json",
-        "http-referer": "https://skill-reverse.6991hugo.workers.dev",
+        "http-referer": env.PUBLIC_APP_URL || "https://vibeencode.dev",
         "x-title": "Skill Reverse"
       },
       body: JSON.stringify({
