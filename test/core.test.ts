@@ -119,7 +119,7 @@ describe("history presentation", () => {
 
   it("uses the captured website title and extracted skills", () => {
     const report = JSON.stringify({
-      framework: { name: "可檢查的設計工程。" },
+      framework: { name: "可檢查的「設計工程」。" },
       sources: [
         {
           url: "https://antfu.me/",
