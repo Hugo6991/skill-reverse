@@ -17,7 +17,7 @@
     {
       "binding": "DB",
       "database_name": "skill-reverse-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "3ab85f2a-e80a-4fa9-9814-320dfc945a2d",
       "migrations_dir": "migrations"
     }
   ],
