@@ -16,7 +16,7 @@ import {
   gameRoastCopy,
   gameSignalCopy
 } from "../game-copy";
-import { withoutTerminalFullStop } from "../text";
+import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { GameAxisId, ReverseReport } from "../types";
 import { GameAxisList, GameRadar } from "./GameRadar";
 
@@ -83,7 +83,7 @@ export const GameProfileHero = forwardRef<
           <span className="destiny-attribution">
             {attributionCopy[profile.author.attribution]}
           </span>
-          <h1 id="destiny-title">{withoutTerminalFullStop(report.title)}</h1>
+          <h1 id="destiny-title">{cleanDisplayTitle(report.title)}</h1>
           <strong>{withoutTerminalFullStop(report.author.name)}</strong>
           {profile.author.profileUrl && (
             <a href={profile.author.profileUrl} target="_blank" rel="noreferrer">

@@ -12,7 +12,7 @@ import {
   runPerplexityResearch
 } from "../worker/services";
 import type { AppEnv } from "../worker/types";
-import { withoutTerminalFullStop } from "../src/text";
+import { cleanDisplayTitle, withoutTerminalFullStop } from "../src/text";
 import { historyPresentation } from "../worker/history";
 import {
   decodeHistoryCursor,
@@ -26,6 +26,12 @@ describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
     expect(withoutTerminalFullStop(`流程時使用\u3002`)).toBe("流程時使用");
     expect(withoutTerminalFullStop(`先確認\u3002再執行`)).toBe(`先確認\u3002再執行`);
+  });
+
+  it("keeps result titles open by removing corner brackets", () => {
+    expect(cleanDisplayTitle("從 skill 提煉「先驗證，再封裝」")).toBe(
+      "從 skill 提煉 先驗證，再封裝"
+    );
   });
 
   it("keeps the example focused on transferable thinking before installation", () => {

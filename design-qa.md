@@ -36,4 +36,19 @@
 - `/history` replaces to `/collection`
 - Demo stays outside the collection and has no public share action
 
+## Title copy iteration
+
+- Source truth: `/var/folders/fq/yt9wyj6548q33d4qsw9_zf2w0000gn/T/codex-clipboard-d12c9d79-ce31-4aff-9a33-d9c35e6e3e4c.png`
+- Source pixels: 1714 × 1404
+- Browser implementation: `/Users/hugo/.codex/visualizations/2026/07/28/019fa8ba-942b-7710-b83c-8eb4804d6e61/title-without-corner-brackets.png`
+- Implementation viewport and pixels: 1280 × 720 at 1×
+- Focused comparison: `/Users/hugo/.codex/visualizations/2026/07/28/019fa8ba-942b-7710-b83c-8eb4804d6e61/title-copy-comparison.png`
+- State: demo report hero after reveal animation
+- Finding: P2 corner brackets made the multiline title look crowded
+- Fix: result-title rendering removes `「 」` and preserves one word break where the opening mark was
+- Post-fix evidence: the title reads `從 Anthropic skill-creator 提煉 先驗證，再封裝` with no corner brackets
+- Console errors and warnings: none
+- Focused comparison was used because the requested change affects only the title copy treatment
+- Fonts typography spacing colors assets and surrounding content remain unchanged
+
 final result: passed

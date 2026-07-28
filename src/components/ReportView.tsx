@@ -19,7 +19,7 @@ import {
 import { toPng } from "html-to-image";
 import { useRef, useState } from "react";
 import { gameArchetypeCopy, gameAxisCopy, gameRoastCopy } from "../game-copy";
-import { withoutTerminalFullStop } from "../text";
+import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
 import { GameProfileHero } from "./GameProfileHero";
@@ -141,7 +141,7 @@ export function ReportView({
       );
       const text = `我挖到一套「${gameArchetypeCopy[report.gameProfile.archetypeId]}」型 Skill\n${gameAxisCopy[report.gameProfile.strongestAxisId].label} ${strongest?.value ?? "未知"}——${gameRoastCopy[report.gameProfile.roastId]}`;
       if (navigator.share) {
-        await navigator.share({ title: report.title, text, url: body.shareUrl });
+        await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
         setShareNote("命格已分享");
       } else {
         await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
@@ -451,7 +451,7 @@ export function ReportView({
       <div className="share-poster-export" aria-hidden="true">
         <SharePoster
           ref={posterRef}
-          displayName={report.title}
+          displayName={cleanDisplayTitle(report.title)}
           occupationTitle={report.occupation.title}
           profile={report.gameProfile}
         />
