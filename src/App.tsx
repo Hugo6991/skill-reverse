@@ -1,4 +1,14 @@
-import { Cloud, LockKeyhole, Radar, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Cloud,
+  FileSearch2,
+  FlaskConical,
+  Gauge,
+  LockKeyhole,
+  Plus,
+  ScanSearch,
+  ShieldCheck
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { JobProgress } from "./components/JobProgress";
 import { ReportView } from "./components/ReportView";
@@ -101,107 +111,142 @@ export default function App() {
   if (report) return <ReportView report={report} onBack={reset} />;
 
   return (
-    <main>
-      <header className="site-header">
+    <div className="app-shell">
+      <aside className="app-sidebar">
         <a className="brand" href="/" aria-label="Skill Reverse home">
-          <span className="brand-mark">SR</span>
+          <span className="brand-mark"><ScanSearch size={17} aria-hidden="true" /></span>
           <span>Skill Reverse</span>
         </a>
-        <div className="header-status">
-          <span className={`mode-dot mode-${config.mode}`} />
-          {config.mode === "locked" ? "Setup locked" : config.mode === "demo" ? "Demo mode" : "Live"}
-        </div>
-        <a
-          className="github-link"
-          href="https://developers.cloudflare.com/workers/platform/deploy-buttons/"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Cloudflare deployment guide"
-        >
-          <Cloud size={18} aria-hidden="true" />
-        </a>
-      </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="hero-index">[01] REVERSE RESEARCH SYSTEM</span>
-          <h1>
-            看見結果
-            <br />
-            背後的<span>方法</span>
-          </h1>
-          <p>
-            從公開成果反向提取一個可遷移的核心框架，再用作者脈絡、原始來源與職業基準檢查它。
-          </p>
-          <div className="hero-principles">
-            <span><ShieldCheck size={16} /> Evidence before authority</span>
-            <span><Radar size={16} /> One framework per run</span>
-            <span><Cloud size={16} /> Cloudflare-native</span>
-          </div>
-        </div>
-        <div className="hero-diagram" aria-hidden="true">
-          <div className="orbit orbit-one" />
-          <div className="orbit orbit-two" />
-          <div className="diagram-core">
-            <span>RESULT</span>
-            <strong>→</strong>
-            <span>METHOD</span>
-          </div>
-          <div className="diagram-note note-a">SOURCE</div>
-          <div className="diagram-note note-b">CONTEXT</div>
-          <div className="diagram-note note-c">BASELINE</div>
-        </div>
-      </section>
+        <nav className="sidebar-nav" aria-label="Workspace">
+          <button type="button" className="nav-item active">
+            <Plus size={16} aria-hidden="true" />
+            New reverse
+          </button>
+          <button type="button" className="nav-item" onClick={() => void loadReport("demo")}>
+            <FileSearch2 size={16} aria-hidden="true" />
+            Pilot report
+          </button>
+        </nav>
 
-      <section className="workspace">
-        <div className="workspace-intro">
-          <span className="eyebrow">Research workspace</span>
-          <h2>一張表單，三層結論</h2>
-          <p>職業共通知識、成果顯示的方法、作者獨有增量會被刻意分開。</p>
-          <div className="layer-list">
-            <article>
-              <span>1</span>
-              <div>
-                <strong>Professional baseline</strong>
-                <p>這個職業通常需要什麼</p>
-              </div>
-            </article>
-            <article>
-              <span>2</span>
-              <div>
-                <strong>Reverse framework</strong>
-                <p>成果實際顯示了什麼</p>
-              </div>
-            </article>
-            <article>
-              <span>3</span>
-              <div>
-                <strong>Author delta</strong>
-                <p>哪些做法真正值得提煉</p>
-              </div>
-            </article>
+        <div className="sidebar-section">
+          <span className="sidebar-label">Research standard</span>
+          <div className="sidebar-fact">
+            <ShieldCheck size={15} aria-hidden="true" />
+            <span>Evidence before authority</span>
           </div>
-          {config.mode === "locked" && (
-            <div className="safety-note">
-              <LockKeyhole size={18} aria-hidden="true" />
-              Expensive endpoints remain closed until production setup passes.
+          <div className="sidebar-fact">
+            <FlaskConical size={15} aria-hidden="true" />
+            <span>1 framework per run</span>
+          </div>
+          <div className="sidebar-fact">
+            <Gauge size={15} aria-hidden="true" />
+            <span>${config.limits.maxJobUsd.toFixed(2)} hard cap</span>
+          </div>
+        </div>
+
+        <div className="sidebar-footer">
+          <div className="header-status">
+            <span className={`mode-dot mode-${config.mode}`} />
+            {config.mode === "locked"
+              ? "Setup locked"
+              : config.mode === "demo"
+                ? "Demo mode"
+                : "Live"}
+          </div>
+          <span>O*NET 30.3</span>
+        </div>
+      </aside>
+
+      <main className="app-content">
+        <header className="site-header">
+          <div className="breadcrumbs">
+            <span>Workspace</span>
+            <span>/</span>
+            <strong>New reverse</strong>
+          </div>
+          <a
+            className="github-link"
+            href="https://developers.cloudflare.com/workers/platform/deploy-buttons/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Cloud size={16} aria-hidden="true" />
+            Cloudflare setup
+            <ArrowRight size={14} aria-hidden="true" />
+          </a>
+        </header>
+
+        <div className="content-frame">
+          <section className="hero">
+            <div className="hero-copy">
+              <span className="eyebrow">New research</span>
+              <h1>Reverse a public result</h1>
+              <p>
+                從公開成果提取可遷移的方法，再用來源、作者脈絡與職業基準驗證。
+              </p>
             </div>
-          )}
+            <div className="hero-flow" aria-label="Research flow">
+              <span>Result</span>
+              <ArrowRight size={14} aria-hidden="true" />
+              <span>Evidence</span>
+              <ArrowRight size={14} aria-hidden="true" />
+              <strong>Method</strong>
+            </div>
+          </section>
+
+          <section className="workspace">
+            <ResearchForm
+              config={config}
+              busy={busy}
+              onSubmit={startResearch}
+              onOpenDemo={() => void loadReport("demo")}
+            />
+
+            <aside className="workspace-intro">
+              <span className="eyebrow">Output model</span>
+              <h2>3 層結論，刻意分開</h2>
+              <p>避免把職業常識誤認成作者方法，也避免把聲量誤認成證據。</p>
+              <div className="layer-list">
+                <article>
+                  <span>01</span>
+                  <div>
+                    <strong>Professional baseline</strong>
+                    <p>這個職業通常需要什麼</p>
+                  </div>
+                </article>
+                <article>
+                  <span>02</span>
+                  <div>
+                    <strong>Reverse framework</strong>
+                    <p>成果實際顯示了什麼</p>
+                  </div>
+                </article>
+                <article>
+                  <span>03</span>
+                  <div>
+                    <strong>Author delta</strong>
+                    <p>哪些做法真正值得提煉</p>
+                  </div>
+                </article>
+              </div>
+              {config.mode === "locked" && (
+                <div className="safety-note">
+                  <LockKeyhole size={16} aria-hidden="true" />
+                  <span>付費端點在 production setup 通過前保持關閉</span>
+                </div>
+              )}
+            </aside>
+          </section>
+
+          {job && <JobProgress job={job} />}
+
+          <footer>
+            <span>Skill Reverse / v0.2</span>
+            <span>Source-aware · no authority score</span>
+          </footer>
         </div>
-        <ResearchForm
-          config={config}
-          busy={busy}
-          onSubmit={startResearch}
-          onOpenDemo={() => void loadReport("demo")}
-        />
-      </section>
-
-      {job && <JobProgress job={job} />}
-
-      <footer>
-        <span>Skill Reverse / v0.1</span>
-        <span>O*NET 30.3 · source-aware · no authority score</span>
-      </footer>
-    </main>
+      </main>
+    </div>
   );
 }
