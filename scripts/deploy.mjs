@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-const PRODUCTION_BRANCH = "codex/cloudflare-skill-reverse";
+const PRODUCTION_BRANCH = "main";
 
 function capture(command, args) {
   const result = spawnSync(command, args, {

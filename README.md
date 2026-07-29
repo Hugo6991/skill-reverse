@@ -84,14 +84,14 @@ locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 ke
 首次部署與 `setup:prod` 完成後，在 Cloudflare Dashboard 的 `skill-reverse → Settings → Builds` 連接 GitHub：
 
 - GitHub App repository access：只允許 `Hugo6991/skill-reverse`
-- Production branch：`codex/cloudflare-skill-reverse`
+- Production branch：`main`
 - Root directory：`/`
 - Build command：留空
 - Production deploy command：`pnpm run deploy`
 - Non-production deploy command：`pnpm run preview:upload`
 - Build API token：Account scope 至少包含 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit、Queues Edit
 
-Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repository variables 或 Workers Builds build variables。只有 `codex/cloudflare-skill-reverse` push 能部署 production；其他 branch 只上傳 preview version。部署腳本會再次核對 `WORKERS_CI_BRANCH`，本機從其他分支執行 production deploy 也會預設拒絕。
+Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repository variables 或 Workers Builds build variables。只有 `main` push 能部署 production；其他 branch 只上傳 preview version。部署腳本會再次核對 `WORKERS_CI_BRANCH`，本機從其他分支執行 production deploy 也會預設拒絕。
 
 ### Production secrets
 
