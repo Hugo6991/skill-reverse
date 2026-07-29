@@ -125,7 +125,7 @@ export function JobProgress({
                   ? `Approximately number ${job.queuePosition} in the queue`
                   : "Waiting for a research slot"}
               </strong>
-              <span>This job is saved. You can start another research while it waits.</span>
+              <span>This job is saved · start another research while it waits</span>
             </div>
             <button className="secondary-button" type="button" onClick={onStartNew}>
               Start another

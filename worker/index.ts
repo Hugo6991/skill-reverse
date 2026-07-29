@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
-import type { JobStatus } from "../src/types";
+import type { GameProfile, JobStatus, SkillCardSummary } from "../src/types";
 import { authorizeAdmin } from "./access";
 import { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import { demoReport } from "./demo";
@@ -9,6 +9,7 @@ import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import { getOccupation, searchOccupations } from "./occupations";
 import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
 import { isRetryableJobError } from "./provider-ledger";
+import { ReportUpgradeError, upgradeStoredReport } from "./report-compat";
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -1047,6 +1048,224 @@ app.get("/api/history", async (c) => {
   });
 });
 
+app.get("/api/collection", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) return c.json({ cards: [], activity: [] });
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const now = new Date().toISOString();
+  const [cardRows, activityRows] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT sc.id, sc.report_id, sc.target_url, sc.display_name, sc.occupation_code,
+              sc.occupation_title, sc.game_profile_json, sc.share_slug,
+              sc.created_at, sc.updated_at
+       FROM skill_cards sc
+       JOIN jobs j ON j.id = sc.job_id
+       WHERE sc.actor_hash = ?1
+         AND sc.expires_at > ?2
+         AND j.publication_status = 'published'
+       ORDER BY sc.updated_at DESC
+       LIMIT 50`
+    )
+      .bind(actor.actorHash, now)
+      .all<{
+        id: string;
+        report_id: string | null;
+        target_url: string;
+        display_name: string;
+        occupation_code: string;
+        occupation_title: string;
+        game_profile_json: string;
+        share_slug: string | null;
+        created_at: string;
+        updated_at: string;
+      }>(),
+    c.env.DB.prepare(
+      `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
+              j.status, j.stage, j.progress, j.queued_at, j.started_at, j.finished_at,
+              j.auto_retry_count, j.updated_at,
+              CASE WHEN j.status = 'queued' THEN (
+                SELECT COUNT(*) + 1
+                FROM jobs q
+                WHERE q.status = 'queued'
+                  AND (
+                    q.queued_at < j.queued_at
+                    OR (q.queued_at = j.queued_at AND q.id < j.id)
+                  )
+              ) END AS queue_position
+       FROM jobs j
+       LEFT JOIN occupations o ON o.code = j.occupation_code
+       WHERE j.actor_hash = ?1
+         AND j.expires_at > ?2
+         AND j.status != 'completed'
+       ORDER BY j.updated_at DESC
+       LIMIT 20`
+    )
+      .bind(actor.actorHash, now)
+      .all<{
+        id: string;
+        target_url: string;
+        occupation_code: string;
+        occupation_title: string | null;
+        status: string;
+        stage: JobStatus["stage"];
+        progress: number;
+        queued_at: string | null;
+        started_at: string | null;
+        finished_at: string | null;
+        auto_retry_count: number;
+        queue_position: number | null;
+        updated_at: string;
+      }>()
+  ]);
+  const cards: SkillCardSummary[] = cardRows.results.map((row) => ({
+    id: row.id,
+    reportId: row.report_id ?? undefined,
+    targetUrl: row.target_url,
+    displayName: row.display_name,
+    occupationCode: row.occupation_code,
+    occupationTitle: row.occupation_title,
+    gameProfile: JSON.parse(row.game_profile_json) as GameProfile,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    shareSlug: row.share_slug ?? undefined
+  }));
+  const activity = activityRows.results.map((row) => ({
+    jobId: row.id,
+    targetUrl: row.target_url,
+    occupationCode: row.occupation_code,
+    occupationTitle: row.occupation_title ?? row.occupation_code,
+    ...historyPresentation(row.target_url),
+    status: row.status,
+    stage: row.stage,
+    progress: row.progress,
+    queuedAt: row.queued_at ?? row.updated_at,
+    startedAt: row.started_at ?? undefined,
+    finishedAt: row.finished_at ?? undefined,
+    queuePosition:
+      row.status === "queued" && row.queue_position !== null
+        ? Number(row.queue_position)
+        : undefined,
+    autoRetryCount: Number(row.auto_retry_count),
+    updatedAt: row.updated_at
+  }));
+  return attachActorCookie(c, c.json({ cards, activity }));
+});
+
+app.delete("/api/cards/:id", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ error: { code: "setup_required", message: "Collection is unavailable" } }, 503);
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const deleted = await c.env.DB.prepare(
+    "DELETE FROM skill_cards WHERE id = ?1 AND actor_hash = ?2"
+  )
+    .bind(c.req.param("id"), actor.actorHash)
+    .run();
+  if (!deleted.meta.changes) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "Manual not found" } }, 404)
+    );
+  }
+  return attachActorCookie(c, c.body(null, 204));
+});
+
+app.post("/api/cards/:id/share", async (c) => {
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ error: { code: "setup_required", message: "Sharing is unavailable" } }, 503);
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const existing = await c.env.DB.prepare(
+    `SELECT sc.id, sc.share_slug
+     FROM skill_cards sc
+     JOIN jobs j ON j.id = sc.job_id
+     WHERE sc.id = ?1
+       AND sc.actor_hash = ?2
+       AND sc.expires_at > ?3
+       AND j.publication_status = 'published'`
+  )
+    .bind(c.req.param("id"), actor.actorHash, new Date().toISOString())
+    .first<{ id: string; share_slug: string | null }>();
+  if (!existing) {
+    return attachActorCookie(
+      c,
+      c.json({ error: { code: "not_found", message: "Manual not found" } }, 404)
+    );
+  }
+  const shareSlug =
+    existing.share_slug ?? crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+  if (!existing.share_slug) {
+    await c.env.DB.prepare(
+      `UPDATE skill_cards
+       SET share_slug = ?1, updated_at = ?2
+       WHERE id = ?3 AND actor_hash = ?4 AND share_slug IS NULL`
+    )
+      .bind(shareSlug, new Date().toISOString(), existing.id, actor.actorHash)
+      .run();
+  }
+  const baseUrl = (c.env.PUBLIC_APP_URL || new URL(c.req.url).origin).replace(/\/$/, "");
+  return attachActorCookie(
+    c,
+    c.json({
+      shareSlug,
+      shareUrl: `${baseUrl}/c/${shareSlug}`
+    })
+  );
+});
+
+app.get("/api/public/cards/:slug", async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT sc.id, sc.target_url, sc.display_name, sc.occupation_title,
+            sc.game_profile_json, sc.created_at
+     FROM skill_cards sc
+     JOIN jobs j ON j.id = sc.job_id
+     WHERE sc.share_slug = ?1
+       AND sc.expires_at > ?2
+       AND j.publication_status = 'published'`
+  )
+    .bind(c.req.param("slug"), new Date().toISOString())
+    .first<{
+      id: string;
+      target_url: string;
+      display_name: string;
+      occupation_title: string;
+      game_profile_json: string;
+      created_at: string;
+    }>();
+  if (!row) {
+    return c.json({ error: { code: "not_found", message: "Shared manual not found" } }, 404);
+  }
+  const storedProfile = JSON.parse(row.game_profile_json) as GameProfile;
+  const publicProfile: GameProfile = {
+    ...storedProfile,
+    axes: storedProfile.axes.map((axis) => ({
+      ...axis,
+      evidenceIds: [],
+      signalIds: [],
+      signalDetails: axis.signalDetails?.map((signal) => ({
+        ...signal,
+        evidenceIds: []
+      }))
+    }))
+  };
+  return c.json({
+    id: row.id,
+    targetUrl: row.target_url,
+    displayName: row.display_name,
+    occupationTitle: row.occupation_title,
+    gameProfile: publicProfile,
+    createdAt: row.created_at
+  });
+});
+
 app.post("/api/setup/smoke", async (c) => {
   if (!isSetupAuthorized(c.req.raw, c.env)) {
     return c.json({ error: { code: "unauthorized", message: "Setup capability required" } }, 401);
@@ -1087,10 +1306,23 @@ app.get("/api/reports/:id", async (c) => {
     .bind(c.req.param("id"))
     .first<{ payload_json: string; job_id: string }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
-  const report = JSON.parse(row.payload_json) as {
-    sources?: Array<{ id: string; [key: string]: unknown }>;
-    [key: string]: unknown;
-  };
+  let report;
+  try {
+    report = upgradeStoredReport(JSON.parse(row.payload_json));
+  } catch (error) {
+    if (error instanceof ReportUpgradeError || error instanceof SyntaxError) {
+      return c.json(
+        {
+          error: {
+            code: "report_upgrade_required",
+            message: "This report needs owner attention before it can be opened"
+          }
+        },
+        409
+      );
+    }
+    throw error;
+  }
   if (Array.isArray(report.sources)) {
     const artifacts = await c.env.DB.prepare(
       `SELECT id, r2_key, metadata_json
@@ -1281,6 +1513,9 @@ app.delete("/api/admin/reports/:id", async (c) => {
     .bind(c.req.param("id"))
     .first<{ job_id: string }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
+  await c.env.DB.prepare("DELETE FROM skill_cards WHERE job_id = ?1")
+    .bind(row.job_id)
+    .run();
   await deleteJobAndArtifacts(c.env, row.job_id);
   return c.body(null, 204);
 });
@@ -1292,7 +1527,10 @@ app.get("/api/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
-    checks.database = { ok: schema?.value === "6", detail: `schema ${schema?.value ?? "missing"}` };
+    checks.database = {
+      ok: schema?.value === "7",
+      detail: `schema ${schema?.value ?? "missing"}`
+    };
   } catch (error) {
     checks.database = { ok: false, detail: error instanceof Error ? error.message : "unavailable" };
   }
@@ -1387,6 +1625,13 @@ app.get("/api/health", async (c) => {
   return c.json({
     ok: requiredOk,
     mode: resolveAppMode(c.env),
+    version: c.env.CF_VERSION_METADATA
+      ? {
+          id: c.env.CF_VERSION_METADATA.id,
+          tag: c.env.CF_VERSION_METADATA.tag || undefined,
+          createdAt: c.env.CF_VERSION_METADATA.timestamp
+        }
+      : undefined,
     status:
       resolveAppMode(c.env) === "locked" ? "setup_required" : requiredOk ? "ready" : "degraded",
     checks: authorized ? checks : undefined,
@@ -1467,6 +1712,9 @@ async function cleanupExpired(env: AppEnv): Promise<void> {
     await Promise.all(objects.objects.map((object) => env.ARTIFACTS.delete(object.key)));
     await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(job.id).run();
   }
+  await env.DB.prepare("DELETE FROM skill_cards WHERE expires_at <= ?1")
+    .bind(new Date().toISOString())
+    .run();
 }
 
 async function failDeadLetterJob(env: AppEnv, jobId: string): Promise<void> {

@@ -2,8 +2,10 @@ import { ArrowRight, Brain, MessageSquareText, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uiCopy } from "./copy";
 import { AdminPage } from "./components/AdminPage";
+import { CollectionPage } from "./components/CollectionPage";
 import { HistoryPage } from "./components/HistoryPage";
 import { JobProgress } from "./components/JobProgress";
+import { PublicCardPage } from "./components/PublicCardPage";
 import { ReportView } from "./components/ReportView";
 import { ResearchForm, type ResearchInput } from "./components/ResearchForm";
 import { type AppRoute, TopNav } from "./components/TopNav";
@@ -23,6 +25,15 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+function hasRenderableGameProfile(report: ReverseReport): boolean {
+  return (
+    Array.isArray(report.gameProfile?.axes) &&
+    report.gameProfile.axes.length === 6 &&
+    typeof report.gameProfile.strongestAxisId === "string" &&
+    typeof report.gameProfile.weakestAxisId === "string"
+  );
+}
+
 function parseRoute(): AppRoute {
   const legacyReport = new URLSearchParams(window.location.search).get("report");
   if (legacyReport) return { kind: "report", id: legacyReport };
@@ -30,11 +41,15 @@ function parseRoute(): AppRoute {
   if (parts.length === 0) return { kind: "home" };
   if (parts[0] === "admin") return { kind: "admin" };
   if (parts[0] === "history" && parts.length === 1) return { kind: "history" };
+  if (parts[0] === "collection" && parts.length === 1) return { kind: "collection" };
   if (parts[0] === "jobs" && parts[1]) {
     return { kind: "job", id: decodeURIComponent(parts[1]) };
   }
   if (parts[0] === "reports" && parts[1]) {
     return { kind: "report", id: decodeURIComponent(parts[1]) };
+  }
+  if (parts[0] === "c" && parts[1]) {
+    return { kind: "public_card", slug: decodeURIComponent(parts[1]) };
   }
   return { kind: "not_found" };
 }
@@ -143,6 +158,9 @@ export default function App() {
       setBusy(true);
       api<ReverseReport>(`/api/reports/${encodeURIComponent(route.id)}`)
         .then((next) => {
+          if (!hasRenderableGameProfile(next)) {
+            throw new Error("This report needs an update before it can be opened");
+          }
           setReport(next);
           setBusy(false);
         })
@@ -250,6 +268,10 @@ export default function App() {
     }
     if (route.kind === "admin") return <AdminPage onNavigate={navigate} />;
     if (route.kind === "history") return <HistoryPage onNavigate={navigate} />;
+    if (route.kind === "collection") return <CollectionPage onNavigate={navigate} />;
+    if (route.kind === "public_card") {
+      return <PublicCardPage slug={route.slug} onNavigate={navigate} />;
+    }
     if (route.kind === "job" && job) {
       return (
         <JobProgress
@@ -258,7 +280,7 @@ export default function App() {
           onSubmitSources={submitSources}
           onRetry={retryResearch}
           onStartNew={() => navigate("/")}
-          onBack={() => navigate("/history")}
+          onBack={() => navigate("/collection")}
         />
       );
     }

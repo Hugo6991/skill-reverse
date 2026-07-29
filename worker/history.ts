@@ -6,7 +6,13 @@ function isRecord(value: unknown): value is JsonRecord {
 
 function cleanLabel(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const label = value.replace(/\u3002+\s*$/u, "").trim();
+  const label = value
+    .replace(/\u3002+\s*$/u, "")
+    .replace(/的「/gu, "的")
+    .replace(/「/gu, " ")
+    .replace(/」/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
   return label || undefined;
 }
 

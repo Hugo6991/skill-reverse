@@ -13,7 +13,8 @@ const durableTables = [
   "job_sources",
   "provider_calls",
   "reports",
-  "source_artifacts"
+  "source_artifacts",
+  "skill_cards"
 ];
 
 function runWrangler(args, { capture = false, attempts = 3 } = {}) {

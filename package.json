@@ -24,15 +24,19 @@
     "doctor": "node scripts/doctor.mjs",
     "backup:prod": "node scripts/backup-prod.mjs",
     "db:backfill-targets:remote": "node scripts/backfill-target-keys.mjs",
+    "db:backfill-game-profiles:remote": "node scripts/backfill-game-profiles.mjs",
     "deploy": "node scripts/deploy.mjs",
+    "preview:upload": "node scripts/preview-upload.mjs",
     "release": "pnpm run backup:prod && pnpm run deploy"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.6",
     "hono": "^4.11.1",
+    "html-to-image": "^1.11.13",
     "lucide-react": "^0.468.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "recharts": "^3.10.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {

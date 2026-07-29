@@ -16,6 +16,8 @@
 - TwitterAPI.io 定向作者貼文搜尋，可安全降級
 - O*NET 30.3 starter catalog 與 Professional Delta
 - 頂部導航、兩階段 URL composer、永久公開研究 archive 與可恢復進度頁
+- 有證據展開層的六維 Skill 畫像、短評與版本化規則
+- 瀏覽器匿名藏經閣、365 天輕量卡片與主動開啟的公開分享卡
 - Cloudflare Access 站長管理頁、公開來源快照與 evidence screenshot
 - locked → doctor → 真實研究 smoke → public 的安全部署流程
 - 內建 Anthropic `skill-creator` example brief，不會呼叫付費服務
@@ -66,7 +68,7 @@ setup wizard 會：
 4. 套用 D1 migrations
 5. 驗證 D1、R2、Durable Objects、Workflow 與必要 provider 設定
 6. 用 `antfu.me` 真實執行 Browser Run、Workflow、Perplexity、D1、R2 與報告驗證
-7. 只有 smoke report、引用、verified claim 證據與成本全部通過，才設定 `SETUP_COMPLETE=true`
+7. 只有 smoke report、六維畫像、引用、verified claim 證據與成本全部通過，才設定 `SETUP_COMPLETE=true`
 
 locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 key 不會意外產生模型費用。完成 setup 後網站公開，但 GitHub repository 仍維持 Private。
 
@@ -79,13 +81,14 @@ locked 狀態下 `/api/jobs` 固定回傳 `503 setup_required`，所以漏設 ke
 首次部署與 `setup:prod` 完成後，在 Cloudflare Dashboard 的 `skill-reverse → Settings → Builds` 連接 GitHub：
 
 - GitHub App repository access：只允許 `Hugo6991/skill-reverse`
-- Production branch：`main`
+- Production branch：`codex/cloudflare-skill-reverse`
 - Root directory：`/`
 - Build command：留空
-- Deploy command：`pnpm deploy`
+- Production deploy command：`pnpm run deploy`
+- Non-production deploy command：`pnpm run preview:upload`
 - Build API token：Account scope 至少包含 Workers Scripts Edit、D1 Edit、Workers R2 Storage Edit、Queues Edit
 
-Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repository variables 或 Workers Builds build variables。`main` push 會部署 production；其他 branch 只上傳 preview version。
+Runtime secrets 只存放於 Worker，不要新增到 GitHub Actions、repository variables 或 Workers Builds build variables。只有 `codex/cloudflare-skill-reverse` push 能部署 production；其他 branch 只上傳 preview version。部署腳本會再次核對 `WORKERS_CI_BRANCH`，本機從其他分支執行 production deploy 也會預設拒絕。
 
 ### Production secrets
 
@@ -134,10 +137,13 @@ pnpm bootstrap:cloudflare:dry-run
 pnpm bootstrap:cloudflare
 pnpm doctor https://skill-reverse.vibeencode.dev
 pnpm backup:prod
+pnpm preview:upload
 pnpm deploy
 ```
 
-第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 會先 typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。設定 `SKILL_REVERSE_URL` 後會追加 public health check。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。設定 `SKILL_REVERSE_URL` 後會追加 public health check。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+
+舊報告升級前先執行 `pnpm backup:prod`，再執行 `pnpm db:backfill-game-profiles:remote -- --dry-run` 檢查計畫。正式回填使用 `pnpm db:backfill-game-profiles:remote`；腳本只在零失敗時寫入完成標記，重跑不會建立重複卡片，也不會替卡片開啟分享。
 
 ## API
 
@@ -146,6 +152,10 @@ pnpm deploy
 - `GET /api/my-jobs`：讀取目前匿名 actor 的排隊中、執行中與失敗工作
 - `PUT /api/jobs/:id/sources`：在 90 秒視窗補充或略過來源
 - `GET /api/history?limit=&cursor=&targetUrl=`：讀取全站 completed + published 公開 archive
+- `GET /api/collection`：讀取目前匿名瀏覽器的輕量卡片與研究動態
+- `DELETE /api/cards/:id`：從目前瀏覽器的藏經閣移除卡片
+- `POST /api/cards/:id/share`：主動為畫像卡開啟公開分享 slug
+- `GET /api/public/cards/:slug`：讀取不含匿名身份與完整證據的公開畫像卡
 - `GET /api/reports/:id`：取得 published 互動報告資料
 - `GET /api/reports/:reportId/artifacts/:sourceId`：讀取保存時文字快照或 screenshot
 - `GET/PATCH/DELETE /api/admin/reports...`：Cloudflare Access 保護的站長審核
@@ -165,6 +175,8 @@ pnpm deploy
 ```
 
 建立工作後，前端立即進入 `/jobs/:jobId`。主頁擷取期間可選擇提交最多八個補充 HTTPS URL，或送出 `{ "urls": [], "finalize": true }` 立即略過；Browser Run 最多擷取其中三個高價值來源。
+
+完成的研究會進入永久公開 archive。藏經閣只是在目前瀏覽器保留 365 天的最新版入口；同一目標加同一職業視角會更新原卡片。畫像卡預設不產生公開 slug，只有使用者點擊分享後才開啟。刪除藏經閣卡片不會刪除已發布研究。
 
 ## 證據規則
 

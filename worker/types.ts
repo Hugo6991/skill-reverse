@@ -42,6 +42,12 @@ export interface RateLimitBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
+export interface VersionMetadataBinding {
+  id: string;
+  tag: string;
+  timestamp: string;
+}
+
 export interface AppEnv {
   DB: D1Database;
   ARTIFACTS: R2Bucket;
@@ -53,6 +59,7 @@ export interface AppEnv {
   RESEARCH_QUEUE: Queue<ResearchQueueMessage>;
   BURST_LIMITER: RateLimitBinding;
   ASSETS: Fetcher;
+  CF_VERSION_METADATA?: VersionMetadataBinding;
   APP_MODE: "locked" | "demo" | "public";
   JOB_USD_LIMIT: string;
   DAILY_USD_LIMIT: string;

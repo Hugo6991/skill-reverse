@@ -342,8 +342,18 @@ const verifiedClaimsAreSupported = (smokeReport.claims ?? [])
       claim.evidenceIds.length > 0 &&
       claim.evidenceIds.every((sourceId) => sourceIds.has(sourceId))
   );
-if (!smokeReportResponse.ok || !citationsAreValid || !verifiedClaimsAreSupported) {
-  console.error("✕ Smoke report failed citation or verified-claim validation");
+const gameProfileIsValid =
+  /^game-profile-v1(?:\.\d+)?$/.test(smokeReport.gameProfile?.rubricVersion ?? "") &&
+  Array.isArray(smokeReport.gameProfile?.axes) &&
+  smokeReport.gameProfile.axes.length === 6 &&
+  new Set(smokeReport.gameProfile.axes.map((axis) => axis.id)).size === 6;
+if (
+  !smokeReportResponse.ok ||
+  !citationsAreValid ||
+  !verifiedClaimsAreSupported ||
+  !gameProfileIsValid
+) {
+  console.error("✕ Smoke report failed citation claim or game-profile validation");
   console.error("Production remains locked");
   rl.close();
   process.exit(1);

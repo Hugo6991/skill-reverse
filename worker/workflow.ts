@@ -17,6 +17,8 @@ import {
   providerErrorDetails
 } from "./provider-ledger";
 import type { AppEnv } from "./types";
+import { historyPresentation } from "./history";
+import { targetKey as normalizedTargetKey } from "./publication";
 
 export interface ResearchWorkflowParams {
   kind?: "research" | "health";
@@ -353,6 +355,9 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         const now = new Date();
         const publishedAt = now.toISOString();
         const permanentExpiry = "9999-12-31T23:59:59.999Z";
+        const cardExpires = new Date(now.getTime() + 365 * 86_400_000).toISOString();
+        const presentation = historyPresentation(targetUrl, JSON.stringify(report));
+        const targetKey = normalizedTargetKey(targetUrl);
         const statements = captured.map((artifact) =>
           this.env.DB.prepare(
             `INSERT OR REPLACE INTO source_artifacts
@@ -367,7 +372,10 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             publishedAt,
             artifact.r2Key,
             artifact.excerpt,
-            JSON.stringify({ screenshotKey: artifact.screenshotKey ?? null })
+            JSON.stringify({
+              screenshotKey: artifact.screenshotKey ?? null,
+              repositoryMetrics: artifact.repositoryMetrics ?? null
+            })
           )
         );
         const reportInsert = this.env.DB.prepare(
@@ -383,6 +391,34 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           publishedAt,
           permanentExpiry
         );
+        const skillCardUpsert = this.env.DB.prepare(
+          `INSERT INTO skill_cards
+           (id, actor_hash, job_id, report_id, target_key, target_url, display_name,
+            occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
+           VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11)
+           ON CONFLICT(actor_hash, target_key, occupation_code) DO UPDATE SET
+             id = excluded.id,
+             job_id = excluded.job_id,
+             report_id = excluded.report_id,
+             target_url = excluded.target_url,
+             display_name = excluded.display_name,
+             occupation_title = excluded.occupation_title,
+             game_profile_json = excluded.game_profile_json,
+             updated_at = excluded.updated_at,
+             expires_at = excluded.expires_at`
+        ).bind(
+          report.id,
+          actorHash,
+          jobId,
+          targetKey,
+          targetUrl,
+          presentation.displayName,
+          occupation.code,
+          occupation.title,
+          JSON.stringify(report.gameProfile),
+          publishedAt,
+          cardExpires
+        );
         const publishJob = this.env.DB.prepare(
           `UPDATE jobs
            SET stage = 'report', status = 'completed', progress = 100, report_id = ?1,
@@ -390,7 +426,12 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
                published_at = ?3, hidden_at = NULL, moderation_note = NULL, updated_at = ?3
            WHERE id = ?4`
         ).bind(report.id, JSON.stringify(degraded), publishedAt, jobId);
-        await this.env.DB.batch([...statements, reportInsert, publishJob]);
+        await this.env.DB.batch([
+          ...statements,
+          reportInsert,
+          skillCardUpsert,
+          publishJob
+        ]);
       });
 
       await step.do("settle gates", async () => {

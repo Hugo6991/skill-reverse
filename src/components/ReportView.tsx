@@ -16,10 +16,15 @@ import {
   ShieldCheck,
   TriangleAlert
 } from "lucide-react";
-import { useState } from "react";
-import { withoutTerminalFullStop } from "../text";
+import { toPng } from "html-to-image";
+import { useRef, useState } from "react";
+import { buildChatPrompt } from "../chatPrompt";
+import { gameArchetypeCopy, gameAxisCopy, gameRoastCopy } from "../game-copy";
+import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
+import { GameProfileHero } from "./GameProfileHero";
+import { SharePoster } from "./SharePoster";
 
 const confidenceLabels: Record<EvidenceStatus, string> = {
   verified: "Verified",
@@ -58,27 +63,6 @@ const failureGuides: Record<
   }
 };
 
-function buildChatPrompt(report: ReverseReport): string {
-  const rules = report.framework.steps
-    .map((step, index) => `${index + 1}. ${withoutTerminalFullStop(step.instruction)}`)
-    .join("\n");
-
-  return `我正在處理一個問題，想先用純文字試跑「${withoutTerminalFullStop(
-    report.framework.name
-  )}」，不要先推薦我安裝 skill、plugin 或 agent
-
-我的問題／情境：
-[請填在這裡]
-
-請依照以下規則帶我思考：
-${rules}
-
-最後請分成三段回答：
-1. 這個框架替我看見了什麼
-2. 哪些部分仍需要我的情境判斷
-3. 是否值得把它做成可重複使用的 prompt 或 skill；若只用一次，請明確建議不要封裝`;
-}
-
 export function ReportView({
   report,
   onBack
@@ -88,12 +72,67 @@ export function ReportView({
 }) {
   const [tab, setTab] = useState<"framework" | "baseline" | "evidence">("framework");
   const [copied, setCopied] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareNote, setShareNote] = useState("");
+  const posterRef = useRef<HTMLElement>(null);
   const chatPrompt = buildChatPrompt(report);
 
   async function copyChatPrompt() {
     await navigator.clipboard.writeText(chatPrompt);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  async function downloadPoster() {
+    if (!posterRef.current) return;
+    await document.fonts.ready;
+    const dataUrl = await toPng(posterRef.current, {
+      width: 1080,
+      height: 1350,
+      canvasWidth: 1080,
+      canvasHeight: 1350,
+      pixelRatio: 1,
+      backgroundColor: "#f7f5ff",
+      cacheBust: true
+    });
+    const link = document.createElement("a");
+    link.download = `${report.id === "demo" ? "skill-destiny-demo" : report.id}.png`;
+    link.href = dataUrl;
+    link.click();
+    setShareNote("畫像卡已下載");
+  }
+
+  async function shareProfile() {
+    setShareBusy(true);
+    setShareNote("");
+    try {
+      const response = await fetch(`/api/cards/${encodeURIComponent(report.id)}/share`, {
+        method: "POST"
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        shareUrl?: string;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.shareUrl) {
+        throw new Error(body.error?.message ?? "公開連結開啟失敗");
+      }
+      const strongest = report.gameProfile.axes.find(
+        (axis) => axis.id === report.gameProfile.strongestAxisId
+      );
+      const text = `我挖到一套「${gameArchetypeCopy[report.gameProfile.archetypeId]}」型 Skill\n${gameAxisCopy[report.gameProfile.strongestAxisId].label} ${strongest?.value ?? "未知"}——${gameRoastCopy[report.gameProfile.roastId]}`;
+      if (navigator.share) {
+        await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
+        setShareNote("畫像已分享");
+      } else {
+        await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
+        setShareNote("分享文字與連結已複製");
+      }
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      setShareNote(caught instanceof Error ? caught.message : "分享失敗");
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   return (
@@ -103,24 +142,29 @@ export function ReportView({
         New docket
       </button>
 
-      <header className="report-hero">
-        <div className="report-kicker">
-          <span>Decision brief · 先理解，再決定要不要採用</span>
-          <span>{new Date(report.generatedAt).toLocaleDateString("zh-TW")}</span>
+      <GameProfileHero
+        report={report}
+        onDownload={() => void downloadPoster()}
+        onShare={report.id === "demo" ? undefined : () => void shareProfile()}
+        shareBusy={shareBusy}
+      />
+      {shareNote && (
+        <div className="share-note" role="status">
+          {shareNote}
         </div>
-        <h1>{withoutTerminalFullStop(report.title)}</h1>
-        <div className="decision-verdict">
-          <span className="decision-label">目前建議</span>
-          <p>{withoutTerminalFullStop(report.verdict)}</p>
-        </div>
+      )}
+
+      <section className="report-verdict-strip" aria-label="目前建議">
+        <span>目前建議</span>
+        <p>{withoutTerminalFullStop(report.verdict)}</p>
         <div className="decision-path" aria-label="Recommended adoption path">
-          <span className="active">讀懂思維</span>
+          <strong>讀懂思維</strong>
           <i aria-hidden="true" />
-          <span>丟進 Chat 試一次</span>
+          <strong>丟進 Chat 試一次</strong>
           <i aria-hidden="true" />
-          <span>反覆需要時才封裝</span>
+          <strong>反覆需要時才封裝</strong>
         </div>
-      </header>
+      </section>
 
       {report.degraded.length > 0 && (
         <div className="report-degraded">
@@ -196,13 +240,13 @@ export function ReportView({
               <div className="section-title-row">
                 <div>
                   <span className="eyebrow">任何 AI 都能先試</span>
-                  <h3 id="chat-trial-title">先用一段文字驗證它是否真的幫到你</h3>
+                  <h3 id="chat-trial-title">先讀既有脈絡，再直接交付第一版</h3>
                 </div>
                 <MessageSquareText size={20} aria-hidden="true" />
               </div>
               <p>
-                這段提示不依賴本地 agent；你可以貼進 ChatGPT、Claude、Gemini、Grok，
-                先跑一次真實問題，再決定是否值得變成長期系統
+                這段提示會要求 AI 先使用可取得的對話、記憶與既有產出，直接交付完整 v1；
+                只有會改變方向的阻塞問題才能放在結果後，最多三題
               </p>
               <pre>{chatPrompt}</pre>
               <button className="secondary-button copy-prompt-button" type="button" onClick={copyChatPrompt}>
@@ -384,6 +428,14 @@ export function ReportView({
           </section>
         </div>
       )}
+      <div className="share-poster-export" aria-hidden="true">
+        <SharePoster
+          ref={posterRef}
+          displayName={cleanDisplayTitle(report.title)}
+          occupationTitle={report.occupation.title}
+          profile={report.gameProfile}
+        />
+      </div>
     </main>
   );
 }

@@ -1,9 +1,10 @@
 import type { ReverseReport } from "../src/types";
+import { computeGameProfile } from "./game-profile";
 import { pilotOccupation } from "./occupations";
 
 const generatedAt = "2026-07-28T00:00:00.000Z";
 
-export const demoReport: ReverseReport = {
+const demoReportBase: Omit<ReverseReport, "gameProfile"> = {
   id: "demo",
   title: "從 Anthropic skill-creator 提煉「先驗證，再封裝」",
   targetUrl: "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
@@ -134,7 +135,16 @@ export const demoReport: ReverseReport = {
       status: "verified_at_retrieval",
       title: "anthropics/skills",
       retrievedAt: generatedAt,
-      excerpt: "官方 repository 說明與 Agent Skills 範例集合。"
+      excerpt: "官方 repository 說明與 Agent Skills 範例集合。",
+      repositoryMetrics: {
+        provider: "github",
+        fullName: "anthropics/skills",
+        ownerType: "Organization",
+        stars: 164_700,
+        forks: 19_600,
+        watchers: 1_100,
+        retrievedAt: generatedAt
+      }
     }
   ],
   edges: [
@@ -169,4 +179,9 @@ export const demoReport: ReverseReport = {
     "應用場景用於比較，不用於評斷創作者能力。"
   ],
   degraded: []
+};
+
+export const demoReport: ReverseReport = {
+  ...demoReportBase,
+  gameProfile: computeGameProfile(demoReportBase)
 };

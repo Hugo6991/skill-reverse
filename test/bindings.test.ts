@@ -6,6 +6,7 @@ import { searchOccupations } from "../worker/occupations";
 import { recordProviderCall } from "../worker/provider-ledger";
 import { sha256 } from "../worker/security";
 import type { AppEnv } from "../worker/types";
+import { demoReport } from "../worker/demo";
 
 type TestEnv = AppEnv & { TEST_MIGRATIONS: D1Migration[] };
 const bindings = env as unknown as TestEnv;
@@ -279,6 +280,9 @@ describe("Cloudflare bindings in workerd", () => {
         reportId,
         jobId,
         JSON.stringify({
+          ...Object.fromEntries(
+            Object.entries(demoReport).filter(([key]) => key !== "gameProfile")
+          ),
           id: reportId,
           title: "Moderated report",
           targetUrl: "https://example.com/report",
@@ -345,10 +349,22 @@ describe("Cloudflare bindings in workerd", () => {
         reportId,
         jobId,
         JSON.stringify({
+          ...Object.fromEntries(
+            Object.entries(demoReport).filter(([key]) => key !== "gameProfile")
+          ),
           id: reportId,
           title: "Evidence report",
           targetUrl: "https://example.com/evidence",
-          sources: [{ id: "source-1", title: "Evidence", url: "https://example.com/evidence" }]
+          sources: [
+            {
+              id: "source-1",
+              kind: "website",
+              status: "verified_at_retrieval",
+              title: "Evidence",
+              url: "https://example.com/evidence",
+              retrievedAt: now
+            }
+          ]
         }),
         now,
         "9999-12-31T23:59:59.999Z"
@@ -367,6 +383,10 @@ describe("Cloudflare bindings in workerd", () => {
     const report = await SELF.fetch(`https://example.com/api/reports/${reportId}`);
     expect(report.status).toBe(200);
     expect(await report.json()).toMatchObject({
+      gameProfile: {
+        rubricVersion: "game-profile-v1.1",
+        axes: expect.arrayContaining([expect.objectContaining({ id: "potency" })])
+      },
       sources: [
         {
           id: "source-1",
@@ -388,8 +408,196 @@ describe("Cloudflare bindings in workerd", () => {
         await SELF.fetch(
           `https://example.com/api/reports/${reportId}/artifacts/source-2`
         )
-      ).status
+    ).status
     ).toBe(404);
+  });
+
+  it("returns a structured error for legacy reports that cannot be upgraded", async () => {
+    const jobId = crypto.randomUUID();
+    const reportId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 86_400_000).toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, report_id, degraded_json,
+        publication_status, published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, 'broken-report-actor', 'https://example.com/broken', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, ?2, '[]', 'published', ?3,
+        'https://example.com/broken', ?3, ?3, ?4)`
+    )
+      .bind(jobId, reportId, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO reports
+       (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+       VALUES (?1, ?2, 'test-capability', 'Broken report', '{"id":"broken"}', ?3, ?4)`
+    )
+      .bind(reportId, jobId, now, "9999-12-31T23:59:59.999Z")
+      .run();
+
+    const response = await SELF.fetch(`https://example.com/api/reports/${reportId}`);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "report_upgrade_required"
+      }
+    });
+  });
+
+  it("keeps cards private until sharing is enabled and isolates anonymous owners", async () => {
+    const session = await SELF.fetch("https://example.com/api/collection");
+    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const actorId = cookie.slice("sr_actor=".length).split(".")[0];
+    const actorHash = await sha256(actorId);
+    const cardId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 365 * 86_400_000).toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, degraded_json, publication_status,
+        published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, 'https://github.com/example/manual', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, '[]', 'published', ?3,
+        'https://github.com/example/manual', ?3, ?3, ?4)`
+    )
+      .bind(jobId, actorHash, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO skill_cards
+       (id, actor_hash, job_id, report_id, target_key, target_url, display_name,
+        occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, ?3, ?1, ?4, ?4, 'Test Manual', '15-1255.00',
+        'Web and Digital Interface Designers', ?5, ?6, ?6, ?7)`
+      )
+      .bind(
+        cardId,
+        actorHash,
+        jobId,
+        "https://github.com/example/manual",
+        JSON.stringify(demoReport.gameProfile),
+        now,
+        expires
+      )
+      .run();
+
+    const owned = await SELF.fetch("https://example.com/api/collection", {
+      headers: { cookie }
+    });
+    expect(await owned.json()).toMatchObject({
+      cards: [{ id: cardId, displayName: "Test Manual" }]
+    });
+
+    const otherSession = await SELF.fetch("https://example.com/api/collection");
+    const otherCookie = otherSession.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(await otherSession.json()).toMatchObject({ cards: [] });
+    const forbiddenShare = await SELF.fetch(`https://example.com/api/cards/${cardId}/share`, {
+      method: "POST",
+      headers: { cookie: otherCookie }
+    });
+    expect(forbiddenShare.status).toBe(404);
+
+    expect(
+      await bindings.DB.prepare("SELECT share_slug FROM skill_cards WHERE id = ?1")
+        .bind(cardId)
+        .first()
+    ).toMatchObject({ share_slug: null });
+
+    const shared = await SELF.fetch(`https://example.com/api/cards/${cardId}/share`, {
+      method: "POST",
+      headers: { cookie }
+    });
+    expect(shared.status).toBe(200);
+    const shareBody = (await shared.json()) as { shareSlug: string; shareUrl: string };
+    expect(shareBody.shareUrl).toBe(`https://example.com/c/${shareBody.shareSlug}`);
+
+    const publicCard = await SELF.fetch(
+      `https://example.com/api/public/cards/${shareBody.shareSlug}`
+    );
+    expect(publicCard.status).toBe(200);
+    const publicCardBody = (await publicCard.json()) as {
+      displayName: string;
+      gameProfile: typeof demoReport.gameProfile;
+    };
+    expect(publicCardBody).toMatchObject({
+      displayName: "Test Manual",
+      gameProfile: {
+        axes: expect.arrayContaining([
+          expect.objectContaining({ evidenceIds: [], signalIds: [] })
+        ])
+      }
+    });
+    expect(
+      publicCardBody.gameProfile.axes
+        .flatMap((axis) => axis.signalDetails ?? [])
+        .every((signal) => signal.evidenceIds.length === 0)
+    ).toBe(true);
+
+    await bindings.DB.prepare(
+      "UPDATE jobs SET publication_status = 'hidden' WHERE id = ?1"
+    )
+      .bind(jobId)
+      .run();
+    expect(
+      await SELF.fetch(`https://example.com/api/public/cards/${shareBody.shareSlug}`)
+    ).toMatchObject({ status: 404 });
+    await bindings.DB.prepare(
+      "UPDATE jobs SET publication_status = 'published' WHERE id = ?1"
+    )
+      .bind(jobId)
+      .run();
+
+    const removed = await SELF.fetch(`https://example.com/api/cards/${cardId}`, {
+      method: "DELETE",
+      headers: { cookie }
+    });
+    expect(removed.status).toBe(204);
+    expect(
+      await SELF.fetch(`https://example.com/api/public/cards/${shareBody.shareSlug}`)
+    ).toMatchObject({ status: 404 });
+  });
+
+  it("hides expired cards from the collection", async () => {
+    const session = await SELF.fetch("https://example.com/api/collection");
+    const cookie = session.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const actorId = cookie.slice("sr_actor=".length).split(".")[0];
+    const actorHash = await sha256(actorId);
+    const now = new Date().toISOString();
+    const jobId = crypto.randomUUID();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, degraded_json, publication_status,
+        published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, 'https://example.com/expired', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, '[]', 'published', ?3,
+        'https://example.com/expired', ?3, ?3, ?4)`
+    )
+      .bind(jobId, actorHash, now, new Date(Date.now() + 86_400_000).toISOString())
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO skill_cards
+       (id, actor_hash, job_id, target_key, target_url, display_name,
+        occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
+       VALUES (?1, ?2, ?3, ?4, ?4, 'Expired Manual', '15-1255.00',
+        'Web and Digital Interface Designers', ?5, ?6, ?6, ?7)`
+      )
+      .bind(
+        crypto.randomUUID(),
+        actorHash,
+        jobId,
+        "https://example.com/expired",
+        JSON.stringify(demoReport.gameProfile),
+        now,
+        new Date(Date.now() - 1_000).toISOString()
+      )
+      .run();
+    const collection = await SELF.fetch("https://example.com/api/collection", {
+      headers: { cookie }
+    });
+    expect(await collection.json()).toMatchObject({ cards: [] });
   });
 
   it("records provider usage and cost even when structured output parsing fails", async () => {

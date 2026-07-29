@@ -12,7 +12,7 @@ import {
   runPerplexityResearch
 } from "../worker/services";
 import type { AppEnv } from "../worker/types";
-import { withoutTerminalFullStop } from "../src/text";
+import { cleanDisplayTitle, withoutTerminalFullStop } from "../src/text";
 import { historyPresentation } from "../worker/history";
 import {
   decodeHistoryCursor,
@@ -20,11 +20,19 @@ import {
   normalizeTargetUrl,
   targetKey
 } from "../worker/publication";
+import { computeGameProfile } from "../worker/game-profile";
+import { ReportUpgradeError, upgradeStoredReport } from "../worker/report-compat";
 
 describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
     expect(withoutTerminalFullStop(`流程時使用\u3002`)).toBe("流程時使用");
     expect(withoutTerminalFullStop(`先確認\u3002再執行`)).toBe(`先確認\u3002再執行`);
+  });
+
+  it("keeps result titles open by removing corner brackets", () => {
+    expect(cleanDisplayTitle("從 skill 提煉「先驗證，再封裝」")).toBe(
+      "從 skill 提煉 先驗證，再封裝"
+    );
   });
 
   it("keeps the example focused on transferable thinking before installation", () => {
@@ -33,6 +41,83 @@ describe("report presentation copy", () => {
     expect(demoReport.verdict).toContain("不必急著安裝");
     expect(demoReport.adoption.some((item) => item.includes("聊天 AI"))).toBe(true);
     expect(demoReport.degraded).toEqual([]);
+  });
+});
+
+describe("deterministic game profile", () => {
+  it("upgrades legacy stored reports without changing the source payload", () => {
+    const { gameProfile: _gameProfile, ...legacyReport } = demoReport;
+    const upgraded = upgradeStoredReport(legacyReport);
+
+    expect(upgraded.gameProfile).toEqual(computeGameProfile(legacyReport));
+    expect("gameProfile" in legacyReport).toBe(false);
+  });
+
+  it("rejects malformed legacy reports instead of returning an unsafe partial result", () => {
+    expect(() => upgradeStoredReport({ id: "broken" })).toThrow(ReportUpgradeError);
+  });
+
+  it("returns the same destiny for the same report signals", () => {
+    const first = computeGameProfile(demoReport);
+    const second = computeGameProfile(demoReport);
+    expect(first).toEqual(second);
+    expect(first.axes.every((axis) => axis.value === undefined || axis.value % 5 === 0)).toBe(true);
+  });
+
+  it("leaves renown unknown when repository reach cannot be observed", () => {
+    const profile = computeGameProfile({
+      ...demoReport,
+      sources: demoReport.sources
+        .filter((source) => source.kind !== "x_post")
+        .map(({ repositoryMetrics: _repositoryMetrics, ...source }) => source)
+    });
+    expect(profile.axes.find((axis) => axis.id === "renown")).toMatchObject({
+      value: undefined,
+      coverage: 15
+    });
+  });
+
+  it("scores official repositories from verified reach instead of brand recognition", () => {
+    const axis = computeGameProfile(demoReport).axes.find((item) => item.id === "renown");
+    expect(axis).toMatchObject({
+      value: 80,
+      coverage: 80,
+      signalIds: ["publisher_repository", "github_stars", "github_forks"]
+    });
+    expect(axis?.signalDetails).toEqual([
+      expect.objectContaining({ id: "publisher_repository", points: 15, maxPoints: 15 }),
+      expect.objectContaining({ id: "github_stars", value: 164_700, points: 40, maxPoints: 40 }),
+      expect.objectContaining({ id: "github_forks", value: 19_600, points: 25, maxPoints: 25 })
+    ]);
+    const profile = computeGameProfile(demoReport);
+    expect(profile.archetypeId).toBe("wealth_with_proof");
+    expect(profile.roastId).not.toBe("quiet_power");
+  });
+
+  it("does not feed entertainment dimensions back into claim confidence", () => {
+    const before = demoReport.claims.map((claim) => claim.confidence);
+    const profile = computeGameProfile({
+      ...demoReport,
+      framework: {
+        ...demoReport.framework,
+        summary: `${demoReport.framework.summary} SDK plugin install dependency framework agent`
+      },
+      sources: [
+        ...demoReport.sources,
+        {
+          id: "social-extra",
+          url: "https://x.com/example/status/1",
+          kind: "x_post",
+          status: "verified_at_retrieval",
+          title: "Public discussion",
+          retrievedAt: demoReport.generatedAt
+        }
+      ]
+    });
+    expect(profile.axes.find((axis) => axis.id === "activation")?.value).toBeGreaterThan(
+      demoReport.gameProfile.axes.find((axis) => axis.id === "activation")?.value ?? 0
+    );
+    expect(demoReport.claims.map((claim) => claim.confidence)).toEqual(before);
   });
 });
 
@@ -47,7 +132,7 @@ describe("history presentation", () => {
 
   it("uses the captured website title and extracted skills", () => {
     const report = JSON.stringify({
-      framework: { name: "可檢查的設計工程。" },
+      framework: { name: "可檢查的「設計工程」。" },
       sources: [
         {
           url: "https://antfu.me/",
