@@ -151,7 +151,9 @@ function fallbackTitle(input: IdentityInput, unavailable: Set<string>): string {
   const branches = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
   const seed = `${input.targetUrl}:${input.framework.summary}`;
   let title =
-    characterCount(raw) >= 4 && characterCount(raw) <= 10
+    characterCount(raw) >= 4 &&
+    characterCount(raw) <= 10 &&
+    hasTraditionalChinese(raw)
       ? raw
       : `${roots[stableHash(seed) % roots.length]}${forms[stableHash(`${seed}:form`) % forms.length]}`;
   for (let attempt = 0; unavailable.has(title) && attempt < 9_600; attempt += 1) {
