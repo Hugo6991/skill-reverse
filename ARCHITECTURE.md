@@ -116,7 +116,9 @@ pnpm deploy
 pnpm release
 ```
 
-`backup:prod` 會在 migration 前把遠端 D1 的持久資料表匯出，並以舊、新 schema 都具備的 completed report 條件記錄 R2 參考 key，寫入 gitignored 的 `.backups/<timestamp>/`。Cloudflare D1 export 無法匯出 FTS5 virtual table，因此 `occupations_fts*` 會明確排除；它們是由 `occupations` 重建的搜尋索引，不是唯一資料。`deploy` 套用 migration 後會先以和應用程式相同的 URL 規則精確回填 `target_key`，才部署 Worker。完成後應複製備份到 owner 控制、Cloudflare 以外的位置。D1 另有 [Time Travel](https://developers.cloudflare.com/d1/platform/release-notes/)，但不應取代獨立備份。
+`backup:prod` 會在 migration 前把遠端 D1 的持久資料表匯出，並以舊、新 schema 都具備的 completed report 條件記錄 R2 參考 key，寫入 gitignored 的 `.backups/<timestamp>/`。Cloudflare D1 export 無法匯出 FTS5 virtual table，因此 `occupations_fts*` 會明確排除；它們是由 `occupations` 重建的搜尋索引，不是唯一資料。`deploy` 只允許 `codex/cloudflare-skill-reverse` 執行，套用 migration 後會先以和應用程式相同的 URL 規則精確回填 `target_key`，才部署 Worker。功能分支使用 `pnpm preview:upload`，只上傳 preview version，不變更 D1。完成後應複製備份到 owner 控制、Cloudflare 以外的位置。D1 另有 [Time Travel](https://developers.cloudflare.com/d1/platform/release-notes/)，但不應取代獨立備份。
+
+舊報告補上遊戲化畫像時，先備份，再執行 `pnpm db:backfill-game-profiles:remote -- --dry-run`。確認零失敗後拿掉 `--dry-run`。回填會保留分享 opt-in，並在零失敗時寫入 `app_meta.game_profile_backfill_v1_1`。
 
 恢復前先建立當下備份；D1 restore 或 import 會改變正式資料。R2 還原時依 `published-r2-inventory.txt` 對照 D1 reference，避免把不屬於 published report 的暫存物件公開。
 
@@ -126,7 +128,7 @@ pnpm release
 
 舊版 History 以 host-only `sr_actor` cookie 和 `actor_hash` 過濾，因此換網域會被當成新訪客。新版公開 archive 不再使用 cookie 過濾。先檢查：
 
-1. `/api/health` 的 database schema 是否為 6。
+1. `/api/health` 的 database schema 是否為 7，並核對 `version.id` 是否為預期部署。
 2. D1 completed jobs 是否有 `publication_status='published'`。
 3. `/api/history` 是否不帶 cookie 也能回傳相同 items。
 

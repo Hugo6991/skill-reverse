@@ -1625,6 +1625,13 @@ app.get("/api/health", async (c) => {
   return c.json({
     ok: requiredOk,
     mode: resolveAppMode(c.env),
+    version: c.env.CF_VERSION_METADATA
+      ? {
+          id: c.env.CF_VERSION_METADATA.id,
+          tag: c.env.CF_VERSION_METADATA.tag || undefined,
+          createdAt: c.env.CF_VERSION_METADATA.timestamp
+        }
+      : undefined,
     status:
       resolveAppMode(c.env) === "locked" ? "setup_required" : requiredOk ? "ready" : "degraded",
     checks: authorized ? checks : undefined,
