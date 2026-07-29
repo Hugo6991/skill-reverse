@@ -1,9 +1,7 @@
 import { ScanSearch } from "lucide-react";
 import { forwardRef } from "react";
-import {
-  gameAxisCopy,
-  gameBadgeCopy
-} from "../game-copy";
+import { useLocale } from "../LocaleContext";
+import { formatCopy } from "../locales";
 import type { GameProfile } from "../types";
 import { GameRadar } from "./GameRadar";
 import { GameIdentityMark } from "./GameIdentityMark";
@@ -16,6 +14,7 @@ export const SharePoster = forwardRef<
     profile: GameProfile;
   }
 >(function SharePoster({ displayName, occupationTitle, profile }, ref) {
+  const { copy } = useLocale();
   return (
     <article
       className={`share-poster motif-${profile.identity.motifId}`}
@@ -28,7 +27,7 @@ export const SharePoster = forwardRef<
           <ScanSearch size={24} aria-hidden="true" />
           Skill Reverse
         </span>
-        <small>秘籍鑑定</small>
+        <small>{copy.game.kicker}</small>
       </header>
       <div className="share-poster-title">
         <span>{occupationTitle}</span>
@@ -45,20 +44,20 @@ export const SharePoster = forwardRef<
       <GameRadar
         axes={profile.axes}
         accentAxisId={profile.highlightAxisId}
-        ariaLabel={`${displayName} 六維畫像`}
+        ariaLabel={formatCopy(copy.collection.radarLabel, { name: displayName })}
       />
       <div className="share-poster-axes">
         {profile.axes.map((axis) => (
           <div key={axis.id}>
-            <span>{gameAxisCopy[axis.id].label}</span>
-            <strong>{axis.value ?? "未知"}</strong>
+            <span>{copy.game.axes[axis.id].label}</span>
+            <strong>{axis.value ?? copy.game.unknown}</strong>
           </div>
         ))}
       </div>
       <footer>
         <div>
           {profile.badges.map((badge) => (
-            <span key={badge}>{gameBadgeCopy[badge]}</span>
+            <span key={badge}>{copy.game.badges[badge]}</span>
           ))}
         </div>
         <small>skill reverse · game-profile-v2</small>

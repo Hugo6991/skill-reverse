@@ -5,7 +5,7 @@ import {
   RadarChart,
   ResponsiveContainer
 } from "recharts";
-import { gameAxisCopy } from "../game-copy";
+import { useLocale } from "../LocaleContext";
 import { gameAxisTheme } from "../game-theme";
 import type { GameAxis, GameAxisId } from "../types";
 
@@ -13,16 +13,17 @@ export function GameRadar({
   axes,
   compact = false,
   accentAxisId = "potency",
-  ariaLabel = "六維畫像"
+  ariaLabel
 }: {
   axes: GameAxis[];
   compact?: boolean;
   accentAxisId?: GameAxisId;
   ariaLabel?: string;
 }) {
+  const { copy } = useLocale();
   const theme = gameAxisTheme[accentAxisId];
   const data = axes.map((axis) => ({
-    axis: gameAxisCopy[axis.id].label,
+    axis: copy.game.axes[axis.id].label,
     value: axis.value ?? 0,
     unknown: axis.value === undefined
   }));
@@ -31,7 +32,7 @@ export function GameRadar({
     <div
       className={compact ? "game-radar game-radar-compact" : "game-radar"}
       role="img"
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? copy.game.radarLabel}
     >
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={data} outerRadius={compact ? "72%" : "68%"}>
@@ -55,8 +56,8 @@ export function GameRadar({
       <span className="sr-only">
         {axes
           .map((axis) => {
-            const value = axis.value === undefined ? "未知" : String(axis.value);
-            return `${gameAxisCopy[axis.id].label} ${value}`;
+            const value = axis.value === undefined ? copy.game.unknown : String(axis.value);
+            return `${copy.game.axes[axis.id].label} ${value}`;
           })
           .join("　")}
       </span>
@@ -73,8 +74,9 @@ export function GameAxisList({
   selected: GameAxisId;
   onSelect(id: GameAxisId): void;
 }) {
+  const { copy } = useLocale();
   return (
-    <div className="game-axis-list" aria-label="選擇畫像維度">
+    <div className="game-axis-list" aria-label={copy.game.selectAxis}>
       {axes.map((axis) => (
         <button
           className={selected === axis.id ? "active" : ""}
@@ -83,8 +85,8 @@ export function GameAxisList({
           aria-pressed={selected === axis.id}
           onClick={() => onSelect(axis.id)}
         >
-          <span>{gameAxisCopy[axis.id].label}</span>
-          <strong>{axis.value ?? "未知"}</strong>
+          <span>{copy.game.axes[axis.id].label}</span>
+          <strong>{axis.value ?? copy.game.unknown}</strong>
         </button>
       ))}
     </div>

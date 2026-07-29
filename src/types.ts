@@ -219,6 +219,17 @@ export interface LegacyGameProfile {
   author: GameProfile["author"];
 }
 
+export interface BilingualGameProfileBundle {
+  schemaVersion: 1;
+  availableLocales: Locale[];
+  locales: Partial<Record<Locale, GameProfile>>;
+}
+
+export type StoredGameProfile =
+  | GameProfile
+  | LegacyGameProfile
+  | BilingualGameProfileBundle;
+
 export interface ReverseReport {
   id: string;
   viewerCanShare?: boolean;
@@ -252,7 +263,7 @@ export interface ReverseReport {
 }
 
 export type StoredReverseReport = Omit<ReverseReport, "gameProfile"> & {
-  gameProfile?: GameProfile | LegacyGameProfile;
+  gameProfile?: StoredGameProfile;
 };
 
 export interface ReportBundleCore {

@@ -7,13 +7,8 @@ import {
   UserRound
 } from "lucide-react";
 import { forwardRef, useMemo, useState } from "react";
-import {
-  attributionCopy,
-  gameAxisCopy,
-  gameBadgeCopy,
-  gameSignalLabel,
-  gameSignalCopy
-} from "../game-copy";
+import { useLocale } from "../LocaleContext";
+import { formatCopy } from "../locales";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { GameAxisId, ReverseReport } from "../types";
 import { GameAxisList, GameRadar } from "./GameRadar";
@@ -28,6 +23,7 @@ export const GameProfileHero = forwardRef<
     shareBusy?: boolean;
   }
 >(function GameProfileHero({ report, onShare, onDownload, shareBusy }, ref) {
+  const { copy, locale } = useLocale();
   const profile = report.gameProfile;
   const [selectedAxisId, setSelectedAxisId] = useState<GameAxisId>(
     profile.highlightAxisId
@@ -40,6 +36,19 @@ export const GameProfileHero = forwardRef<
   const sourceById = new Map(report.sources.map((source) => [source.id, source]));
   const observationById = new Map(report.observations.map((item) => [item.id, item]));
   const claimById = new Map(report.claims.map((claim) => [claim.id, claim]));
+  const signalCopy = copy.game.signals as Record<string, string>;
+  const signalLabel = (id: string, value?: number) => {
+    const base = signalCopy[id] ?? id;
+    if (value === undefined) return base;
+    if (id === "github_stars" || id === "github_forks") {
+      return `${base} ${new Intl.NumberFormat(locale, { notation: "compact" }).format(value)}`;
+    }
+    if (id === "public_discussion") return `${base} ${value}`;
+    if (id === "maintenance_recency") {
+      return locale === "zh-TW" ? `${base} ${value} 天前` : `${base} ${value} days ago`;
+    }
+    return base;
+  };
 
   return (
     <section
@@ -52,20 +61,20 @@ export const GameProfileHero = forwardRef<
       <div className="destiny-sky" aria-hidden="true" />
       <header className="destiny-card-header">
         <div>
-          <span className="destiny-kicker">秘籍鑑定 · {profile.rubricVersion}</span>
-          <span>{new Date(report.generatedAt).toLocaleDateString("zh-TW")}</span>
+          <span className="destiny-kicker">{copy.game.kicker} · {profile.rubricVersion}</span>
+          <span>{new Date(report.generatedAt).toLocaleDateString(locale)}</span>
         </div>
         <div className="destiny-actions" data-export-hide="true">
           {onDownload && (
             <button type="button" onClick={onDownload}>
               <ImageDown size={15} aria-hidden="true" />
-              下載畫像卡
+              {copy.game.download}
             </button>
           )}
           {onShare && (
             <button type="button" onClick={onShare} disabled={shareBusy}>
               <Share2 size={15} aria-hidden="true" />
-              {shareBusy ? "開啟中" : "分享畫像"}
+              {shareBusy ? copy.game.opening : copy.game.share}
             </button>
           )}
         </div>
@@ -86,13 +95,13 @@ export const GameProfileHero = forwardRef<
             )}
           </div>
           <span className="destiny-attribution">
-            {attributionCopy[profile.author.attribution]}
+            {copy.game.attribution[profile.author.attribution]}
           </span>
           <h1 id="destiny-title">{cleanDisplayTitle(report.title)}</h1>
           <strong>{withoutTerminalFullStop(report.author.name)}</strong>
           {profile.author.profileUrl && (
             <a href={profile.author.profileUrl} target="_blank" rel="noreferrer">
-              查看來源身份
+              {copy.game.viewIdentity}
               <ArrowUpRight size={14} aria-hidden="true" />
             </a>
           )}
@@ -115,36 +124,36 @@ export const GameProfileHero = forwardRef<
           <blockquote>{profile.identity.oneLiner}</blockquote>
           <dl>
             <div>
-              <dt>方法亮點</dt>
-              <dd>{gameAxisCopy[profile.highlightAxisId].label}</dd>
+              <dt>{copy.game.highlight}</dt>
+              <dd>{copy.game.axes[profile.highlightAxisId].label}</dd>
             </div>
             <div>
-              <dt>採用風險</dt>
-              <dd>{gameAxisCopy[profile.riskAxisId].label}</dd>
+              <dt>{copy.game.risk}</dt>
+              <dd>{copy.game.axes[profile.riskAxisId].label}</dd>
             </div>
           </dl>
-          <div className="identity-traits" aria-label="身份特質">
+          <div className="identity-traits" aria-label={copy.game.traitsLabel}>
             {profile.identity.traits.map((trait) => <span key={trait}>{trait}</span>)}
           </div>
-          <div className="destiny-badges" aria-label="事實徽章">
+          <div className="destiny-badges" aria-label={copy.game.badgesLabel}>
             {profile.badges.length > 0 ? (
               profile.badges.map((badge) => (
                 <span key={badge}>
                   <BadgeCheck size={14} aria-hidden="true" />
-                  {gameBadgeCopy[badge]}
+                  {copy.game.badges[badge]}
                 </span>
               ))
             ) : (
               <span>
                 <ScrollText size={14} aria-hidden="true" />
-                待補線索
+                {copy.game.noClues}
               </span>
             )}
           </div>
           <div className="identity-evidence" data-export-hide="true">
             {profile.identity.evidenceUrls.slice(0, 2).map((url, index) => (
               <a href={url} target="_blank" rel="noreferrer" key={url}>
-                命名依據 {index + 1}
+                {formatCopy(copy.game.evidence, { number: index + 1 })}
                 <ArrowUpRight size={12} aria-hidden="true" />
               </a>
             ))}
@@ -154,23 +163,23 @@ export const GameProfileHero = forwardRef<
 
       <div className="destiny-axis-detail" aria-live="polite">
         <div>
-          <span>{gameAxisCopy[selectedAxis.id].label}</span>
-          <strong>{selectedAxis.value ?? "未知"}</strong>
-          <small>資料覆蓋 {selectedAxis.coverage}%</small>
+          <span>{copy.game.axes[selectedAxis.id].label}</span>
+          <strong>{selectedAxis.value ?? copy.game.unknown}</strong>
+          <small>{formatCopy(copy.game.coverage, { value: selectedAxis.coverage })}</small>
         </div>
-        <p>{gameAxisCopy[selectedAxis.id].description}</p>
+        <p>{copy.game.axes[selectedAxis.id].description}</p>
         <ul>
           {selectedAxis.signalDetails?.length
             ? selectedAxis.signalDetails.map((signal) => (
                 <li className="destiny-scored-signal" key={signal.id}>
-                  <span>{gameSignalLabel(signal.id, signal.value)}</span>
+                  <span>{signalLabel(signal.id, signal.value)}</span>
                   <small>
                     +{signal.points} / {signal.maxPoints}
                   </small>
                 </li>
               ))
             : selectedAxis.signalIds.slice(0, 3).map((signalId) => (
-                <li key={signalId}>{gameSignalCopy[signalId] ?? signalId}</li>
+                <li key={signalId}>{signalCopy[signalId] ?? signalId}</li>
               ))}
           {selectedAxis.evidenceIds.slice(0, 2).map((evidenceId) => {
             const evidence =
@@ -181,7 +190,7 @@ export const GameProfileHero = forwardRef<
           })}
         </ul>
         {selectedAxis.id === "money" && (
-          <span className="destiny-money-note">只看使用者獲利潛力 不構成收益承諾</span>
+          <span className="destiny-money-note">{copy.game.moneyNote}</span>
         )}
       </div>
     </section>

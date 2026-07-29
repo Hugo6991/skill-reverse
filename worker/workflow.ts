@@ -1,6 +1,10 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createBilingualReportBundle } from "../src/bilingual";
+import {
+  createBilingualGameProfileBundle,
+  createBilingualReportBundle,
+  resolveGameProfile
+} from "../src/bilingual";
 import { getOccupation } from "./occupations";
 import {
   assembleReport,
@@ -294,7 +298,10 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         };
         for (const row of result.results ?? []) {
           try {
-            const profile = JSON.parse(row.game_profile_json) as Partial<GameProfile>;
+            const profile = resolveGameProfile(
+              JSON.parse(row.game_profile_json) as GameProfile,
+              "zh-TW"
+            );
             if (profile.rubricVersion !== "game-profile-v2" || !profile.identity) continue;
             context.usedTitles?.push(profile.identity.title);
             context.motifUsage![profile.identity.motifId] =
@@ -498,7 +505,12 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           presentation.displayName,
           occupation.code,
           occupation.title,
-          JSON.stringify(report.gameProfile),
+          JSON.stringify(
+            createBilingualGameProfileBundle(
+              report.gameProfile,
+              translated.report.gameProfile
+            )
+          ),
           publishedAt,
           cardExpires
         );

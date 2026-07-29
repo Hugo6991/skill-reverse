@@ -231,6 +231,11 @@ export const reportTranslationSchema = z.object({
     background: z.string().min(1),
     context: z.string().min(1)
   }),
+  gameIdentity: z.object({
+    title: z.string().min(1),
+    oneLiner: z.string().min(1),
+    traits: z.tuple([z.string().min(1), z.string().min(1), z.string().min(1)])
+  }),
   occupation: z.object({
     title: z.string().min(1),
     description: z.string().min(1),

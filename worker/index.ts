@@ -1,6 +1,11 @@
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
-import { isBilingualReportBundle, resolveReport } from "../src/bilingual";
+import {
+  isBilingualGameProfileBundle,
+  isBilingualReportBundle,
+  resolveGameProfile,
+  resolveReport
+} from "../src/bilingual";
 import type {
   GameProfile,
   JobStatus,
@@ -73,13 +78,25 @@ export function publicConfig(env: AppEnv) {
   };
 }
 
-function currentGameProfile(profileJson: string, reportPayloadJson?: string): GameProfile {
-  const stored = JSON.parse(profileJson) as Partial<GameProfile>;
-  if (stored.rubricVersion === "game-profile-v2" && stored.identity) {
-    return stored as GameProfile;
+function currentGameProfile(
+  profileJson: string,
+  locale: Locale,
+  reportPayloadJson?: string
+): GameProfile {
+  const stored = JSON.parse(profileJson) as unknown;
+  if (isBilingualGameProfileBundle(stored)) {
+    return resolveGameProfile(stored, locale);
+  }
+  const candidate = stored as Partial<GameProfile>;
+  if (candidate.rubricVersion === "game-profile-v2" && candidate.identity) {
+    return candidate as GameProfile;
   }
   if (!reportPayloadJson) throw new ReportUpgradeError();
-  return upgradeStoredReport(JSON.parse(reportPayloadJson)).gameProfile;
+  const reportPayload = JSON.parse(reportPayloadJson) as unknown;
+  const localized = isBilingualReportBundle(reportPayload)
+    ? resolveReport(reportPayload, locale)
+    : reportPayload;
+  return upgradeStoredReport(localized).gameProfile;
 }
 
 class JobGateError extends Error {
@@ -1130,6 +1147,13 @@ app.get("/api/history", async (c) => {
 });
 
 app.get("/api/collection", async (c) => {
+  const locale = requestedLocale(c.req.query("lang"));
+  if (!locale) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
   if (!c.env.ANON_SESSION_SECRET) return c.json({ cards: [], activity: [] });
   const actor = await getOrCreateActor(c.req.raw, c.env);
   c.set("actorId", actor.actorId);
@@ -1166,6 +1190,7 @@ app.get("/api/collection", async (c) => {
       }>(),
     c.env.DB.prepare(
       `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
+              o.localizations_json AS occupation_localizations_json,
               j.status, j.stage, j.progress, j.queued_at, j.started_at, j.finished_at,
               j.auto_retry_count, j.updated_at,
               CASE WHEN j.status = 'queued' THEN (
@@ -1191,6 +1216,7 @@ app.get("/api/collection", async (c) => {
         target_url: string;
         occupation_code: string;
         occupation_title: string | null;
+        occupation_localizations_json: string | null;
         status: string;
         stage: JobStatus["stage"];
         progress: number;
@@ -1202,23 +1228,44 @@ app.get("/api/collection", async (c) => {
         updated_at: string;
       }>()
   ]);
-  const cards: SkillCardSummary[] = cardRows.results.map((row) => ({
-    id: row.id,
-    reportId: row.report_id ?? undefined,
-    targetUrl: row.target_url,
-    displayName: row.display_name,
-    occupationCode: row.occupation_code,
-    occupationTitle: row.occupation_title,
-    gameProfile: currentGameProfile(row.game_profile_json, row.report_payload_json),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    shareSlug: row.share_slug ?? undefined
-  }));
+  const cards: SkillCardSummary[] = cardRows.results.map((row) => {
+    let occupationTitle = row.occupation_title;
+    try {
+      occupationTitle = resolveReport(
+        JSON.parse(row.report_payload_json) as ReportPayload,
+        locale
+      ).occupation.title;
+    } catch {
+      // Preserve the stored canonical title when a historical report cannot be localized.
+    }
+    return {
+      id: row.id,
+      reportId: row.report_id ?? undefined,
+      targetUrl: row.target_url,
+      displayName: row.display_name,
+      occupationCode: row.occupation_code,
+      occupationTitle,
+      gameProfile: currentGameProfile(
+        row.game_profile_json,
+        locale,
+        row.report_payload_json
+      ),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      shareSlug: row.share_slug ?? undefined
+    };
+  });
   const activity = activityRows.results.map((row) => ({
     jobId: row.id,
     targetUrl: row.target_url,
     occupationCode: row.occupation_code,
-    occupationTitle: row.occupation_title ?? row.occupation_code,
+    occupationTitle: row.occupation_title
+      ? localizedOccupationTitle(
+          row.occupation_title,
+          row.occupation_localizations_json ?? "{}",
+          locale
+        )
+      : row.occupation_code,
     ...historyPresentation(row.target_url),
     status: row.status,
     stage: row.stage,

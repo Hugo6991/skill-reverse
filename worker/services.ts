@@ -255,7 +255,7 @@ const REPORT_TRANSLATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
-    "title", "verdict", "framework", "author", "occupation", "observations",
+    "title", "verdict", "framework", "author", "gameIdentity", "occupation", "observations",
     "claims", "professionalDelta", "adoption", "caveats", "degraded"
   ],
   properties: {
@@ -291,6 +291,21 @@ const REPORT_TRANSLATION_SCHEMA = {
       properties: {
         background: { type: "string" },
         context: { type: "string" }
+      }
+    },
+    gameIdentity: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "oneLiner", "traits"],
+      properties: {
+        title: { type: "string" },
+        oneLiner: { type: "string" },
+        traits: {
+          type: "array",
+          minItems: 3,
+          maxItems: 3,
+          items: { type: "string" }
+        }
       }
     },
     occupation: {
@@ -1159,6 +1174,15 @@ export function applyReportTranslation(
       ...report.author,
       background: translation.author.background,
       context: translation.author.context
+    },
+    gameProfile: {
+      ...report.gameProfile,
+      identity: {
+        ...report.gameProfile.identity,
+        title: translation.gameIdentity.title,
+        oneLiner: translation.gameIdentity.oneLiner,
+        traits: translation.gameIdentity.traits
+      }
     },
     occupation: {
       ...report.occupation,

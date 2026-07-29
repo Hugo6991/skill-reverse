@@ -51,6 +51,75 @@ export const en = {
     framework: "Portable framework", frameworkDetail: "Decision rules that survive without the author or tooling",
     delta: "Chat-first trial", deltaDetail: "Try it in any chat AI and package it only when it repeatedly works"
   },
+  collection: {
+    eyebrow: "My collection", title: "My skill collection",
+    description: "This browser keeps the latest version while complete reports remain in the public archive",
+    loading: "Opening the collection", loadFailed: "The collection is unavailable",
+    retry: "Try again", emptyTitle: "Your collection is empty",
+    emptyBody: "Reverse one skill and its latest profile will appear here",
+    emptyAction: "Find a skill", cardsLabel: "Collected skills",
+    volume: "Volume {number}", traitsLabel: "Three identity traits",
+    radarLabel: "{name} six-axis profile", shared: "Profile shared",
+    notShared: "Profile not shared", removeLabel: "Remove {name}",
+    removeConfirm: "Remove {name} from this browser?\nThe public report will remain available",
+    removeFailed: "This profile could not be removed",
+    activityEyebrow: "Activity", activityTitle: "Research activity",
+    failed: "Research failed", running: "Researching {progress}%"
+  },
+  publicCard: {
+    missing: "This profile is no longer available", own: "Reverse your own",
+    loading: "Opening the profile", kicker: "Skill profile", shareAgain: "Share again",
+    shareText: "I found “{title}”\n{summary}", yourTurn: "Your turn",
+    prompt: "Which skill did you find recently?", start: "Start a reverse"
+  },
+  game: {
+    kicker: "Skill profile", download: "Download profile", opening: "Opening",
+    share: "Share profile", downloaded: "Profile downloaded", shared: "Profile shared",
+    copied: "Share text and link copied", shareFailed: "Sharing failed",
+    shareOpenFailed: "The public link could not be opened",
+    shareText: "I found “{title}”\n{summary}\n{axis} {value}",
+    viewIdentity: "View source identity", highlight: "Method highlight",
+    risk: "Adoption risk", traitsLabel: "Identity traits", badgesLabel: "Evidence badges",
+    noClues: "More evidence needed", evidence: "Naming evidence {number}",
+    coverage: "Data coverage {value}%", unknown: "Unknown",
+    moneyNote: "Estimates user value potential and does not promise financial returns",
+    radarLabel: "Six-axis profile", selectAxis: "Choose a profile axis",
+    axes: {
+      money: { label: "Money potential", description: "Potential to create revenue or save high-value time after adoption" },
+      spectacle: { label: "Spectacle", description: "First-impression impact from documentation, packaging, naming, and presentation" },
+      potency: { label: "Potency", description: "Whether the method has a clear problem, real cases, and verifiable results" },
+      activation: { label: "Activation cost", description: "Installation, dependencies, learning, and ongoing maintenance required" },
+      renown: { label: "Renown", description: "Publisher attribution, repository reach, adoption signals, public discussion, and recent maintenance" },
+      ascension: { label: "Portability", description: "Ability to transfer and combine across contexts beyond the original tool" }
+    },
+    badges: {
+      evidence_rich: "Evidence rich", low_dependency: "Low dependency",
+      portable: "Portable", field_tested: "Field tested", well_maintained: "Well maintained"
+    },
+    signals: {
+      professional_delta: "Professional baseline delta",
+      adoption_signals: "Adoption signals", reproducibility: "Reproducibility",
+      framework_shape: "Framework shape", source_surface: "Source presentation",
+      presentation_density: "Information density",
+      documented_presentation: "Documented presentation", visual_craft: "Visual craft",
+      distinct_naming: "Distinct naming", interaction_design: "Interaction design",
+      claim_strength: "Claim strength", verified_claims: "Verified claims",
+      evidence_coverage: "Evidence coverage", workflow_depth: "Workflow depth",
+      dependency_mentions: "Dependency signals", conditional_setup: "Conditional setup",
+      publisher_repository: "Publisher repository", github_stars: "GitHub stars",
+      github_forks: "GitHub forks", public_discussion: "Public discussion",
+      maintenance_recency: "Recent maintenance", conditional_rules: "Conditional rules",
+      dependency_surface: "Dependency surface"
+    },
+    attribution: {
+      repository_owner: "Repository owner", identified_creator: "Identified creator",
+      source_creator: "Source creator"
+    },
+    motifs: {
+      compass: "Compass", forge: "Forge", prism: "Prism", lattice: "Lattice",
+      beacon: "Beacon", scroll: "Scroll", shield: "Shield", lens: "Lens"
+    }
+  },
   sources: {
     eyebrow: "Optional context", title: "Add supporting sources",
     description: "The primary research has started. You can add GitHub, article, document, or X sources.",

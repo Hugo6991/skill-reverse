@@ -6,6 +6,8 @@ import {
   Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useLocale } from "../LocaleContext";
+import { formatCopy } from "../locales";
 import type {
   CollectionPage as CollectionResponse,
   MyResearchItem,
@@ -14,12 +16,12 @@ import type {
 import { GameRadar } from "./GameRadar";
 import { GameIdentityMark } from "./GameIdentityMark";
 
-async function loadCollection(): Promise<CollectionResponse> {
-  const response = await fetch("/api/collection");
+async function loadCollection(locale: "zh-TW" | "en", errorMessage: string): Promise<CollectionResponse> {
+  const response = await fetch(`/api/collection?lang=${encodeURIComponent(locale)}`);
   const body = (await response.json().catch(() => ({}))) as CollectionResponse & {
     error?: { message?: string };
   };
-  if (!response.ok) throw new Error(body.error?.message ?? "藏經閣暫時打不開");
+  if (!response.ok) throw new Error(body.error?.message ?? errorMessage);
   return body;
 }
 
@@ -34,6 +36,7 @@ function volumeNumber(index: number): string {
 }
 
 export function CollectionPage({ onNavigate }: { onNavigate(path: string): void }) {
+  const { copy, locale } = useLocale();
   const [cards, setCards] = useState<SkillCardSummary[]>([]);
   const [activity, setActivity] = useState<MyResearchItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,22 +46,24 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
     setLoading(true);
     setError("");
     try {
-      const next = await loadCollection();
+      const next = await loadCollection(locale, copy.collection.loadFailed);
       setCards(next.cards);
       setActivity(next.activity);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "藏經閣暫時打不開");
+      setError(caught instanceof Error ? caught.message : copy.collection.loadFailed);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [copy.collection.loadFailed, locale]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   async function removeCard(card: SkillCardSummary) {
-    if (!window.confirm(`從這台瀏覽器移除 ${card.displayName}\n公開報告仍會保留`)) return;
+    if (!window.confirm(formatCopy(copy.collection.removeConfirm, { name: card.displayName }))) {
+      return;
+    }
     const response = await fetch(`/api/cards/${encodeURIComponent(card.id)}`, {
       method: "DELETE"
     });
@@ -66,7 +71,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
       const body = (await response.json().catch(() => ({}))) as {
         error?: { message?: string };
       };
-      setError(body.error?.message ?? "這卷秘籍移除失敗");
+      setError(body.error?.message ?? copy.collection.removeFailed);
       return;
     }
     setCards((current) => current.filter((candidate) => candidate.id !== card.id));
@@ -75,22 +80,22 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
   return (
     <main className="page-frame collection-page">
       <header className="page-heading collection-heading">
-        <span className="eyebrow">MY COLLECTION</span>
-        <h1>我的藏經閣</h1>
-        <p>這台瀏覽器只留最新版 完整報告會進入公開檔案</p>
+        <span className="eyebrow">{copy.collection.eyebrow}</span>
+        <h1>{copy.collection.title}</h1>
+        <p>{copy.collection.description}</p>
       </header>
 
       {loading ? (
         <div className="page-state" role="status">
           <LoaderCircle className="spin" size={22} aria-hidden="true" />
-          <span>翻找秘籍中</span>
+          <span>{copy.collection.loading}</span>
         </div>
       ) : error ? (
         <div className="page-state error-state" role="alert">
-          <strong>藏經閣暫時打不開</strong>
+          <strong>{copy.collection.loadFailed}</strong>
           <span>{error}</span>
           <button className="secondary-button" type="button" onClick={() => void refresh()}>
-            再試一次
+            {copy.collection.retry}
           </button>
         </div>
       ) : cards.length === 0 && activity.length === 0 ? (
@@ -98,17 +103,17 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
           <span className="empty-icon">
             <BookMarked size={22} aria-hidden="true" />
           </span>
-          <strong>藏經閣還是空的</strong>
-          <span>鑑定一套 Skill 就會自動收錄</span>
+          <strong>{copy.collection.emptyTitle}</strong>
+          <span>{copy.collection.emptyBody}</span>
           <button className="primary-button" type="button" onClick={() => onNavigate("/")}>
-            去挖秘籍
+            {copy.collection.emptyAction}
             <ArrowRight size={17} aria-hidden="true" />
           </button>
         </div>
       ) : (
         <>
           {cards.length > 0 && (
-            <section className="collection-grid" aria-label="已收藏秘籍">
+            <section className="collection-grid" aria-label={copy.collection.cardsLabel}>
               {cards.map((card, index) => (
                 <article
                   className={`manual-card motif-${card.gameProfile.identity.motifId}`}
@@ -125,7 +130,12 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                     disabled={!card.reportId}
                   >
                     <span className="manual-volume">
-                      第{volumeNumber(cards.length - index)}卷
+                      {formatCopy(copy.collection.volume, {
+                        number:
+                          locale === "zh-TW"
+                            ? volumeNumber(cards.length - index)
+                            : cards.length - index
+                      })}
                     </span>
                     <GameIdentityMark motifId={card.gameProfile.identity.motifId} />
                     <span className="manual-identity-title">
@@ -134,7 +144,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                     <strong>{card.displayName}</strong>
                     <small>{card.occupationTitle}</small>
                     <p>{card.gameProfile.identity.oneLiner}</p>
-                    <span className="manual-traits" aria-label="三個身份特質">
+                    <span className="manual-traits" aria-label={copy.collection.traitsLabel}>
                       {card.gameProfile.identity.traits.map((trait) => (
                         <span key={trait}>{trait}</span>
                       ))}
@@ -143,10 +153,12 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                       axes={card.gameProfile.axes}
                       compact
                       accentAxisId={card.gameProfile.highlightAxisId}
-                      ariaLabel={`${card.displayName} 六維畫像`}
+                      ariaLabel={formatCopy(copy.collection.radarLabel, {
+                        name: card.displayName
+                      })}
                     />
                     <time dateTime={card.updatedAt}>
-                      {new Intl.DateTimeFormat("zh-TW", {
+                      {new Intl.DateTimeFormat(locale, {
                         year: "numeric",
                         month: "short",
                         day: "numeric"
@@ -156,11 +168,13 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                   <div className="manual-card-actions">
                     <span>
                       <Share2 size={13} aria-hidden="true" />
-                      {card.shareSlug ? "畫像卡已分享" : "畫像卡未分享"}
+                      {card.shareSlug ? copy.collection.shared : copy.collection.notShared}
                     </span>
                     <button
                       type="button"
-                      aria-label={`移除 ${card.displayName}`}
+                      aria-label={formatCopy(copy.collection.removeLabel, {
+                        name: card.displayName
+                      })}
                       onClick={() => void removeCard(card)}
                     >
                       <Trash2 size={15} aria-hidden="true" />
@@ -174,8 +188,8 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
           {activity.length > 0 && (
             <section className="collection-activity" aria-labelledby="activity-title">
               <div>
-                <span className="eyebrow">ACTIVITY</span>
-                <h2 id="activity-title">鑑定動態</h2>
+                <span className="eyebrow">{copy.collection.activityEyebrow}</span>
+                <h2 id="activity-title">{copy.collection.activityTitle}</h2>
               </div>
               <div className="collection-activity-list">
                 {activity.map((item) => (
@@ -191,7 +205,11 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                     />
                     <span>
                       <strong>{new URL(item.targetUrl).hostname}</strong>
-                      <small>{item.status === "failed" ? "鑑定失敗" : `鑑定中 ${item.progress}%`}</small>
+                      <small>
+                        {item.status === "failed"
+                          ? copy.collection.failed
+                          : formatCopy(copy.collection.running, { progress: item.progress })}
+                      </small>
                     </span>
                     <ArrowRight size={15} aria-hidden="true" />
                   </button>

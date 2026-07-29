@@ -25,8 +25,8 @@ import {
   buildChatPrompt,
   type AskAiProviderId
 } from "../chatPrompt";
-import { gameAxisCopy } from "../game-copy";
 import { useLocale } from "../LocaleContext";
+import { formatCopy } from "../locales";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
@@ -124,7 +124,7 @@ export function ReportView({
     link.download = `${report.id === "demo" ? "skill-destiny-demo" : report.id}.png`;
     link.href = dataUrl;
     link.click();
-    setShareNote("畫像卡已下載");
+    setShareNote(copy.game.downloaded);
   }
 
   async function shareProfile() {
@@ -139,22 +139,27 @@ export function ReportView({
         error?: { message?: string };
       };
       if (!response.ok || !body.shareUrl) {
-        throw new Error(body.error?.message ?? "公開連結開啟失敗");
+        throw new Error(body.error?.message ?? copy.game.shareOpenFailed);
       }
       const highlight = report.gameProfile.axes.find(
         (axis) => axis.id === report.gameProfile.highlightAxisId
       );
-      const text = `我挖到一套「${report.gameProfile.identity.title}」\n${report.gameProfile.identity.oneLiner}\n${gameAxisCopy[report.gameProfile.highlightAxisId].label} ${highlight?.value ?? "未知"}`;
+      const text = formatCopy(copy.game.shareText, {
+        title: report.gameProfile.identity.title,
+        summary: report.gameProfile.identity.oneLiner,
+        axis: copy.game.axes[report.gameProfile.highlightAxisId].label,
+        value: highlight?.value ?? copy.game.unknown
+      });
       if (navigator.share) {
         await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
-        setShareNote("畫像已分享");
+        setShareNote(copy.game.shared);
       } else {
         await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
-        setShareNote("分享文字與連結已複製");
+        setShareNote(copy.game.copied);
       }
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
-      setShareNote(caught instanceof Error ? caught.message : "分享失敗");
+      setShareNote(caught instanceof Error ? caught.message : copy.game.shareFailed);
     } finally {
       setShareBusy(false);
     }

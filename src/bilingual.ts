@@ -1,11 +1,72 @@
 import type {
+  BilingualGameProfileBundle,
   BilingualReportBundle,
+  GameProfile,
   Locale,
   ReportBundleCore,
   ReportGenerationMetadata,
   ReportPayload,
   ReverseReport
 } from "./types";
+
+export function isBilingualGameProfileBundle(
+  value: unknown
+): value is BilingualGameProfileBundle {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<BilingualGameProfileBundle>;
+  return (
+    candidate.schemaVersion === 1 &&
+    Boolean(candidate.locales?.["zh-TW"]) &&
+    Array.isArray(candidate.availableLocales)
+  );
+}
+
+function gameProfileFingerprint(profile: GameProfile): string {
+  return JSON.stringify({
+    rubricVersion: profile.rubricVersion,
+    axes: profile.axes.map((axis) => ({
+      id: axis.id,
+      value: axis.value,
+      confidence: axis.confidence,
+      coverage: axis.coverage,
+      signalIds: axis.signalIds,
+      evidenceIds: axis.evidenceIds,
+      signalDetails: axis.signalDetails
+    })),
+    identity: {
+      motifId: profile.identity.motifId,
+      evidenceUrls: profile.identity.evidenceUrls,
+      source: profile.identity.source
+    },
+    badges: profile.badges,
+    highlightAxisId: profile.highlightAxisId,
+    accentAxisId: profile.accentAxisId,
+    riskAxisId: profile.riskAxisId,
+    author: profile.author
+  });
+}
+
+export function createBilingualGameProfileBundle(
+  source: GameProfile,
+  english: GameProfile
+): BilingualGameProfileBundle {
+  if (gameProfileFingerprint(source) !== gameProfileFingerprint(english)) {
+    throw new Error("Translated game profile changed language-neutral structure");
+  }
+  return {
+    schemaVersion: 1,
+    availableLocales: ["zh-TW", "en"],
+    locales: { "zh-TW": source, en: english }
+  };
+}
+
+export function resolveGameProfile(
+  payload: GameProfile | BilingualGameProfileBundle,
+  locale: Locale
+): GameProfile {
+  if (!isBilingualGameProfileBundle(payload)) return payload;
+  return payload.locales[locale] ?? payload.locales["zh-TW"]!;
+}
 
 export function isBilingualReportBundle(value: unknown): value is BilingualReportBundle {
   if (!value || typeof value !== "object") return false;
@@ -45,6 +106,7 @@ function structuralFingerprint(report: ReverseReport): string {
     generatedAt: report.generatedAt,
     frameworkFailureTypes: report.framework.steps.map((item) => item.failureType),
     author: { name: report.author.name, handle: report.author.handle },
+    gameProfile: gameProfileFingerprint(report.gameProfile),
     occupation: {
       code: report.occupation.code,
       provider: report.occupation.provider,

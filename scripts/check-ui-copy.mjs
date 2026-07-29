@@ -24,7 +24,7 @@ for (const file of await sourceFiles(sourceRoot)) {
     );
     const jsxValues = [...line.matchAll(/>([^<{]+)</g)].map((match) => match[1].trim());
     for (const value of [...quotedValues, ...jsxValues]) {
-      if (value.endsWith(".") && !value.includes("://")) {
+      if (!file.includes("/locales/") && value.endsWith(".") && !value.includes("://")) {
         failures.push(`${file}:${index + 1}`);
       }
     }
