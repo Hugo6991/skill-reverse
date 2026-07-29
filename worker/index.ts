@@ -1738,7 +1738,7 @@ app.get("/api/health", async (c) => {
     const schema = await c.env.DB.prepare("SELECT value FROM app_meta WHERE key = 'schema_version'")
       .first<{ value: string }>();
     checks.database = {
-      ok: schema?.value === "7",
+      ok: schema?.value === "8",
       detail: `schema ${schema?.value ?? "missing"}`
     };
   } catch (error) {
