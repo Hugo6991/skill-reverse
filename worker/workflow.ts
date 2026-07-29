@@ -12,6 +12,7 @@ import {
   draftToModelResult,
   fetchSocialEvidence,
   reportContentHash,
+  resolveCreatorIdentity,
   runOpenRouterSynthesis,
   runOpenRouterTranslation,
   runPerplexityResearch,
@@ -116,7 +117,11 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
 
     const actor = this.env.ACTOR_GATE.getByName(actorHash);
     const budget = this.env.DAILY_BUDGET.getByName(day);
-    const degraded: string[] = [];
+    const providerRetryLimit = Math.max(
+      1,
+      Math.floor(Number(this.env.AUTO_RETRY_LIMIT || 1))
+    );
+    let degraded: string[] = [];
     try {
       await step.do("mark job running", async () => {
         const startedAt = new Date().toISOString();
@@ -178,27 +183,40 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         return selectCaptureSources(targetUrl, values);
       });
 
-      const supportingCaptures = await step.do(
+      const supportingCaptureResult = await step.do(
         "capture supporting artifacts",
         { retries: { limit: 1, delay: "10 seconds", backoff: "linear" } },
         async () => {
           const results: CapturedArtifact[] = [];
+          const warnings: string[] = [];
           for (let index = 0; index < supportingUrls.length; index += 1) {
             const url = supportingUrls[index];
             try {
               results.push(await captureUrl(this.env, jobId, url, index + 2));
             } catch (error) {
-              degraded.push(
+              warnings.push(
                 `Supporting source skipped (${new URL(url).hostname}): ${
                   error instanceof Error ? error.message : "capture error"
                 }`
               );
             }
           }
-          return results;
+          return { artifacts: results, degraded: warnings };
         }
       );
-      const captured = [primaryCapture, ...supportingCaptures];
+      degraded = [...degraded, ...supportingCaptureResult.degraded];
+
+      const creatorResult = await step.do(
+        "resolve first-party creator identity",
+        { retries: { limit: 1, delay: "10 seconds", backoff: "linear" } },
+        async () => resolveCreatorIdentity(this.env, jobId, targetUrl, primaryCapture)
+      );
+      degraded = [...degraded, ...creatorResult.degraded];
+      const captured = [
+        primaryCapture,
+        ...supportingCaptureResult.artifacts,
+        ...creatorResult.artifacts
+      ];
 
       const occupation = await step.do("load professional baseline", async () => {
         await updateJob(this.env.DB, jobId, {
@@ -220,8 +238,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             progress: 46,
             degraded
           });
-          const result = await fetchSocialEvidence(this.env, captured, targetUrl);
-          if (result.degraded) degraded.push(result.degraded);
+          const result = await fetchSocialEvidence(
+            this.env,
+            creatorResult.identity,
+            targetUrl
+          );
+          const nextDegraded = result.degraded
+            ? [...degraded, result.degraded]
+            : degraded;
+          await updateJob(this.env.DB, jobId, { degraded: nextDegraded });
           await addJobCost(
             this.env.DB,
             jobId,
@@ -230,12 +255,13 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           return result;
         }
       );
+      if (social.degraded) degraded = [...degraded, social.degraded];
 
       const researched = await step.do(
         "reverse research with structured evidence",
         {
           retries: {
-            limit: Math.max(1, Number(this.env.AUTO_RETRY_LIMIT || 1) + 1),
+            limit: providerRetryLimit,
             delay: ({ error }) =>
               providerErrorDetails(error).code === "provider_rate_limited"
                 ? "60 seconds"
@@ -263,7 +289,11 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
               occupation,
               captured,
               social.posts,
-              jobId
+              jobId,
+              {
+                creator: creatorResult.identity,
+                profile: context.attempt > 1 ? "compact" : "full"
+              }
             );
           } catch (error) {
             const details = providerErrorDetails(error);
@@ -327,7 +357,7 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             "synthesize final report with OpenAI via OpenRouter",
             {
               retries: {
-                limit: Math.max(1, Number(this.env.AUTO_RETRY_LIMIT || 1) + 1),
+                limit: providerRetryLimit,
                 delay: ({ error }) =>
                   providerErrorDetails(error).code === "provider_rate_limited"
                     ? "60 seconds"
@@ -351,7 +381,11 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
                   researched.result,
                   researched.citations,
                   jobId,
-                  identityContext
+                  {
+                    creator: creatorResult.identity,
+                    profile: context.attempt > 1 ? "compact" : "full",
+                    identityContext
+                  }
                 );
               } catch (error) {
                 const details = providerErrorDetails(error);
@@ -404,7 +438,7 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         "translate final report to English",
         {
           retries: {
-            limit: Math.max(1, Number(this.env.AUTO_RETRY_LIMIT || 1) + 1),
+            limit: providerRetryLimit,
             delay: ({ error }) =>
               providerErrorDetails(error).code === "provider_rate_limited"
                 ? "60 seconds"

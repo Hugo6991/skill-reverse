@@ -8,10 +8,13 @@ import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
 import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
 import {
   assembleReport,
+  fetchSocialEvidence,
+  inferCreatorIdentity,
   runOpenRouterSynthesis,
   runOpenRouterTranslation,
   runPerplexityResearch
 } from "../worker/services";
+import { providerErrorDetails } from "../worker/provider-ledger";
 import type { AppEnv } from "../worker/types";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../src/text";
 import { historyPresentation } from "../worker/history";
@@ -237,6 +240,111 @@ describe("deterministic game profile", () => {
     expect(profile.identity.source).toBe("fallback");
     expect(profile.identity.title).toMatch(/[\u3400-\u9fff]/u);
     expect(profile.identity.title).not.toBe("runicons");
+  });
+});
+
+describe("creator identity and optional social provenance", () => {
+  const artifact = (
+    url: string,
+    title: string,
+    markdown: string,
+    id = "source-1"
+  ) => ({
+    id,
+    url,
+    title,
+    markdown,
+    excerpt: markdown.slice(0, 120),
+    r2Key: `jobs/test/${id}.md`
+  });
+
+  it("keeps an official GitHub organization as the creator and follows its first-party X link", () => {
+    const primary = artifact(
+      "https://github.com/anthropics/skills",
+      "skills",
+      "# Skills\nThis repository contains Anthropic's implementation of skills for Claude."
+    );
+    const profile = artifact(
+      "https://github.com/anthropics",
+      "Anthropic · GitHub",
+      "# Anthropic\nWe've verified that the organization anthropics controls the domain:\nhttps://anthropic.com",
+      "source-101"
+    );
+    const website = artifact(
+      "https://anthropic.com",
+      "Anthropic",
+      "# Anthropic",
+      "source-102"
+    );
+
+    expect(
+      inferCreatorIdentity(
+        primary.url,
+        primary,
+        [profile, website],
+        '<a href="https://x.com/AnthropicAI">X</a>'
+      )
+    ).toMatchObject({
+      kind: "organization",
+      name: "Anthropic",
+      handle: "AnthropicAI"
+    });
+  });
+
+  it("supports person-owned repos and organization repos without an X account", () => {
+    const personPrimary = artifact(
+      "https://github.com/alice/example",
+      "example",
+      "By Alice — https://x.com/alice_dev"
+    );
+    const personProfile = artifact(
+      "https://github.com/alice",
+      "Alice · GitHub",
+      "# Alice",
+      "source-101"
+    );
+    expect(
+      inferCreatorIdentity(personPrimary.url, personPrimary, [personProfile])
+    ).toMatchObject({ kind: "person", name: "Alice", handle: "alice_dev" });
+
+    const orgPrimary = artifact("https://github.com/acme/example", "example", "# Example");
+    const orgProfile = artifact(
+      "https://github.com/acme",
+      "Acme · GitHub",
+      "We've verified that the organization acme controls the domain: https://acme.example",
+      "source-101"
+    );
+    expect(inferCreatorIdentity(orgPrimary.url, orgPrimary, [orgProfile])).toMatchObject({
+      kind: "organization",
+      name: "Acme",
+      handle: undefined
+    });
+  });
+
+  it("treats a missing social provider as a non-blocking degraded lane", async () => {
+    const result = await fetchSocialEvidence(
+      {} as AppEnv,
+      { kind: "organization", name: "Anthropic", evidenceUrls: [] },
+      "https://github.com/anthropics/skills"
+    );
+    expect(result.posts).toEqual([]);
+    expect(result.degraded).toContain("research continued");
+  });
+});
+
+describe("provider error classification", () => {
+  it("preserves retryable codes after a workflow wrapper prefixes the error", () => {
+    expect(
+      providerErrorDetails(
+        new Error(
+          "ProviderCallError: [provider_output_truncated] Perplexity output ended with finish_reason=length"
+        )
+      )
+    ).toMatchObject({
+      code: "provider_output_truncated",
+      retryable: true,
+      publicMessage: "The research provider returned an incomplete result"
+    });
   });
 });
 
@@ -742,7 +850,7 @@ describe("evidence-aware report assembly", () => {
   });
 
   it("classifies truncated Perplexity output before attempting JSON parsing", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
           id: "pplx-request",
@@ -782,6 +890,53 @@ describe("evidence-aware report assembly", () => {
       code: "provider_output_truncated",
       retryable: true
     });
+    const request = fetchMock.mock.calls.at(-1)!;
+    const body = JSON.parse(String((request[1] as RequestInit).body));
+    expect(body.max_tokens).toBe(6_000);
+    expect(body.response_format.json_schema.name).toBe("reverse_research_draft_full");
+    expect(body.response_format.json_schema.schema.properties.observations.maxItems).toBe(6);
+  });
+
+  it("uses a smaller output contract for a compact retry", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: `{"researchSummary":"cut off` }, finish_reason: "length" }]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    const source = {
+      id: "source-1",
+      url: "https://example.com",
+      title: "Example",
+      markdown: `# Example\n${"source detail ".repeat(1_000)}`,
+      excerpt: "Example",
+      r2Key: "jobs/test/source-1.md"
+    };
+
+    await expect(
+      runPerplexityResearch(
+        { PERPLEXITY_API_KEY: "test-only" } as AppEnv,
+        "https://example.com",
+        pilotOccupation,
+        [source],
+        [],
+        "untracked",
+        {
+          profile: "compact",
+          creator: { kind: "unknown", name: "Example", evidenceUrls: [source.url] }
+        }
+      )
+    ).rejects.toMatchObject({ code: "provider_output_truncated" });
+
+    const request = fetchMock.mock.calls.at(-1)!;
+    const body = JSON.parse(String((request[1] as RequestInit).body));
+    expect(body.max_tokens).toBe(4_500);
+    expect(body.response_format.json_schema.name).toBe("reverse_research_draft_compact");
+    expect(body.response_format.json_schema.schema.properties.observations.maxItems).toBe(4);
+    expect(body.messages[1].content).toContain("OUTPUT PROFILE: compact");
+    expect(body.messages[1].content.length).toBeLessThan(10_000);
   });
 });
 

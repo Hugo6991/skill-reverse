@@ -26,6 +26,8 @@ export type DeltaManifestation =
   | "not_observable"
   | "contradicted";
 
+export type CreatorKind = "person" | "organization" | "team" | "unknown";
+
 export interface CompetencyPoint {
   kind: "task" | "knowledge" | "skill" | "technology";
   label: string;
@@ -245,6 +247,7 @@ export interface ReverseReport {
     steps: FrameworkStep[];
   };
   author: {
+    kind?: CreatorKind;
     name: string;
     handle?: string;
     background: string;

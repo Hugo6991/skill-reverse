@@ -13,7 +13,8 @@
 - SQLite-backed Durable Objects 以全站 2 筆、每位使用者 1 筆的上限公平排程
 - Turnstile 後端 Siteverify
 - Perplexity Sonar Pro 結構化 research
-- TwitterAPI.io 定向作者貼文搜尋，可安全降級
+- TwitterAPI.io 定向創作者貼文搜尋；X 是可選 provenance lane，缺席或失敗時只降級、不阻塞報告
+- GitHub repo 優先辨識官方組織／團隊，沿 verified domain 與第一方網站查找社群連結，不強迫指定個人作者
 - O*NET 30.3 starter catalog 與 Professional Delta
 - 頂部導航、兩階段 URL composer、永久公開研究 archive 與可恢復進度頁
 - 有證據展開層的六維 Skill 畫像、短評與版本化規則
@@ -183,6 +184,8 @@ pnpm deploy
 - Browser Run 直接取得的公開內容標記為 `verified_at_retrieval`
 - TwitterAPI.io 原文標記為 `verified-at-retrieval via third-party provider`
 - Perplexity citations 在原始 URL 未直接取得前標記為 `inherited`
+- 只有第一方來源確認的 X handle 才會啟動貼文搜尋；Perplexity 候選不得自動升級為已驗證身份
+- 組織 repository 的 contributors 只作維護證據，不會被自動寫成原作者
 - `verified` claim 若沒有第一方已擷取來源，程式會自動降級
 - 無 evidence ID 的 claim 不得高於 `plausible`
 - `missing_but_expected` 沒有「為何此成果理應可觀察」的理由時，自動改成 `not_observable`

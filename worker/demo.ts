@@ -42,6 +42,7 @@ const demoReportBase: Omit<ReverseReport, "gameProfile"> = {
     ]
   },
   author: {
+    kind: "team",
     name: "Anthropic Agent Skills team",
     background:
       "Anthropic 在官方 Agent Skills repository 公開 skill 規格、範例與實際使用的文件能力；這個案例取自其中的 skill-creator。",

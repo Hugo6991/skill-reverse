@@ -62,7 +62,10 @@ describe("bilingual report bundle", () => {
   });
 
   it("keeps legacy payloads readable as Traditional Chinese", () => {
-    expect(availableReportLocales(demoReport)).toEqual(["zh-TW"]);
-    expect(resolveReport(demoReport, "en")).toBe(demoReport);
+    const legacy = structuredClone(demoReport);
+    delete legacy.author.kind;
+    expect(availableReportLocales(legacy)).toEqual(["zh-TW"]);
+    expect(resolveReport(legacy, "en")).toBe(legacy);
+    expect(resolveReport(legacy, "en").author.kind).toBeUndefined();
   });
 });

@@ -1352,6 +1352,13 @@ app.post("/api/cards/:id/share", async (c) => {
 });
 
 app.get("/api/public/cards/:slug", async (c) => {
+  const locale = requestedLocale(c.req.query("lang"));
+  if (!locale) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
   const row = await c.env.DB.prepare(
     `SELECT sc.id, sc.target_url, sc.display_name, sc.occupation_title,
             sc.game_profile_json, sc.created_at, r.payload_json AS report_payload_json
@@ -1375,7 +1382,11 @@ app.get("/api/public/cards/:slug", async (c) => {
   if (!row) {
     return c.json({ error: { code: "not_found", message: "Shared manual not found" } }, 404);
   }
-  const storedProfile = currentGameProfile(row.game_profile_json, row.report_payload_json);
+  const storedProfile = currentGameProfile(
+    row.game_profile_json,
+    locale,
+    row.report_payload_json
+  );
   const publicProfile: GameProfile = {
     ...storedProfile,
     axes: storedProfile.axes.map((axis) => ({

@@ -342,6 +342,15 @@ export function ReportView({
             </section>
             <section className="author-card">
               <span className="eyebrow">{copy.report.authorEyebrow}</span>
+              <span className="author-kind">
+                {report.author.kind === "person"
+                  ? copy.report.creatorPerson
+                  : report.author.kind === "organization"
+                    ? copy.report.creatorOrganization
+                    : report.author.kind === "team"
+                      ? copy.report.creatorTeam
+                      : copy.report.creatorUnknown}
+              </span>
               <h2>{withoutTerminalFullStop(report.author.name)}</h2>
               {report.author.handle && <span className="author-handle">@{report.author.handle}</span>}
               <p>{withoutTerminalFullStop(report.author.background)}</p>

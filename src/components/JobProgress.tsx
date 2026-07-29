@@ -150,6 +150,7 @@ export function JobProgress({
           <div className="degraded-note">
             <strong>{copy.job.degraded}</strong>
             <span>{job.degraded[job.degraded.length - 1]}</span>
+            <small>{copy.job.degradedNonBlocking}</small>
           </div>
         )}
         {job.error && (

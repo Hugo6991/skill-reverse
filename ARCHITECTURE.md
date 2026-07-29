@@ -54,7 +54,8 @@ Cloudflare 提供的是執行平台和託管服務；`worker/`、`migrations/`�
 
 - Queue 訊息只包含 job ID。一般成功工作約消耗寫入、讀取、刪除三次 operations；免費方案每日 10,000 operations、訊息保留 24 小時。consumer 成功寫入 Scheduler 後便 ack，因此 Scheduler 內的等待時間不受 24 小時限制。
 - `ResearchScheduler` 是全站單例 SQLite-backed Durable Object。預設全站同時 2 筆、每個 actor 1 筆、每個 actor 最多 10 筆未完成；alarm 每分鐘核對 D1 與 Workflow 狀態。
-- Workflow 的 provider step 總 attempts 為 2。timeout、429、5xx、空白、截斷與 schema 不完整會自動重試一次；認證、輸入與確定不可恢復的錯誤使用 `NonRetryableError`。
+- Workflow 的 provider step 預設為一次初始請求加一次自動重試。結構化輸出若截斷，重試會改用較短來源與 compact schema，不會原樣重送；timeout、429、5xx、空白與 schema 不完整同樣可重試，認證、輸入與確定不可恢復的錯誤使用 `NonRetryableError`。
+- GitHub creator provenance 先解析 repository owner，再沿 GitHub verified domain、官方網站與第一方 X 連結建立身份鏈。組織／團隊是合法 creator；X 無法確認只會留下 non-blocking degradation。
 - Queue transport 失敗最多重試三次，再送到 DLQ。DLQ 只會將仍為 `queued` 的工作標成最終失敗，避免延遲的重複訊息誤殺已開始的 Workflow。
 - Workflows 免費方案最多 100 個 running instances；本應用主動限制為 2。免費方案每 step 10 ms CPU、每 instance 50 個外部 subrequests、完成狀態保存三天，因此人工 checkpoint restart 只在保留期內可用。
 

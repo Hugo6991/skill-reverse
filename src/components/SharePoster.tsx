@@ -60,7 +60,7 @@ export const SharePoster = forwardRef<
             <span key={badge}>{copy.game.badges[badge]}</span>
           ))}
         </div>
-        <small>skill reverse · game-profile-v2</small>
+        <small>{copy.game.posterMark}</small>
       </footer>
     </article>
   );

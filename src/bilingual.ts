@@ -27,7 +27,6 @@ function gameProfileFingerprint(profile: GameProfile): string {
     axes: profile.axes.map((axis) => ({
       id: axis.id,
       value: axis.value,
-      confidence: axis.confidence,
       coverage: axis.coverage,
       signalIds: axis.signalIds,
       evidenceIds: axis.evidenceIds,
@@ -105,7 +104,11 @@ function structuralFingerprint(report: ReverseReport): string {
     targetUrl: report.targetUrl,
     generatedAt: report.generatedAt,
     frameworkFailureTypes: report.framework.steps.map((item) => item.failureType),
-    author: { name: report.author.name, handle: report.author.handle },
+    author: {
+      kind: report.author.kind,
+      name: report.author.name,
+      handle: report.author.handle
+    },
     gameProfile: gameProfileFingerprint(report.gameProfile),
     occupation: {
       code: report.occupation.code,
