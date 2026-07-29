@@ -181,8 +181,8 @@ export function ReportView({
                 <MessageSquareText size={20} aria-hidden="true" />
               </div>
               <p>
-                這段提示會要求 AI 先使用可取得的對話、記憶與既有產出，即使仍有缺口也先給
-                v0，再讓你用結果校正它
+                這段提示會要求 AI 先使用可取得的對話、記憶與既有產出，直接交付完整 v1；
+                只有會改變方向的阻塞問題才能放在結果後，最多三題
               </p>
               <pre>{chatPrompt}</pre>
               <button className="secondary-button copy-prompt-button" type="button" onClick={copyChatPrompt}>
