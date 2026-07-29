@@ -148,6 +148,8 @@ pnpm deploy
 
 `game-profile-v2` 回填預設只做 dry run：執行 `pnpm db:backfill-game-profiles:remote` 會按建立時間列出 payload 更新與卡片 upsert 數量，不會寫入正式資料。確認計畫後，使用 `pnpm db:backfill-game-profiles:apply`；這個命令會先執行正式備份，再以明確的 `--apply --backup-confirmed` 寫入報告 payload 與 `skill_cards.game_profile_json`。回填保留 report ID、分享 slug、公開狀態與收藏歸屬，失敗時不寫入完成標記，也不會替卡片開啟分享。
 
+四字身份命名修復同樣預設為 dry run：`pnpm db:repair-game-identities:remote` 會依報告建立時間列出每筆中文名稱的前後對照、無效數、重複率、fallback 比例與意象分布。只有所有中文名稱都符合四字規格且沒有重複時，`pnpm db:repair-game-identities:apply` 才會先備份正式 D1，再同步更新 report payload 與既有 card profile；英文文案、六軸分數、report ID、分享 slug 與收藏歸屬不變。
+
 ## API
 
 - `POST /api/jobs`：建立研究工作

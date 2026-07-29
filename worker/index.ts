@@ -25,6 +25,10 @@ import {
   searchOccupations
 } from "./occupations";
 import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
+import {
+  GAME_IDENTITY_NAMING_VERSION,
+  hasCurrentIdentityNaming
+} from "./game-identity";
 import { isRetryableJobError } from "./provider-ledger";
 import { ReportUpgradeError, upgradeStoredReport } from "./report-compat";
 import {
@@ -84,11 +88,20 @@ function currentGameProfile(
   reportPayloadJson?: string
 ): GameProfile {
   const stored = JSON.parse(profileJson) as unknown;
-  if (isBilingualGameProfileBundle(stored)) {
-    return resolveGameProfile(stored, locale);
-  }
-  const candidate = stored as Partial<GameProfile>;
-  if (candidate.rubricVersion === "game-profile-v2" && candidate.identity) {
+  const candidate = (
+    isBilingualGameProfileBundle(stored)
+      ? resolveGameProfile(stored, locale)
+      : stored
+  ) as Partial<GameProfile>;
+  const identityIsCurrent =
+    locale === "zh-TW"
+      ? hasCurrentIdentityNaming(candidate.identity)
+      : candidate.identity?.namingVersion === GAME_IDENTITY_NAMING_VERSION;
+  if (
+    candidate.rubricVersion === "game-profile-v2" &&
+    candidate.identity &&
+    identityIsCurrent
+  ) {
     return candidate as GameProfile;
   }
   if (!reportPayloadJson) throw new ReportUpgradeError();
@@ -96,7 +109,7 @@ function currentGameProfile(
   const localized = isBilingualReportBundle(reportPayload)
     ? resolveReport(reportPayload, locale)
     : reportPayload;
-  return upgradeStoredReport(localized).gameProfile;
+  return upgradeStoredReport(localized, locale).gameProfile;
 }
 
 class JobGateError extends Error {
@@ -1464,7 +1477,7 @@ app.get("/api/reports/:id", async (c) => {
         locales: Object.fromEntries(
           Object.entries(stored.locales).map(([locale, localized]) => [
             locale,
-            localized ? upgradeStoredReport(localized) : localized
+            localized ? upgradeStoredReport(localized, locale as Locale) : localized
           ])
         ) as Partial<Record<Locale, ReverseReport>>
       };

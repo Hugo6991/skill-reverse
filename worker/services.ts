@@ -10,7 +10,10 @@ import type {
   ReverseReport,
   SourceArtifact
 } from "../src/types";
-import type { IdentitySelectionContext } from "./game-identity";
+import {
+  englishIdentityTitle,
+  type IdentitySelectionContext
+} from "./game-identity";
 import {
   modelResultSchema,
   reportTranslationSchema,
@@ -235,28 +238,20 @@ function modelSchema(profile: OutputProfile) {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["title", "oneLiner", "traits", "motifId", "evidenceUrls"],
+          required: ["title", "oneLiner", "traits", "evidenceUrls"],
           properties: {
-            title: { type: "string", minLength: 4, maxLength: 10 },
+            title: {
+              type: "string",
+              minLength: 4,
+              maxLength: 4,
+              pattern: "^[\\u3400-\\u9FFF]{4}$"
+            },
             oneLiner: { type: "string", minLength: 8, maxLength: 72 },
             traits: {
               type: "array",
               minItems: 3,
               maxItems: 3,
               items: { type: "string", minLength: 2, maxLength: 8 }
-            },
-            motifId: {
-              type: "string",
-              enum: [
-                "compass",
-                "forge",
-                "prism",
-                "lattice",
-                "beacon",
-                "scroll",
-                "shield",
-                "lens"
-              ]
             },
             evidenceUrls: {
               type: "array",
@@ -1142,12 +1137,12 @@ Editorial requirements:
 11. Keep creator motivation in author.context only when the evidence supports it, and distinguish observed design choices from inferred philosophy
 12. Rewrite adoption items as plain-language rules that work in any chat AI before the user considers a plugin, skill, or agent
 13. Set every claim confidence to the exact sum of directness + firstParty + corroboration + temporalFit + reproducibility + contradictionPenalty. Use evidence anchors: 0=no support, 25=weakly plausible, 50=one-source supported inference, 75=corroborated or reproducible, 90+=verified and reproducible
-14. Create exactly three distinct identityCandidates. Each needs a 4–10 Traditional-Chinese-character martial-arts title, one concrete strength-and-cost sentence, three evidence-traceable traits, one motifId, and 1–3 supplied evidence URLs
-15. Never use generic stock titles, including ${JSON.stringify([
+14. Create exactly three distinct identityCandidates. Each title must be exactly four Traditional-Chinese characters and read as two meaningful two-character beats. Use a clear functional metaphor, not a clipped sentence or a generic category. Good examples: 威脅沙盤、證據鍛造、介面驗真、圖文編排. Bad examples: 以可編輯威脅模型為中、文章內容、安全分析框架、法相驚人. Never shorten the framework name to make a title. Each candidate also needs one concrete strength-and-cost sentence, three evidence-traceable traits, and 1–3 supplied evidence URLs
+15. Never use generic stock titles or previously used titles, including ${JSON.stringify([
     "法相驚人",
     "法相萬千",
     ...(identityContext.usedTitles ?? [])
-  ])}. Prefer motifs with the lowest current count: ${JSON.stringify(identityContext.motifUsage ?? {})}
+  ])}. Order candidates by naming quality and content relevance; the system assigns visual motifs separately
 16. Preserve creator kind, name, and handle exactly from FIRST-PARTY CREATOR IDENTITY; never replace an organization with an individual contributor
 17. Return only JSON matching the required schema
 
@@ -1337,7 +1332,7 @@ export async function runOpenRouterSynthesis(
   let result: ModelResult;
   try {
     const json = JSON.parse(content.replace(/^```json\s*/i, "").replace(/\s*```$/, ""));
-    result = modelResultSchema.parse({
+    const parsed = modelResultSchema.parse({
       ...json,
       author: {
         ...json.author,
@@ -1346,6 +1341,13 @@ export async function runOpenRouterSynthesis(
         handle: creator.handle ?? ""
       }
     });
+    result = {
+      ...parsed,
+      claims: parsed.claims.map((claim) => ({
+        ...claim,
+        confidence: confidenceFromScore(claim.score)
+      }))
+    };
   } catch (error) {
     await recordProviderCall(env, {
       ...ledgerBase,
@@ -1430,7 +1432,10 @@ export function applyReportTranslation(
       ...report.gameProfile,
       identity: {
         ...report.gameProfile.identity,
-        title: translation.gameIdentity.title,
+        title: englishIdentityTitle(
+          report.gameProfile.identity.title,
+          translation.gameIdentity.title
+        ),
         oneLiner: translation.gameIdentity.oneLiner,
         traits: translation.gameIdentity.traits
       }
@@ -1512,7 +1517,7 @@ export async function runOpenRouterTranslation(
           {
             role: "system",
             content:
-              "You are a precise localization editor. Translate only the supplied user-facing Traditional Chinese report text into natural English. Preserve meaning, epistemic caution, array order, and terminology. Return schema-valid JSON only."
+              "You are a precise localization editor. Translate only the supplied user-facing Traditional Chinese report text into natural English. Preserve meaning, epistemic caution, array order, and terminology. Translate gameIdentity.title into a natural, memorable 2–5 word English name. Return schema-valid JSON only."
           },
           {
             role: "user",
@@ -1697,24 +1702,21 @@ export function draftToModelResult(draft: ResearchDraft, targetUrl: string): Mod
     professionalDelta: draft.professionalSignals,
     identityCandidates: [
       {
-        title: "證據編排心法",
+        title: "證據編排",
         oneLiner: `${draft.frameworkHypothesis.summary.slice(0, 36)}，但需先核對使用條件`,
         traits: ["來源可查", "步驟清楚", "保留條件"],
-        motifId: "lattice",
         evidenceUrls: [targetUrl]
       },
       {
-        title: "框架驗真訣",
+        title: "框架驗真",
         oneLiner: `${draft.researchSummary.slice(0, 36)}，代價是仍要逐項實測`,
         traits: ["主張分級", "可作基線", "先行驗證"],
-        motifId: "lens",
         evidenceUrls: [targetUrl]
       },
       {
-        title: "方法拆解譜",
+        title: "方法拆解",
         oneLiner: `${draft.frameworkHypothesis.useWhen.slice(0, 36)}，不適用時應停止套用`,
         traits: ["聚焦方法", "標出取捨", "方便借用"],
-        motifId: "scroll",
         evidenceUrls: [targetUrl]
       }
     ],
