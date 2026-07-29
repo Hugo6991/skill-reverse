@@ -458,12 +458,19 @@ describe("Cloudflare bindings in workerd", () => {
       `INSERT INTO jobs
        (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
         progress, reserved_cents, actual_cents, degraded_json, publication_status,
-        published_at, target_key, created_at, updated_at, expires_at)
+        published_at, target_key, report_id, created_at, updated_at, expires_at)
        VALUES (?1, ?2, 'https://github.com/example/manual', '[]', '15-1255.00',
         'report', 'completed', 100, 50, 10, '[]', 'published', ?3,
-        'https://github.com/example/manual', ?3, ?3, ?4)`
+        'https://github.com/example/manual', ?4, ?3, ?3, ?5)`
     )
-      .bind(jobId, actorHash, now, expires)
+      .bind(jobId, actorHash, now, cardId, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO reports
+       (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+       VALUES (?1, ?2, 'test-capability', 'Test Manual', ?3, ?4, ?5)`
+    )
+      .bind(cardId, jobId, JSON.stringify({ ...demoReport, id: cardId }), now, expires)
       .run();
     await bindings.DB.prepare(
       `INSERT INTO skill_cards
@@ -493,6 +500,14 @@ describe("Cloudflare bindings in workerd", () => {
     const otherSession = await SELF.fetch("https://example.com/api/collection");
     const otherCookie = otherSession.headers.get("set-cookie")?.split(";")[0] ?? "";
     expect(await otherSession.json()).toMatchObject({ cards: [] });
+    const otherReport = await SELF.fetch(`https://example.com/api/reports/${cardId}`, {
+      headers: { cookie: otherCookie }
+    });
+    expect(await otherReport.json()).toMatchObject({ viewerCanShare: false });
+    const ownedReport = await SELF.fetch(`https://example.com/api/reports/${cardId}`, {
+      headers: { cookie }
+    });
+    expect(await ownedReport.json()).toMatchObject({ viewerCanShare: true });
     const forbiddenShare = await SELF.fetch(`https://example.com/api/cards/${cardId}/share`, {
       method: "POST",
       headers: { cookie: otherCookie }
