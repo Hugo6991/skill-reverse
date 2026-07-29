@@ -343,7 +343,9 @@ const verifiedClaimsAreSupported = (smokeReport.claims ?? [])
       claim.evidenceIds.every((sourceId) => sourceIds.has(sourceId))
   );
 const gameProfileIsValid =
-  /^game-profile-v1(?:\.\d+)?$/.test(smokeReport.gameProfile?.rubricVersion ?? "") &&
+  smokeReport.gameProfile?.rubricVersion === "game-profile-v2" &&
+  typeof smokeReport.gameProfile?.identity?.title === "string" &&
+  smokeReport.gameProfile.identity.title.length >= 4 &&
   Array.isArray(smokeReport.gameProfile?.axes) &&
   smokeReport.gameProfile.axes.length === 6 &&
   new Set(smokeReport.gameProfile.axes.map((axis) => axis.id)).size === 6;

@@ -220,6 +220,23 @@ describe("deterministic game profile", () => {
     expect(profile.identity.title).not.toMatch(/法相驚人|法相萬千/);
     expect(new Set(profile.identity.traits).size).toBe(3);
   });
+
+  it("keeps fallback titles in Chinese when the framework name is English", () => {
+    const profile = computeGameProfile(
+      {
+        ...demoReport,
+        framework: {
+          ...demoReport.framework,
+          name: "runicons"
+        }
+      },
+      []
+    );
+
+    expect(profile.identity.source).toBe("fallback");
+    expect(profile.identity.title).toMatch(/[\u3400-\u9fff]/u);
+    expect(profile.identity.title).not.toBe("runicons");
+  });
 });
 
 describe("history presentation", () => {
