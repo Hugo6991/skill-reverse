@@ -25,6 +25,15 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+function hasRenderableGameProfile(report: ReverseReport): boolean {
+  return (
+    Array.isArray(report.gameProfile?.axes) &&
+    report.gameProfile.axes.length === 6 &&
+    typeof report.gameProfile.strongestAxisId === "string" &&
+    typeof report.gameProfile.weakestAxisId === "string"
+  );
+}
+
 function parseRoute(): AppRoute {
   const legacyReport = new URLSearchParams(window.location.search).get("report");
   if (legacyReport) return { kind: "report", id: legacyReport };
@@ -149,6 +158,9 @@ export default function App() {
       setBusy(true);
       api<ReverseReport>(`/api/reports/${encodeURIComponent(route.id)}`)
         .then((next) => {
+          if (!hasRenderableGameProfile(next)) {
+            throw new Error("This report needs an update before it can be opened");
+          }
           setReport(next);
           setBusy(false);
         })

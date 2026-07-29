@@ -21,6 +21,7 @@ import {
   targetKey
 } from "../worker/publication";
 import { computeGameProfile } from "../worker/game-profile";
+import { ReportUpgradeError, upgradeStoredReport } from "../worker/report-compat";
 
 describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
@@ -44,6 +45,18 @@ describe("report presentation copy", () => {
 });
 
 describe("deterministic game profile", () => {
+  it("upgrades legacy stored reports without changing the source payload", () => {
+    const { gameProfile: _gameProfile, ...legacyReport } = demoReport;
+    const upgraded = upgradeStoredReport(legacyReport);
+
+    expect(upgraded.gameProfile).toEqual(computeGameProfile(legacyReport));
+    expect("gameProfile" in legacyReport).toBe(false);
+  });
+
+  it("rejects malformed legacy reports instead of returning an unsafe partial result", () => {
+    expect(() => upgradeStoredReport({ id: "broken" })).toThrow(ReportUpgradeError);
+  });
+
   it("returns the same destiny for the same report signals", () => {
     const first = computeGameProfile(demoReport);
     const second = computeGameProfile(demoReport);

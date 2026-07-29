@@ -212,6 +212,10 @@ export interface ReverseReport {
   degraded: string[];
 }
 
+export type StoredReverseReport = Omit<ReverseReport, "gameProfile"> & {
+  gameProfile?: GameProfile;
+};
+
 export interface JobStatus {
   id: string;
   status: "queued" | "running" | "completed" | "failed";

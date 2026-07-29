@@ -9,6 +9,7 @@ import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import { getOccupation, searchOccupations } from "./occupations";
 import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
 import { isRetryableJobError } from "./provider-ledger";
+import { ReportUpgradeError, upgradeStoredReport } from "./report-compat";
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -1305,10 +1306,23 @@ app.get("/api/reports/:id", async (c) => {
     .bind(c.req.param("id"))
     .first<{ payload_json: string; job_id: string }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
-  const report = JSON.parse(row.payload_json) as {
-    sources?: Array<{ id: string; [key: string]: unknown }>;
-    [key: string]: unknown;
-  };
+  let report;
+  try {
+    report = upgradeStoredReport(JSON.parse(row.payload_json));
+  } catch (error) {
+    if (error instanceof ReportUpgradeError || error instanceof SyntaxError) {
+      return c.json(
+        {
+          error: {
+            code: "report_upgrade_required",
+            message: "This report needs owner attention before it can be opened"
+          }
+        },
+        409
+      );
+    }
+    throw error;
+  }
   if (Array.isArray(report.sources)) {
     const artifacts = await c.env.DB.prepare(
       `SELECT id, r2_key, metadata_json

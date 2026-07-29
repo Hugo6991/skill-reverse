@@ -280,6 +280,9 @@ describe("Cloudflare bindings in workerd", () => {
         reportId,
         jobId,
         JSON.stringify({
+          ...Object.fromEntries(
+            Object.entries(demoReport).filter(([key]) => key !== "gameProfile")
+          ),
           id: reportId,
           title: "Moderated report",
           targetUrl: "https://example.com/report",
@@ -346,10 +349,22 @@ describe("Cloudflare bindings in workerd", () => {
         reportId,
         jobId,
         JSON.stringify({
+          ...Object.fromEntries(
+            Object.entries(demoReport).filter(([key]) => key !== "gameProfile")
+          ),
           id: reportId,
           title: "Evidence report",
           targetUrl: "https://example.com/evidence",
-          sources: [{ id: "source-1", title: "Evidence", url: "https://example.com/evidence" }]
+          sources: [
+            {
+              id: "source-1",
+              kind: "website",
+              status: "verified_at_retrieval",
+              title: "Evidence",
+              url: "https://example.com/evidence",
+              retrievedAt: now
+            }
+          ]
         }),
         now,
         "9999-12-31T23:59:59.999Z"
@@ -368,6 +383,10 @@ describe("Cloudflare bindings in workerd", () => {
     const report = await SELF.fetch(`https://example.com/api/reports/${reportId}`);
     expect(report.status).toBe(200);
     expect(await report.json()).toMatchObject({
+      gameProfile: {
+        rubricVersion: "game-profile-v1.1",
+        axes: expect.arrayContaining([expect.objectContaining({ id: "potency" })])
+      },
       sources: [
         {
           id: "source-1",
@@ -389,8 +408,41 @@ describe("Cloudflare bindings in workerd", () => {
         await SELF.fetch(
           `https://example.com/api/reports/${reportId}/artifacts/source-2`
         )
-      ).status
+    ).status
     ).toBe(404);
+  });
+
+  it("returns a structured error for legacy reports that cannot be upgraded", async () => {
+    const jobId = crypto.randomUUID();
+    const reportId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expires = new Date(Date.now() + 86_400_000).toISOString();
+    await bindings.DB.prepare(
+      `INSERT INTO jobs
+       (id, actor_hash, target_url, support_urls_json, occupation_code, stage, status,
+        progress, reserved_cents, actual_cents, report_id, degraded_json,
+        publication_status, published_at, target_key, created_at, updated_at, expires_at)
+       VALUES (?1, 'broken-report-actor', 'https://example.com/broken', '[]', '15-1255.00',
+        'report', 'completed', 100, 50, 10, ?2, '[]', 'published', ?3,
+        'https://example.com/broken', ?3, ?3, ?4)`
+    )
+      .bind(jobId, reportId, now, expires)
+      .run();
+    await bindings.DB.prepare(
+      `INSERT INTO reports
+       (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
+       VALUES (?1, ?2, 'test-capability', 'Broken report', '{"id":"broken"}', ?3, ?4)`
+    )
+      .bind(reportId, jobId, now, "9999-12-31T23:59:59.999Z")
+      .run();
+
+    const response = await SELF.fetch(`https://example.com/api/reports/${reportId}`);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "report_upgrade_required"
+      }
+    });
   });
 
   it("keeps cards private until sharing is enabled and isolates anonymous owners", async () => {
