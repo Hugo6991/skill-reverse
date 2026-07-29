@@ -9,6 +9,7 @@ import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources"
 import {
   assembleReport,
   runOpenRouterSynthesis,
+  runOpenRouterTranslation,
   runPerplexityResearch
 } from "../worker/services";
 import type { AppEnv } from "../worker/types";
@@ -781,6 +782,30 @@ describe("evidence-aware report assembly", () => {
       code: "provider_output_truncated",
       retryable: true
     });
+  });
+});
+
+describe("bilingual report translation", () => {
+  it("classifies a truncated English translation before publishing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: `{"title":"cut off` }, finish_reason: "length" }]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    await expect(
+      runOpenRouterTranslation(
+        {
+          OPENROUTER_API_KEY: "test-only",
+          PUBLIC_APP_URL: "https://skill-reverse.vibeencode.dev",
+          OPENROUTER_SYNTHESIS_MODEL: "openai/gpt-5.6-terra"
+        } as AppEnv,
+        demoReport
+      )
+    ).rejects.toMatchObject({ code: "provider_output_truncated", retryable: true });
   });
 });
 

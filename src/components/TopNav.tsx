@@ -6,7 +6,7 @@ import {
   ScanSearch,
   ShieldCheck
 } from "lucide-react";
-import { uiCopy } from "../copy";
+import { useLocale } from "../LocaleContext";
 
 export type AppRoute =
   | { kind: "home" }
@@ -51,13 +51,14 @@ export function TopNav({
   route: AppRoute;
   onNavigate(path: string): void;
 }) {
+  const { copy, locale, setLocale } = useLocale();
   return (
     <header className="top-nav">
       <div className="top-nav-inner">
         <a
           className="top-brand"
           href="/"
-          aria-label="Skill Reverse home"
+          aria-label={copy.nav.homeLabel}
           onClick={(event) => {
             event.preventDefault();
             onNavigate("/");
@@ -69,10 +70,10 @@ export function TopNav({
           <span>Skill Reverse</span>
         </a>
 
-        <nav className="top-nav-links" aria-label="Primary navigation">
+        <nav className="top-nav-links" aria-label={copy.nav.primaryLabel}>
           <NavLink href="/" active={route.kind === "home"} onNavigate={onNavigate}>
             <Plus size={15} aria-hidden="true" />
-            {uiCopy.nav.newReverse}
+            {copy.nav.newReverse}
           </NavLink>
           <NavLink
             href="/history"
@@ -80,7 +81,7 @@ export function TopNav({
             onNavigate={onNavigate}
           >
             <Globe2 size={15} aria-hidden="true" />
-            {uiCopy.nav.history}
+            {copy.nav.history}
           </NavLink>
           <NavLink
             href="/collection"
@@ -88,7 +89,7 @@ export function TopNav({
             onNavigate={onNavigate}
           >
             <BookMarked size={15} aria-hidden="true" />
-            藏經閣
+            {copy.nav.collection}
           </NavLink>
           <NavLink
             href="/reports/demo"
@@ -96,15 +97,33 @@ export function TopNav({
             onNavigate={onNavigate}
           >
             <FileSearch2 size={15} aria-hidden="true" />
-            {uiCopy.nav.pilot}
+            {copy.nav.pilot}
           </NavLink>
           {route.kind === "admin" && (
             <NavLink href="/admin" active onNavigate={onNavigate}>
               <ShieldCheck size={15} aria-hidden="true" />
-              Owner
+              {copy.common.owner}
             </NavLink>
           )}
         </nav>
+        <div className="locale-switcher" role="group" aria-label={copy.nav.languageLabel}>
+          <button
+            type="button"
+            aria-pressed={locale === "zh-TW"}
+            className={locale === "zh-TW" ? "active" : undefined}
+            onClick={() => setLocale("zh-TW")}
+          >
+            {copy.nav.chinese}
+          </button>
+          <button
+            type="button"
+            aria-pressed={locale === "en"}
+            className={locale === "en" ? "active" : undefined}
+            onClick={() => setLocale("en")}
+          >
+            {copy.nav.english}
+          </button>
+        </div>
       </div>
     </header>
   );

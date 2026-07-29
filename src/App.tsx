@@ -1,6 +1,7 @@
 import { ArrowRight, Brain, MessageSquareText, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { uiCopy } from "./copy";
+import { resolveReport } from "./bilingual";
+import { useLocale } from "./LocaleContext";
 import { AdminPage } from "./components/AdminPage";
 import { CollectionPage } from "./components/CollectionPage";
 import { HistoryPage } from "./components/HistoryPage";
@@ -9,7 +10,7 @@ import { PublicCardPage } from "./components/PublicCardPage";
 import { ReportView } from "./components/ReportView";
 import { ResearchForm, type ResearchInput } from "./components/ResearchForm";
 import { type AppRoute, TopNav } from "./components/TopNav";
-import type { JobStatus, PublicConfig, ReverseReport } from "./types";
+import type { JobStatus, PublicConfig, ReportPayload, ReverseReport } from "./types";
 
 const fallbackConfig: PublicConfig = {
   mode: "locked",
@@ -57,29 +58,30 @@ function parseRoute(): AppRoute {
 }
 
 function OutputModel() {
+  const { copy } = useLocale();
   const layers = [
     {
       icon: ScanSearch,
-      title: uiCopy.output.baseline,
-      detail: uiCopy.output.baselineDetail
+      title: copy.output.baseline,
+      detail: copy.output.baselineDetail
     },
     {
       icon: Brain,
-      title: uiCopy.output.framework,
-      detail: uiCopy.output.frameworkDetail
+      title: copy.output.framework,
+      detail: copy.output.frameworkDetail
     },
     {
       icon: MessageSquareText,
-      title: uiCopy.output.delta,
-      detail: uiCopy.output.deltaDetail
+      title: copy.output.delta,
+      detail: copy.output.deltaDetail
     }
   ];
   return (
     <section className="output-section" aria-labelledby="output-title">
       <div className="output-heading">
-        <span className="eyebrow">{uiCopy.output.eyebrow}</span>
-        <h2 id="output-title">{uiCopy.output.title}</h2>
-        <p>{uiCopy.output.description}</p>
+        <span className="eyebrow">{copy.output.eyebrow}</span>
+        <h2 id="output-title">{copy.output.title}</h2>
+        <p>{copy.output.description}</p>
       </div>
       <div className="output-grid">
         {layers.map(({ icon: Icon, title, detail }, index) => (
@@ -98,22 +100,26 @@ function OutputModel() {
 }
 
 export default function App() {
+  const { copy, locale } = useLocale();
   const [config, setConfig] = useState<PublicConfig>(fallbackConfig);
   const [route, setRoute] = useState<AppRoute>(() => parseRoute());
   const [job, setJob] = useState<JobStatus>();
-  const [report, setReport] = useState<ReverseReport>();
+  const [reportPayload, setReportPayload] = useState<ReportPayload>();
   const [busy, setBusy] = useState(false);
   const [pageError, setPageError] = useState("");
   const pollTimer = useRef<number | undefined>(undefined);
 
   const navigate = useCallback((path: string, replace = false) => {
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
-    if (replace) window.history.replaceState({}, "", path);
-    else window.history.pushState({}, "", path);
+    const next = new URL(path, window.location.origin);
+    next.searchParams.set("lang", locale);
+    const localizedPath = `${next.pathname}${next.search}${next.hash}`;
+    if (replace) window.history.replaceState({}, "", localizedPath);
+    else window.history.pushState({}, "", localizedPath);
     setPageError("");
     setRoute(parseRoute());
     window.scrollTo({ top: 0, behavior: "instant" });
-  }, []);
+  }, [locale]);
 
   const pollJob = useCallback(
     async (jobId: string) => {
@@ -132,10 +138,10 @@ export default function App() {
         pollTimer.current = window.setTimeout(() => void pollJob(jobId), 1800);
       } catch (caught) {
         setBusy(false);
-        setPageError(caught instanceof Error ? caught.message : "Research status is unavailable");
+        setPageError(caught instanceof Error ? caught.message : copy.common.pageOpenFailed);
       }
     },
-    [navigate]
+    [copy.common.pageOpenFailed, navigate]
   );
 
   useEffect(() => {
@@ -153,22 +159,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setReport(undefined);
+    setReportPayload(undefined);
     setJob(undefined);
     setPageError("");
     if (route.kind === "report") {
       setBusy(true);
-      api<ReverseReport>(`/api/reports/${encodeURIComponent(route.id)}`)
+      api<ReportPayload>(`/api/reports/${encodeURIComponent(route.id)}`)
         .then((next) => {
-          if (!hasRenderableGameProfile(next)) {
-            throw new Error("This report needs an update before it can be opened");
+          if (!hasRenderableGameProfile(resolveReport(next, "zh-TW"))) {
+            throw new Error(copy.common.reportNeedsUpdate);
           }
-          setReport(next);
+          setReportPayload(next);
           setBusy(false);
         })
         .catch((caught) => {
           setBusy(false);
-          setPageError(caught instanceof Error ? caught.message : "Report is unavailable");
+          setPageError(caught instanceof Error ? caught.message : copy.common.pageOpenFailed);
         });
     } else if (route.kind === "job") {
       setBusy(true);
@@ -176,7 +182,7 @@ export default function App() {
     } else {
       setBusy(false);
     }
-  }, [pollJob, route]);
+  }, [copy.common.pageOpenFailed, pollJob, route]);
 
   async function startResearch(input: ResearchInput) {
     setBusy(true);
@@ -286,16 +292,18 @@ export default function App() {
         />
       );
     }
-    if (route.kind === "report" && report) {
-      return <ReportView report={report} onBack={() => navigate("/")} />;
+    if (route.kind === "report" && reportPayload) {
+      return (
+        <ReportView report={resolveReport(reportPayload, locale)} onBack={() => navigate("/")} />
+      );
     }
     if (route.kind === "not_found") {
       return (
         <main className="page-frame page-state not-found">
-          <strong>Page not found</strong>
-          <span>The page may have moved or expired</span>
+          <strong>{copy.common.pageNotFound}</strong>
+          <span>{copy.common.pageMoved}</span>
           <button className="primary-button" type="button" onClick={() => navigate("/")}>
-            Start a reverse
+            {copy.common.startReverse}
             <ArrowRight size={17} aria-hidden="true" />
           </button>
         </main>
@@ -304,10 +312,10 @@ export default function App() {
     if (pageError) {
       return (
         <main className="page-frame page-state error-state" role="alert">
-          <strong>This page could not be opened</strong>
+          <strong>{copy.common.pageOpenFailed}</strong>
           <span>{pageError}</span>
           <button className="secondary-button" type="button" onClick={() => navigate("/")}>
-            Return home
+            {copy.common.returnHome}
           </button>
         </main>
       );
@@ -315,7 +323,7 @@ export default function App() {
     return (
       <main className="page-frame page-state" role="status">
         <span className="loading-mark" />
-        <span>Loading…</span>
+        <span>{copy.common.loading}</span>
       </main>
     );
   }

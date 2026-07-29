@@ -1,12 +1,15 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
+import { createBilingualReportBundle } from "../src/bilingual";
 import { getOccupation } from "./occupations";
 import {
   assembleReport,
   captureUrl,
   draftToModelResult,
   fetchSocialEvidence,
+  reportContentHash,
   runOpenRouterSynthesis,
+  runOpenRouterTranslation,
   runPerplexityResearch,
   type CapturedArtifact
 } from "./services";
@@ -385,6 +388,51 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         });
       });
 
+      await updateJob(this.env.DB, jobId, {
+        stage: "translation",
+        progress: 90,
+        degraded
+      });
+      const translated = await step.do(
+        "translate final report to English",
+        {
+          retries: {
+            limit: Math.max(1, Number(this.env.AUTO_RETRY_LIMIT || 1) + 1),
+            delay: ({ error }) =>
+              providerErrorDetails(error).code === "provider_rate_limited"
+                ? "60 seconds"
+                : "20 seconds",
+            backoff: "exponential"
+          }
+        },
+        async (context) => {
+          if (context.attempt > 1) {
+            await updateJob(this.env.DB, jobId, {
+              autoRetryCount: context.attempt - 1,
+              lastAutoRetryAt: new Date().toISOString()
+            });
+          }
+          try {
+            return await runOpenRouterTranslation(this.env, report, jobId);
+          } catch (error) {
+            const details = providerErrorDetails(error);
+            if (!details.retryable) throw new NonRetryableError(details.internalMessage);
+            throw error;
+          }
+        }
+      );
+      const reportBundle = await step.do("assemble bilingual report", async () =>
+        createBilingualReportBundle(report, translated.report, {
+          sourceLocale: "zh-TW",
+          synthesizedAt: new Date().toISOString(),
+          synthesisModel: this.env.OPENROUTER_API_KEY
+            ? this.env.OPENROUTER_SYNTHESIS_MODEL || "openai/gpt-5.6-terra"
+            : "perplexity/sonar-pro-draft",
+          translationModel: translated.model,
+          sourceContentHash: await reportContentHash(report)
+        })
+      );
+
       await step.do("persist report", async () => {
         const now = new Date();
         const publishedAt = now.toISOString();
@@ -414,14 +462,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         );
         const reportInsert = this.env.DB.prepare(
           `INSERT INTO reports
-           (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+           (id, job_id, capability_hash, title, payload_json, created_at, expires_at,
+            content_schema_version)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 2)`
         ).bind(
           report.id,
           jobId,
           capabilityHash,
           report.title,
-          JSON.stringify(report),
+          JSON.stringify(reportBundle),
           publishedAt,
           permanentExpiry
         );

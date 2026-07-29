@@ -1,4 +1,5 @@
 import type { OccupationProfile } from "../src/types";
+import type { Locale } from "../src/types";
 
 type OccupationRow = {
   code: string;
@@ -9,7 +10,31 @@ type OccupationRow = {
   source_uri: string;
   aliases_json: string;
   competencies_json: string;
+  localizations_json: string;
 };
+
+type OccupationLocalization = {
+  title: string;
+  description: string;
+  aliases: string[];
+  competencyLabels: string[];
+};
+
+export function localizedOccupationTitle(
+  canonicalTitle: string,
+  localizationsJson: string,
+  locale: Locale
+): string {
+  if (locale === "en") return canonicalTitle;
+  try {
+    const localizations = JSON.parse(localizationsJson) as Partial<
+      Record<Locale, OccupationLocalization>
+    >;
+    return localizations[locale]?.title ?? canonicalTitle;
+  } catch {
+    return canonicalTitle;
+  }
+}
 
 export const pilotOccupation: OccupationProfile = {
   code: "15-1255.00",
@@ -54,8 +79,8 @@ export const pilotOccupation: OccupationProfile = {
   ]
 };
 
-function toProfile(row: OccupationRow): OccupationProfile {
-  return {
+function toProfile(row: OccupationRow, locale: Locale = "en"): OccupationProfile {
+  const profile: OccupationProfile = {
     code: row.code,
     title: row.title,
     description: row.description,
@@ -65,38 +90,60 @@ function toProfile(row: OccupationRow): OccupationProfile {
     aliases: JSON.parse(row.aliases_json),
     competencies: JSON.parse(row.competencies_json)
   };
+  if (locale === "en") return profile;
+  try {
+    const localizations = JSON.parse(row.localizations_json) as Partial<
+      Record<Locale, OccupationLocalization>
+    >;
+    const localized = localizations[locale];
+    if (!localized) return profile;
+    return {
+      ...profile,
+      title: localized.title,
+      description: localized.description,
+      aliases: localized.aliases,
+      competencies: profile.competencies.map((competency, index) => ({
+        ...competency,
+        label: localized.competencyLabels[index] ?? competency.label
+      }))
+    };
+  } catch {
+    return profile;
+  }
 }
 
 export async function getOccupation(
   db: D1Database,
-  code: string
+  code: string,
+  locale: Locale = "en"
 ): Promise<OccupationProfile | null> {
   const row = await db
     .prepare(
       `SELECT code, title, description, provider, version, source_uri,
-              aliases_json, competencies_json
+              aliases_json, competencies_json, localizations_json
        FROM occupations WHERE code = ?1`
     )
     .bind(code)
     .first<OccupationRow>();
-  return row ? toProfile(row) : null;
+  return row ? toProfile(row, locale) : null;
 }
 
 export async function searchOccupations(
   db: D1Database,
-  query: string
+  query: string,
+  locale: Locale = "en"
 ): Promise<OccupationProfile[]> {
   const normalized = query.trim();
   if (!normalized) {
     const rows = await db
       .prepare(
         `SELECT code, title, description, provider, version, source_uri,
-                aliases_json, competencies_json
+                aliases_json, competencies_json, localizations_json
          FROM occupations ORDER BY
            CASE WHEN code = '15-1255.00' THEN 0 ELSE 1 END, title LIMIT 6`
       )
       .all<OccupationRow>();
-    return rows.results.map(toProfile);
+    return rows.results.map((row) => toProfile(row, locale));
   }
 
   const tokens = normalized
@@ -110,14 +157,14 @@ export async function searchOccupations(
       (_, index) =>
         `(code LIKE ?${index + 1} OR title LIKE ?${index + 1} OR description LIKE ?${
           index + 1
-        } OR aliases_json LIKE ?${index + 1})`
+        } OR aliases_json LIKE ?${index + 1} OR localizations_json LIKE ?${index + 1})`
     )
     .join(" AND ");
   const exactCodeIndex = tokens.length + 1;
   const rows = await db
     .prepare(
       `SELECT code, title, description, provider, version, source_uri,
-              aliases_json, competencies_json
+              aliases_json, competencies_json, localizations_json
        FROM occupations
        WHERE ${where}
        ORDER BY CASE WHEN code = ?${exactCodeIndex} THEN 0 ELSE 1 END, title
@@ -125,5 +172,5 @@ export async function searchOccupations(
     )
     .bind(...tokens.map((token) => `%${token}%`), normalized)
     .all<OccupationRow>();
-  return rows.results.map(toProfile);
+  return rows.results.map((row) => toProfile(row, locale));
 }

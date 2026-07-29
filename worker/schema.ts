@@ -211,3 +211,38 @@ export const modelResultSchema = z.object({
 });
 
 export type ModelResult = z.infer<typeof modelResultSchema>;
+
+export const reportTranslationSchema = z.object({
+  title: z.string().min(1),
+  verdict: z.string().min(1),
+  framework: z.object({
+    name: z.string().min(1),
+    summary: z.string().min(1),
+    useWhen: z.string().min(1),
+    avoidWhen: z.string().min(1),
+    steps: z.array(
+      z.object({
+        title: z.string().min(1),
+        instruction: z.string().min(1)
+      })
+    )
+  }),
+  author: z.object({
+    background: z.string().min(1),
+    context: z.string().min(1)
+  }),
+  occupation: z.object({
+    title: z.string().min(1),
+    description: z.string().min(1),
+    aliases: z.array(z.string().min(1)),
+    competencyLabels: z.array(z.string().min(1))
+  }),
+  observations: z.array(z.string().min(1)),
+  claims: z.array(z.string().min(1)),
+  professionalDelta: z.array(z.string().min(1)),
+  adoption: z.array(z.string().min(1)),
+  caveats: z.array(z.string().min(1)),
+  degraded: z.array(z.string().min(1))
+});
+
+export type ReportTranslation = z.infer<typeof reportTranslationSchema>;

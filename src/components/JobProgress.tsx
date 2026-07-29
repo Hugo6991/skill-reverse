@@ -1,20 +1,9 @@
 import { ArrowLeft, Check, Clock3, ExternalLink, LoaderCircle, RotateCw } from "lucide-react";
 import { useCallback, useState } from "react";
+import { useLocale } from "../LocaleContext";
 import type { JobStage, JobStatus } from "../types";
 import { SourceCollection } from "./SourceCollection";
 import { Turnstile } from "./Turnstile";
-
-const stages: Array<{ id: JobStage; label: string }> = [
-  { id: "validate", label: "Validate" },
-  { id: "occupation_confirmation", label: "Role" },
-  { id: "capture", label: "Capture" },
-  { id: "source_collection", label: "Sources" },
-  { id: "research", label: "Research" },
-  { id: "source_verification", label: "Verify" },
-  { id: "professional_baseline", label: "Baseline" },
-  { id: "hypothesis_generation", label: "Frame" },
-  { id: "report", label: "Report" }
-];
 
 export function JobProgress({
   job,
@@ -31,6 +20,19 @@ export function JobProgress({
   onStartNew(): void;
   onBack(): void;
 }) {
+  const { copy } = useLocale();
+  const stages: Array<{ id: JobStage; label: string }> = [
+    { id: "validate", label: copy.job.validate },
+    { id: "occupation_confirmation", label: copy.job.occupation },
+    { id: "capture", label: copy.job.capture },
+    { id: "source_collection", label: copy.job.sources },
+    { id: "research", label: copy.job.research },
+    { id: "source_verification", label: copy.job.verify },
+    { id: "professional_baseline", label: copy.job.baseline },
+    { id: "hypothesis_generation", label: copy.job.frame },
+    { id: "translation", label: copy.job.translation },
+    { id: "report", label: copy.job.report }
+  ];
   const currentIndex = stages.findIndex((stage) => stage.id === job.stage);
   const automaticRetrying =
     job.status === "running" && (job.retry?.automaticCount ?? 0) > 0;
@@ -47,10 +49,10 @@ export function JobProgress({
         setRetryOpen(false);
       } catch (error) {
         setRetryBusy(false);
-        setRetryError(error instanceof Error ? error.message : "The retry could not be started");
+        setRetryError(error instanceof Error ? error.message : copy.job.retryFailed);
       }
     },
-    [onRetry]
+    [copy.job.retryFailed, onRetry]
   );
   const handleTurnstileError = useCallback((message: string) => {
     setRetryError(message);
@@ -59,20 +61,20 @@ export function JobProgress({
     <main className="page-frame job-page">
       <button className="back-button" type="button" onClick={onBack}>
         <ArrowLeft size={16} aria-hidden="true" />
-        Research history
+        {copy.job.back}
       </button>
       <section className="progress-card" aria-live="polite">
         <div className="progress-heading">
           <div>
-            <span className="eyebrow">Live research</span>
+            <span className="eyebrow">{copy.job.eyebrow}</span>
             <h1>
               {job.status === "queued"
-                ? "Research is queued"
+                ? copy.job.queuedTitle
                 : job.status === "failed"
-                  ? "Research stopped"
+                  ? copy.job.failedTitle
                   : automaticRetrying
-                    ? "Research is retrying"
-                    : "Evidence is being assembled"}
+                    ? copy.job.retryingTitle
+                    : copy.job.runningTitle}
             </h1>
             {job.targetUrl && (
               <a href={job.targetUrl} target="_blank" rel="noreferrer">
@@ -83,7 +85,7 @@ export function JobProgress({
           </div>
           <span className="progress-percent">
             {job.status === "queued" && job.queuePosition
-              ? `Queue #${job.queuePosition}`
+              ? `${copy.job.queue} #${job.queuePosition}`
               : `${job.progress}%`}
           </span>
         </div>
@@ -122,13 +124,13 @@ export function JobProgress({
             <div>
               <strong>
                 {job.queuePosition
-                  ? `Approximately number ${job.queuePosition} in the queue`
-                  : "Waiting for a research slot"}
+                  ? `${copy.job.approximateQueue} ${job.queuePosition}`
+                  : copy.job.waitingSlot}
               </strong>
-              <span>This job is saved · start another research while it waits</span>
+              <span>{copy.job.savedCanStartAnother}</span>
             </div>
             <button className="secondary-button" type="button" onClick={onStartNew}>
-              Start another
+              {copy.job.startAnother}
             </button>
           </div>
         )}
@@ -136,24 +138,24 @@ export function JobProgress({
           <div className="retrying-note" role="status">
             <RotateCw className="spin" size={18} aria-hidden="true" />
             <div>
-              <strong>Temporary provider error</strong>
+              <strong>{copy.job.temporaryError}</strong>
               <span>
-                Automatically retrying {job.retry?.automaticCount}/
-                {job.retry?.automaticMax ?? 1}; completed research steps are being reused.
+                {copy.job.automaticRetry} {job.retry?.automaticCount}/
+                {job.retry?.automaticMax ?? 1}{copy.job.reusedSteps}
               </span>
             </div>
           </div>
         )}
         {job.degraded.length > 0 && (
           <div className="degraded-note">
-            <strong>Some research lanes were unavailable</strong>
+            <strong>{copy.job.degraded}</strong>
             <span>{job.degraded[job.degraded.length - 1]}</span>
           </div>
         )}
         {job.error && (
           <div className="research-failure" role="alert">
             <div>
-              <strong>Research needs another attempt</strong>
+              <strong>{copy.job.needsAttempt}</strong>
               <span>{job.error.message}</span>
             </div>
             {job.retry?.allowed ? (
@@ -166,18 +168,18 @@ export function JobProgress({
                   setRetryOpen(true);
                 }}
               >
-                {retryBusy ? "Starting retry…" : "Try research again"}
+                {retryBusy ? copy.job.startingRetry : copy.job.retry}
               </button>
             ) : (
               <button className="secondary-button" type="button" onClick={onStartNew}>
-                Start a new research
+                {copy.job.startNew}
               </button>
             )}
           </div>
         )}
         {retryOpen && job.retry?.allowed && (
           <div className="retry-verification">
-            <span className="eyebrow">Confirm before retrying</span>
+            <span className="eyebrow">{copy.job.confirmRetry}</span>
             <Turnstile
               siteKey={turnstileSiteKey}
               action="retry_research_job"
@@ -191,13 +193,13 @@ export function JobProgress({
               disabled={retryBusy}
               onClick={() => setRetryOpen(false)}
             >
-              Cancel
+              {copy.common.cancel}
             </button>
           </div>
         )}
         {retryError && !retryOpen && (
           <div className="form-error" role="alert">
-            <strong>Retry unavailable</strong>
+            <strong>{copy.job.retryUnavailable}</strong>
             <span>{retryError}</span>
           </div>
         )}

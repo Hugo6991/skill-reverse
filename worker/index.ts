@@ -1,12 +1,24 @@
 import { Hono, type Context } from "hono";
 import { secureHeaders } from "hono/secure-headers";
-import type { GameProfile, JobStatus, SkillCardSummary } from "../src/types";
+import { isBilingualReportBundle, resolveReport } from "../src/bilingual";
+import type {
+  GameProfile,
+  JobStatus,
+  Locale,
+  ReportPayload,
+  ReverseReport,
+  SkillCardSummary
+} from "../src/types";
 import { authorizeAdmin } from "./access";
 import { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
-import { demoReport } from "./demo";
-import { historyPresentation } from "./history";
+import { demoReportBundle } from "./demo";
+import { historyOccupationTitle, historyPresentation } from "./history";
 import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
-import { getOccupation, searchOccupations } from "./occupations";
+import {
+  getOccupation,
+  localizedOccupationTitle,
+  searchOccupations
+} from "./occupations";
 import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
 import { isRetryableJobError } from "./provider-ledger";
 import { ReportUpgradeError, upgradeStoredReport } from "./report-compat";
@@ -30,6 +42,24 @@ import { ResearchWorkflow } from "./workflow";
 export { ActorGate, DailyBudget, ResearchScheduler, ResearchWorkflow };
 
 const app = new Hono<HonoEnv>();
+
+function requestedLocale(value: string | undefined): Locale | null {
+  if (value === undefined || value === "") return "zh-TW";
+  return value === "zh-TW" || value === "en" ? value : null;
+}
+
+function withViewerCanShare(payload: ReportPayload, viewerCanShare: boolean): ReportPayload {
+  if (!isBilingualReportBundle(payload)) return { ...payload, viewerCanShare };
+  return {
+    ...payload,
+    locales: Object.fromEntries(
+      Object.entries(payload.locales).map(([locale, report]) => [
+        locale,
+        report ? { ...report, viewerCanShare } : report
+      ])
+    ) as Partial<Record<Locale, ReverseReport>>
+  };
+}
 
 export function resolveAppMode(env: AppEnv): "locked" | "demo" | "public" {
   if (env.APP_MODE === "demo") return "demo";
@@ -271,13 +301,27 @@ app.onError((error, c) => {
 app.get("/api/config", (c) => c.json(publicConfig(c.env)));
 
 app.get("/api/occupations", async (c) => {
+  const locale = requestedLocale(c.req.query("lang"));
+  if (!locale) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
   const query = c.req.query("q") ?? "";
   try {
-    return c.json({ occupations: await searchOccupations(c.env.DB, query) });
+    return c.json({ occupations: await searchOccupations(c.env.DB, query, locale) });
   } catch (error) {
     console.warn(JSON.stringify({ event: "occupation_fallback", message: String(error) }));
-    const pilot = await Promise.resolve(getOccupation(c.env.DB, "15-1255.00")).catch(() => null);
-    return c.json({ occupations: pilot ? [pilot] : [demoReport.occupation], degraded: true });
+    const pilot = await Promise.resolve(getOccupation(c.env.DB, "15-1255.00", locale)).catch(
+      () => null
+    );
+    return c.json({
+      occupations: pilot
+        ? [pilot]
+        : [demoReportBundle.locales[locale]?.occupation ?? demoReportBundle.locales["zh-TW"]!.occupation],
+      degraded: true
+    });
   }
 });
 
@@ -408,7 +452,7 @@ app.get("/api/jobs/:id", async (c) => {
       stage: "report",
       progress: 100,
       reportId: "demo",
-      degraded: demoReport.degraded,
+      degraded: demoReportBundle.locales["zh-TW"]!.degraded,
       costUsd: 0
     } satisfies JobStatus);
   }
@@ -478,6 +522,13 @@ app.get("/api/jobs/:id", async (c) => {
 });
 
 app.get("/api/my-jobs", async (c) => {
+  const locale = requestedLocale(c.req.query("lang"));
+  if (!locale) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
   if (!c.env.ANON_SESSION_SECRET) {
     return c.json({ items: [] });
   }
@@ -488,6 +539,7 @@ app.get("/api/my-jobs", async (c) => {
 
   const rows = await c.env.DB.prepare(
     `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
+            o.localizations_json AS occupation_localizations_json,
             j.status, j.stage, j.progress, j.queued_at, j.started_at, j.finished_at,
             j.auto_retry_count, j.updated_at,
             CASE WHEN j.status = 'queued' THEN (
@@ -514,6 +566,7 @@ app.get("/api/my-jobs", async (c) => {
       target_url: string;
       occupation_code: string;
       occupation_title: string | null;
+      occupation_localizations_json: string | null;
       status: "queued" | "running" | "failed";
       stage: JobStatus["stage"];
       progress: number;
@@ -532,7 +585,11 @@ app.get("/api/my-jobs", async (c) => {
         jobId: row.id,
         targetUrl: row.target_url,
         occupationCode: row.occupation_code,
-        occupationTitle: row.occupation_title ?? row.occupation_code,
+        occupationTitle: localizedOccupationTitle(
+          row.occupation_title ?? row.occupation_code,
+          row.occupation_localizations_json ?? "{}",
+          locale
+        ),
         status: row.status,
         stage: row.stage,
         progress: row.progress,
@@ -960,6 +1017,13 @@ app.put("/api/jobs/:id/sources", async (c) => {
 });
 
 app.get("/api/history", async (c) => {
+  const locale = requestedLocale(c.req.query("lang"));
+  if (!locale) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
   const requestedLimit = Number(c.req.query("limit") ?? 20);
   const limit = Number.isFinite(requestedLimit)
     ? Math.max(1, Math.min(50, Math.floor(requestedLimit)))
@@ -1031,12 +1095,20 @@ app.get("/api/history", async (c) => {
   const page = rows.results.slice(0, limit);
   return c.json({
     items: page.map((item) => {
-      const presentation = historyPresentation(item.target_url, item.report_payload_json);
+      const presentation = historyPresentation(
+        item.target_url,
+        item.report_payload_json,
+        locale
+      );
       return {
         jobId: item.id,
         targetUrl: item.target_url,
         occupationCode: item.occupation_code,
-        occupationTitle: item.occupation_title ?? item.occupation_code,
+        occupationTitle: historyOccupationTitle(
+          item.report_payload_json,
+          locale,
+          item.occupation_title ?? item.occupation_code
+        ),
         ...presentation,
         status: "completed" as const,
         stage: "report" as const,
@@ -1307,7 +1379,13 @@ app.post("/api/setup/smoke", async (c) => {
 });
 
 app.get("/api/reports/:id", async (c) => {
-  if (c.req.param("id") === "demo") return c.json(demoReport);
+  if (c.req.query("lang") !== undefined && !requestedLocale(c.req.query("lang"))) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
+  if (c.req.param("id") === "demo") return c.json(demoReportBundle);
   const row = await c.env.DB.prepare(
     `SELECT r.payload_json, r.job_id
      FROM reports r
@@ -1319,9 +1397,22 @@ app.get("/api/reports/:id", async (c) => {
     .bind(c.req.param("id"))
     .first<{ payload_json: string; job_id: string }>();
   if (!row) return c.json({ error: { code: "not_found", message: "Report not found" } }, 404);
-  let report;
+  let report: ReportPayload;
   try {
-    report = upgradeStoredReport(JSON.parse(row.payload_json));
+    const stored = JSON.parse(row.payload_json) as unknown;
+    if (isBilingualReportBundle(stored)) {
+      report = {
+        ...stored,
+        locales: Object.fromEntries(
+          Object.entries(stored.locales).map(([locale, localized]) => [
+            locale,
+            localized ? upgradeStoredReport(localized) : localized
+          ])
+        ) as Partial<Record<Locale, ReverseReport>>
+      };
+    } else {
+      report = upgradeStoredReport(stored);
+    }
   } catch (error) {
     if (error instanceof ReportUpgradeError || error instanceof SyntaxError) {
       return c.json(
@@ -1336,7 +1427,12 @@ app.get("/api/reports/:id", async (c) => {
     }
     throw error;
   }
-  if (Array.isArray(report.sources)) {
+  const localizedReports: ReverseReport[] = isBilingualReportBundle(report)
+    ? Object.values(report.locales).filter(
+        (value): value is ReverseReport => Boolean(value)
+      )
+    : [report];
+  if (localizedReports.some((localized) => Array.isArray(localized.sources))) {
     const artifacts = await c.env.DB.prepare(
       `SELECT id, r2_key, metadata_json
        FROM source_artifacts
@@ -1362,23 +1458,25 @@ app.get("/api/reports/:id", async (c) => {
         ] as const;
       })
     );
-    report.sources = report.sources.map((source) => {
-      const artifact = archived.get(source.id);
-      return artifact
-        ? {
-            ...source,
-            archive: {
-              snapshotUrl: `/api/reports/${encodeURIComponent(c.req.param("id"))}/artifacts/${encodeURIComponent(source.id)}`,
-              screenshotUrl: artifact.screenshot
-                ? `/api/reports/${encodeURIComponent(c.req.param("id"))}/artifacts/${encodeURIComponent(source.id)}?view=screenshot`
-                : undefined
+    for (const localized of localizedReports) {
+      localized.sources = localized.sources.map((source) => {
+        const artifact = archived.get(source.id);
+        return artifact
+          ? {
+              ...source,
+              archive: {
+                snapshotUrl: `/api/reports/${encodeURIComponent(c.req.param("id"))}/artifacts/${encodeURIComponent(source.id)}`,
+                screenshotUrl: artifact.screenshot
+                  ? `/api/reports/${encodeURIComponent(c.req.param("id"))}/artifacts/${encodeURIComponent(source.id)}?view=screenshot`
+                  : undefined
+              }
             }
-          }
-        : source;
-    });
+          : source;
+      });
+    }
   }
   if (!c.env.ANON_SESSION_SECRET) {
-    return c.json({ ...report, viewerCanShare: false });
+    return c.json(withViewerCanShare(report, false));
   }
   const actor = await getOrCreateActor(c.req.raw, c.env);
   c.set("actorId", actor.actorId);
@@ -1395,7 +1493,7 @@ app.get("/api/reports/:id", async (c) => {
     .first<{ owned: number }>();
   return attachActorCookie(
     c,
-    c.json({ ...report, viewerCanShare: Boolean(ownedCard) })
+    c.json(withViewerCanShare(report, Boolean(ownedCard)))
   );
 });
 
@@ -1445,6 +1543,13 @@ app.get("/api/reports/:reportId/artifacts/:sourceId", async (c) => {
 });
 
 app.get("/api/admin/reports", async (c) => {
+  const locale = requestedLocale(c.req.query("lang"));
+  if (!locale) {
+    return c.json(
+      { error: { code: "invalid_locale", message: "Supported locales are zh-TW and en" } },
+      400
+    );
+  }
   const statusQuery = c.req.query("status");
   const status: PublicationStatus | null =
     statusQuery === "published" || statusQuery === "hidden" ? statusQuery : null;
@@ -1454,9 +1559,9 @@ app.get("/api/admin/reports", async (c) => {
     ? Math.max(1, Math.min(100, Math.floor(requestedLimit)))
     : 50;
   const rows = await c.env.DB.prepare(
-    `SELECT r.id AS report_id, r.title, j.id AS job_id, j.target_url,
+    `SELECT r.id AS report_id, r.title, r.payload_json, j.id AS job_id, j.target_url,
             j.publication_status, j.published_at, j.hidden_at, j.moderation_note,
-            o.title AS occupation_title
+            o.title AS occupation_title, o.localizations_json AS occupation_localizations_json
      FROM reports r
      JOIN jobs j ON j.id = r.job_id
      LEFT JOIN occupations o ON o.code = j.occupation_code
@@ -1474,6 +1579,7 @@ app.get("/api/admin/reports", async (c) => {
     .all<{
       report_id: string;
       title: string;
+      payload_json: string;
       job_id: string;
       target_url: string;
       publication_status: PublicationStatus;
@@ -1481,18 +1587,32 @@ app.get("/api/admin/reports", async (c) => {
       hidden_at: string | null;
       moderation_note: string | null;
       occupation_title: string | null;
+      occupation_localizations_json: string | null;
     }>();
   return c.json({
     items: rows.results.map((row) => ({
       reportId: row.report_id,
       jobId: row.job_id,
-      title: row.title,
+      title: (() => {
+        try {
+          const payload = JSON.parse(row.payload_json) as ReportPayload;
+          return resolveReport(payload, locale).title;
+        } catch {
+          return row.title;
+        }
+      })(),
       targetUrl: row.target_url,
       publicationStatus: row.publication_status,
       publishedAt: row.published_at,
       hiddenAt: row.hidden_at,
       moderationNote: row.moderation_note,
       occupationTitle: row.occupation_title
+        ? localizedOccupationTitle(
+            row.occupation_title,
+            row.occupation_localizations_json ?? "{}",
+            locale
+          )
+        : null
     }))
   });
 });

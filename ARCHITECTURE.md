@@ -45,9 +45,10 @@ Cloudflare 提供的是執行平台和託管服務；`worker/`、`migrations/`�
 4. job 先寫入 D1，`publication_status=unpublished`，再送入 Queue。
 5. Scheduler 按全站和單一 actor 的併發上限啟動 Workflow。
 6. Workflow 透過 Browser Run 抓來源，呼叫研究 provider，組成證據圖與報告。
-7. D1 以同一批次寫入來源索引、report，並把 job 切成 `completed + published`。
-8. 公開 History 只讀取 `completed + published`，不依賴 cookie。
-9. 同一 URL 再送一次會建立另一個 job/report，讓不同時間的結果並存。
+7. 後端以完整繁中定稿產生英文版，驗證兩者的 ID、證據關係、分數與結構完全一致。
+8. D1 以同一批次寫入來源索引、雙語 report bundle，並把 job 切成 `completed + published`；不發布單語半成品。
+9. 公開 History 只讀取 `completed + published`，不依賴 cookie。
+10. 同一 URL 再送一次會建立另一個 job/report，讓不同時間的結果並存。
 
 ## 排隊、重試與免費方案容量
 
@@ -128,7 +129,7 @@ pnpm release
 
 舊版 History 以 host-only `sr_actor` cookie 和 `actor_hash` 過濾，因此換網域會被當成新訪客。新版公開 archive 不再使用 cookie 過濾。先檢查：
 
-1. `/api/health` 的 database schema 是否為 7，並核對 `version.id` 是否為預期部署。
+1. `/api/health` 的 database schema 是否為 8，並核對 `version.id` 是否為預期部署。
 2. D1 completed jobs 是否有 `publication_status='published'`。
 3. `/api/history` 是否不帶 cookie 也能回傳相同 items。
 

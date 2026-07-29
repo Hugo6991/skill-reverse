@@ -9,12 +9,18 @@ import {
   Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useLocale } from "../LocaleContext";
 import type { AdminReportItem } from "../types";
 
 type AdminFilter = "all" | "published" | "hidden";
 
-async function loadReports(filter: AdminFilter, query: string): Promise<AdminReportItem[]> {
-  const search = new URLSearchParams({ limit: "100" });
+async function loadReports(
+  filter: AdminFilter,
+  query: string,
+  locale: "zh-TW" | "en",
+  errorMessage: string
+): Promise<AdminReportItem[]> {
+  const search = new URLSearchParams({ limit: "100", lang: locale });
   if (filter !== "all") search.set("status", filter);
   if (query.trim()) search.set("query", query.trim());
   const response = await fetch(`/api/admin/reports?${search}`);
@@ -22,11 +28,12 @@ async function loadReports(filter: AdminFilter, query: string): Promise<AdminRep
     items?: AdminReportItem[];
     error?: { message?: string };
   };
-  if (!response.ok) throw new Error(body.error?.message ?? "Reports could not be loaded");
+  if (!response.ok) throw new Error(body.error?.message ?? errorMessage);
   return body.items ?? [];
 }
 
 export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
+  const { copy, locale } = useLocale();
   const [items, setItems] = useState<AdminReportItem[]>([]);
   const [filter, setFilter] = useState<AdminFilter>("all");
   const [query, setQuery] = useState("");
@@ -40,13 +47,13 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
     setLoading(true);
     setError("");
     try {
-      setItems(await loadReports(filter, query));
+      setItems(await loadReports(filter, query, locale, copy.admin.loadFailed));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Reports could not be loaded");
+      setError(caught instanceof Error ? caught.message : copy.admin.loadFailed);
     } finally {
       setLoading(false);
     }
-  }, [filter, query]);
+  }, [copy.admin.loadFailed, filter, locale, query]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void refresh(), 180);
@@ -57,7 +64,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
     const action = item.publicationStatus === "published" ? "hide" : "restore";
     const reason =
       action === "hide"
-        ? window.prompt("Optional moderation note · visible only to the owner", "") ?? ""
+        ? window.prompt(copy.admin.moderationPrompt, "") ?? ""
         : "";
     setBusyId(item.reportId);
     setError("");
@@ -70,10 +77,10 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
       const body = (await response.json().catch(() => ({}))) as {
         error?: { message?: string };
       };
-      if (!response.ok) throw new Error(body.error?.message ?? "Visibility could not be changed");
+      if (!response.ok) throw new Error(body.error?.message ?? copy.admin.visibilityFailed);
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Visibility could not be changed");
+      setError(caught instanceof Error ? caught.message : copy.admin.visibilityFailed);
     } finally {
       setBusyId("");
     }
@@ -92,13 +99,13 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
         const body = (await response.json().catch(() => ({}))) as {
           error?: { message?: string };
         };
-        throw new Error(body.error?.message ?? "Report could not be deleted");
+        throw new Error(body.error?.message ?? copy.admin.deleteFailed);
       }
       setPendingDelete(undefined);
       setDeleteConfirmed(false);
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Report could not be deleted");
+      setError(caught instanceof Error ? caught.message : copy.admin.deleteFailed);
     } finally {
       setBusyId("");
     }
@@ -107,27 +114,27 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
   return (
     <main className="page-frame admin-page">
       <header className="page-heading admin-heading">
-        <span className="eyebrow">Owner controls</span>
-        <h1>Public archive moderation</h1>
-        <p>Hide questionable reports without destroying evidence or permanently remove the full record</p>
+        <span className="eyebrow">{copy.admin.eyebrow}</span>
+        <h1>{copy.admin.title}</h1>
+        <p>{copy.admin.description}</p>
         <span className="admin-access-note">
           <ShieldCheck size={15} aria-hidden="true" />
-          Protected by Cloudflare Access
+          {copy.admin.protected}
         </span>
       </header>
 
-      <section className="admin-toolbar" aria-label="Report filters">
+      <section className="admin-toolbar" aria-label={copy.admin.filters}>
         <label className="admin-search">
-          <span className="sr-only">Search reports</span>
+          <span className="sr-only">{copy.admin.search}</span>
           <Search size={17} aria-hidden="true" />
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title or URL"
+            placeholder={copy.admin.searchPlaceholder}
           />
         </label>
-        <div className="admin-filters" role="group" aria-label="Publication status">
+        <div className="admin-filters" role="group" aria-label={copy.admin.status}>
           {(["all", "published", "hidden"] as const).map((value) => (
             <button
               type="button"
@@ -136,7 +143,11 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
               className={filter === value ? "active" : undefined}
               onClick={() => setFilter(value)}
             >
-              {value}
+              {value === "all"
+                ? copy.common.all
+                : value === "published"
+                  ? copy.common.published
+                  : copy.common.hidden}
             </button>
           ))}
         </div>
@@ -144,7 +155,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
 
       {error && (
         <div className="inline-notice error-state" role="alert">
-          <strong>Owner action could not be completed</strong>
+          <strong>{copy.admin.actionFailed}</strong>
           <span>{error}</span>
         </div>
       )}
@@ -152,16 +163,16 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
       {loading ? (
         <div className="page-state" role="status">
           <LoaderCircle className="spin" size={21} aria-hidden="true" />
-          <span>Loading archive controls…</span>
+          <span>{copy.admin.loading}</span>
         </div>
       ) : items.length === 0 ? (
         <div className="page-state">
           <Eye size={21} aria-hidden="true" />
-          <strong>No reports match this view</strong>
-          <span>Change the filter or search phrase</span>
+          <strong>{copy.admin.empty}</strong>
+          <span>{copy.admin.emptyBody}</span>
         </div>
       ) : (
-        <section className="admin-report-list" aria-label="Reports">
+        <section className="admin-report-list" aria-label={copy.admin.reports}>
           {items.map((item) => {
             const busy = busyId === item.reportId;
             return (
@@ -169,14 +180,20 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                 <div className="admin-report-main">
                   <span
                     className={`admin-state admin-state-${item.publicationStatus}`}
-                    title={item.publicationStatus}
+                    title={
+                      item.publicationStatus === "published"
+                        ? copy.common.published
+                        : copy.common.hidden
+                    }
                   >
                     {item.publicationStatus === "published" ? (
                       <Eye size={15} aria-hidden="true" />
                     ) : (
                       <EyeOff size={15} aria-hidden="true" />
                     )}
-                    {item.publicationStatus}
+                    {item.publicationStatus === "published"
+                      ? copy.common.published
+                      : copy.common.hidden}
                   </span>
                   <h2>{item.title}</h2>
                   <a href={item.targetUrl} target="_blank" rel="noreferrer">
@@ -184,9 +201,9 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                     <ArrowUpRight size={14} aria-hidden="true" />
                   </a>
                   <p>
-                    {item.occupationTitle ?? "Unknown occupation"}
+                    {item.occupationTitle ?? copy.common.unknownOccupation}
                     {item.publishedAt
-                      ? ` · ${new Intl.DateTimeFormat("zh-TW", {
+                      ? ` · ${new Intl.DateTimeFormat(locale, {
                           dateStyle: "medium",
                           timeStyle: "short"
                         }).format(new Date(item.publishedAt))}`
@@ -208,7 +225,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                     ) : (
                       <RotateCcw size={16} aria-hidden="true" />
                     )}
-                    {item.publicationStatus === "published" ? "Hide report" : "Restore report"}
+                    {item.publicationStatus === "published" ? copy.admin.hide : copy.admin.restore}
                   </button>
                   <button
                     className="tertiary-button admin-delete-trigger"
@@ -220,14 +237,14 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                     }}
                   >
                     <Trash2 size={15} aria-hidden="true" />
-                    Delete permanently
+                    {copy.admin.deletePermanently}
                   </button>
                   <button
                     className="tertiary-button"
                     type="button"
                     onClick={() => onNavigate(`/reports/${encodeURIComponent(item.reportId)}`)}
                   >
-                    Open report
+                    {copy.admin.open}
                   </button>
                 </div>
               </article>
@@ -247,11 +264,8 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
             <span className="dialog-danger-icon">
               <Trash2 size={19} aria-hidden="true" />
             </span>
-            <h2 id="delete-report-title">Permanently delete this report?</h2>
-            <p>
-              This removes the report, job record, saved text snapshot and screenshot. It cannot be
-              restored from the application.
-            </p>
+            <h2 id="delete-report-title">{copy.admin.deleteTitle}</h2>
+            <p>{copy.admin.deleteBody}</p>
             <strong>{pendingDelete.title}</strong>
             <label className="delete-confirmation">
               <input
@@ -259,7 +273,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                 checked={deleteConfirmed}
                 onChange={(event) => setDeleteConfirmed(event.target.checked)}
               />
-              I understand that this action is permanent
+              {copy.admin.deleteConfirm}
             </label>
             <div className="dialog-actions">
               <button
@@ -271,7 +285,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                 {busyId === pendingDelete.reportId && (
                   <LoaderCircle className="spin" size={16} aria-hidden="true" />
                 )}
-                Delete report
+                {copy.admin.delete}
               </button>
               <button
                 className="secondary-button"
@@ -281,7 +295,7 @@ export function AdminPage({ onNavigate }: { onNavigate(path: string): void }) {
                   setDeleteConfirmed(false);
                 }}
               >
-                Cancel
+                {copy.common.cancel}
               </button>
             </div>
           </section>

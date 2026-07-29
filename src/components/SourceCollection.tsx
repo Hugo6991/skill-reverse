@@ -1,6 +1,6 @@
 import { ArrowRight, Link2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { uiCopy } from "../copy";
+import { useLocale } from "../LocaleContext";
 import type { JobStatus } from "../types";
 
 export function SourceCollection({
@@ -10,6 +10,7 @@ export function SourceCollection({
   job: JobStatus;
   onSubmit(urls: string[], finalize: boolean): Promise<void>;
 }) {
+  const { copy, locale } = useLocale();
   const [urls, setUrls] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -19,7 +20,7 @@ export function SourceCollection({
     if (collection?.submittedCount) {
       return (
         <div className="source-complete" role="status">
-          <span>{uiCopy.sources.saved}</span>
+          <span>{copy.sources.saved}</span>
           <strong>{collection.submittedCount}</strong>
         </div>
       );
@@ -33,7 +34,7 @@ export function SourceCollection({
     try {
       await onSubmit(values.filter(Boolean), true);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Sources could not be submitted");
+      setError(caught instanceof Error ? caught.message : copy.sources.submitFailed);
       setSaving(false);
     }
   }
@@ -42,18 +43,18 @@ export function SourceCollection({
     <section className="source-collection">
       <div className="source-collection-heading">
         <div>
-          <span className="eyebrow">{uiCopy.sources.eyebrow}</span>
-          <h2>{uiCopy.sources.title}</h2>
+          <span className="eyebrow">{copy.sources.eyebrow}</span>
+          <h2>{copy.sources.title}</h2>
           <p>
             {job.status === "queued"
-              ? uiCopy.sources.queuedDescription
-              : uiCopy.sources.description}
+              ? copy.sources.queuedDescription
+              : copy.sources.description}
           </p>
         </div>
         {collection.closesAt && (
           <time dateTime={collection.closesAt}>
-            Open until{" "}
-            {new Intl.DateTimeFormat("zh-TW", {
+            {copy.sources.openUntil}{" "}
+            {new Intl.DateTimeFormat(locale, {
               hour: "2-digit",
               minute: "2-digit",
               second: "2-digit"
@@ -71,7 +72,7 @@ export function SourceCollection({
                 <input
                   type="url"
                   inputMode="url"
-                  aria-label={`Supporting source ${index + 1}`}
+                  aria-label={`${copy.sources.supportingSource} ${index + 1}`}
                   value={url}
                   onChange={(event) =>
                     setUrls((current) =>
@@ -80,13 +81,13 @@ export function SourceCollection({
                       )
                     )
                   }
-                  placeholder={uiCopy.sources.placeholder}
+                  placeholder={copy.sources.placeholder}
                 />
               </div>
               <button
                 className="icon-button"
                 type="button"
-                aria-label={`Remove supporting source ${index + 1}`}
+                aria-label={`${copy.sources.removeSource} ${index + 1}`}
                 onClick={() =>
                   setUrls((current) => current.filter((_, itemIndex) => itemIndex !== index))
                 }
@@ -106,7 +107,7 @@ export function SourceCollection({
           onClick={() => setUrls((current) => [...current, ""])}
         >
           <Plus size={16} aria-hidden="true" />
-          {uiCopy.sources.add}
+          {copy.sources.add}
         </button>
         <span className="source-action-spacer" />
         <button
@@ -115,7 +116,7 @@ export function SourceCollection({
           disabled={saving}
           onClick={() => void finalize([])}
         >
-          {uiCopy.sources.skip}
+          {copy.sources.skip}
         </button>
         {urls.length > 0 && (
           <button
@@ -124,7 +125,7 @@ export function SourceCollection({
             disabled={saving}
             onClick={() => void finalize(urls)}
           >
-            {saving ? uiCopy.sources.saving : uiCopy.sources.finish}
+            {saving ? copy.sources.saving : copy.sources.finish}
             <ArrowRight size={17} aria-hidden="true" />
           </button>
         )}
@@ -132,7 +133,7 @@ export function SourceCollection({
 
       {error && (
         <div className="form-error" role="alert">
-          <strong>Sources need attention</strong>
+          <strong>{copy.sources.attention}</strong>
           <span>{error}</span>
         </div>
       )}

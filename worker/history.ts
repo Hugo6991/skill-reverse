@@ -1,3 +1,6 @@
+import { isBilingualReportBundle, resolveReport } from "../src/bilingual";
+import type { Locale, ReportPayload } from "../src/types";
+
 type JsonRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -79,7 +82,8 @@ function extractedSkills(payload: JsonRecord): string[] {
 
 export function historyPresentation(
   targetUrl: string,
-  reportPayloadJson?: string | null
+  reportPayloadJson?: string | null,
+  locale: Locale = "zh-TW"
 ): {
   displayName: string;
   sourceHost: string;
@@ -89,8 +93,9 @@ export function historyPresentation(
   let report: JsonRecord | undefined;
   if (reportPayloadJson) {
     try {
-      const parsed = JSON.parse(reportPayloadJson) as unknown;
-      if (isRecord(parsed)) report = parsed;
+      const parsed = JSON.parse(reportPayloadJson) as ReportPayload;
+      const localized = isBilingualReportBundle(parsed) ? resolveReport(parsed, locale) : parsed;
+      if (isRecord(localized)) report = localized;
     } catch {
       // A malformed or older report must not prevent history from loading
     }
@@ -104,4 +109,19 @@ export function historyPresentation(
     sourceHost,
     skillLabels: report ? extractedSkills(report) : []
   };
+}
+
+export function historyOccupationTitle(
+  reportPayloadJson: string | null | undefined,
+  locale: Locale,
+  fallback: string
+): string {
+  if (!reportPayloadJson) return fallback;
+  try {
+    const parsed = JSON.parse(reportPayloadJson) as ReportPayload;
+    const localized = isBilingualReportBundle(parsed) ? resolveReport(parsed, locale) : parsed;
+    return localized.occupation.title || fallback;
+  } catch {
+    return fallback;
+  }
 }

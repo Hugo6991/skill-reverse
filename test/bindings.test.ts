@@ -25,6 +25,25 @@ describe("Cloudflare bindings in workerd", () => {
     });
   });
 
+  it("localizes occupation search and rejects unsupported locales", async () => {
+    const localized = await SELF.fetch(
+      "https://example.com/api/occupations?q=%E8%A8%AD%E8%A8%88&lang=zh-TW"
+    );
+    expect(localized.status).toBe(200);
+    const localizedBody = (await localized.json()) as {
+      occupations: Array<{ code: string; title: string }>;
+    };
+    expect(localizedBody.occupations.find((item) => item.code === "15-1255.00")).toMatchObject({
+      title: "網頁與數位介面設計師"
+    });
+
+    const invalid = await SELF.fetch("https://example.com/api/occupations?lang=fr");
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({
+      error: { code: "invalid_locale" }
+    });
+  });
+
   it("enforces outstanding and daily job limits in ActorGate", async () => {
     const actor = bindings.ACTOR_GATE.getByName(`test-${crypto.randomUUID()}`);
     expect(await actor.reserve("job-1", "2026-07-28", 3, 2)).toEqual({ ok: true });

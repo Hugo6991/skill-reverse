@@ -1,5 +1,5 @@
 import { withoutTerminalFullStop } from "./text";
-import type { ReverseReport } from "./types";
+import type { Locale, ReverseReport } from "./types";
 
 type ChatTrialReport = Pick<ReverseReport, "framework" | "targetUrl">;
 
@@ -13,9 +13,18 @@ export interface AskAiLink {
 
 export function buildAskAiPrompt(
   report: ChatTrialReport,
-  userContext = ""
+  userContext = "",
+  locale: Locale = "zh-TW"
 ): string {
   const context = userContext.trim();
+  if (locale === "en") {
+    const target = context ? `my context: ${context}` : "the problem I need to solve now";
+    return `Use “${withoutTerminalFullStop(
+      report.framework.name
+    )}” from this case on ${target}. Read the available context and deliver an executable first version before asking questions. Case summary: ${withoutTerminalFullStop(
+      report.framework.summary
+    )}. Source: ${report.targetUrl}`;
+  }
   const target = context ? `我的情境：${context}` : "我目前要處理的問題";
 
   return `請參考這個案例，把「${withoutTerminalFullStop(
@@ -27,9 +36,10 @@ export function buildAskAiPrompt(
 
 export function buildAskAiLinks(
   report: ChatTrialReport,
-  userContext = ""
+  userContext = "",
+  locale: Locale = "zh-TW"
 ): AskAiLink[] {
-  const query = encodeURIComponent(buildAskAiPrompt(report, userContext));
+  const query = encodeURIComponent(buildAskAiPrompt(report, userContext, locale));
 
   return [
     {
@@ -55,10 +65,47 @@ export function buildAskAiLinks(
   ];
 }
 
-export function buildChatPrompt(report: ChatTrialReport): string {
+export function buildChatPrompt(report: ChatTrialReport, locale: Locale = "zh-TW"): string {
   const rules = report.framework.steps
     .map((step, index) => `${index + 1}. ${withoutTerminalFullStop(step.instruction)}`)
     .join("\n");
+
+  if (locale === "en") {
+    return `I want to use “${withoutTerminalFullStop(
+      report.framework.name
+    )}” on the most important real problem I currently need to solve. Do not begin by recommending a skill, plugin, or agent.
+
+Reconstruct the context yourself and complete the task directly. Do not first ask me to restate the background, confirm your understanding, or fill in a template.
+
+Before starting, privately inventory only the information you can actually access in this chat or project:
+- current and previous conversation
+- project instructions, saved memory, and preferences
+- attachments, links, project files, code, and prior outputs
+- prompts, skills, plugins, agents, and tool results already used or mentioned
+- prior decisions, attempts, feedback, failures, and corrections
+
+Use only content you can truly access. Never pretend to have seen unavailable data.
+
+Infer the most likely goal, audience, constraints, and success criteria. When information is missing, use explicit, low-risk assumptions instead of stopping for confirmation.
+
+Apply these rules:
+${rules}
+
+Execution rules:
+1. Do not ask for information already present in conversation history, memory, project files, attachments, or prior outputs.
+2. Deliver a complete, concrete, usable v1 in the first response; never substitute a question list, interview, context inventory, or blank framework.
+3. Mark each inference next to the affected content as “Assumption: <specific assumption>; correct me if wrong.” Never collect assumptions only at the end.
+4. A question is blocking only when its answer changes the direction and no low-risk assumption can resolve it.
+5. Do not ask confirmation-only questions, detail-only questions, or questions you can answer with a reasonable assumption.
+
+Reply in this exact order:
+1. Complete v1 result
+2. Key insights from the framework
+3. Smallest next action and packaging recommendation
+4. Blocking questions, only if needed, after the complete result, with at most three
+
+The first substantive section must be “Complete v1 result.” Do not stop at clarification because the information is imperfect.`;
+  }
 
   return `我想用「${withoutTerminalFullStop(
     report.framework.name

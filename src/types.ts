@@ -7,7 +7,11 @@ export type JobStage =
   | "source_verification"
   | "professional_baseline"
   | "hypothesis_generation"
+  | "translation"
   | "report";
+
+export const supportedLocales = ["zh-TW", "en"] as const;
+export type Locale = (typeof supportedLocales)[number];
 
 export type EvidenceStatus =
   | "verified"
@@ -250,6 +254,40 @@ export interface ReverseReport {
 export type StoredReverseReport = Omit<ReverseReport, "gameProfile"> & {
   gameProfile?: GameProfile | LegacyGameProfile;
 };
+
+export interface ReportBundleCore {
+  id: string;
+  targetUrl: string;
+  generatedAt: string;
+  sourceIds: string[];
+  frameworkStepIds: string[];
+  competencyIds: string[];
+  professionalDeltaIds: string[];
+  observationIds: string[];
+  claimIds: string[];
+  evidenceEdgeIds: string[];
+  adoptionIds: string[];
+  caveatIds: string[];
+  degradedIds: string[];
+}
+
+export interface ReportGenerationMetadata {
+  sourceLocale: "zh-TW";
+  synthesizedAt: string;
+  synthesisModel: string;
+  translationModel: string;
+  sourceContentHash: string;
+}
+
+export interface BilingualReportBundle {
+  schemaVersion: 2;
+  availableLocales: Locale[];
+  core: ReportBundleCore;
+  locales: Partial<Record<Locale, ReverseReport>>;
+  generation: ReportGenerationMetadata;
+}
+
+export type ReportPayload = ReverseReport | BilingualReportBundle;
 
 export interface JobStatus {
   id: string;

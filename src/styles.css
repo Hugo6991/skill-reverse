@@ -2386,6 +2386,44 @@ footer {
   gap: var(--space-1);
 }
 
+.locale-switcher {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  padding: var(--space-1);
+  background: var(--fill);
+  border-radius: var(--radius-md);
+}
+
+.locale-switcher button {
+  min-width: 44px;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.locale-switcher button:hover {
+  color: var(--text);
+}
+
+.locale-switcher button.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+
 .top-nav-link {
   position: relative;
   min-height: 40px;
@@ -3171,6 +3209,7 @@ footer {
   }
 
   .top-nav-inner {
+    position: relative;
     width: 100%;
     min-height: 60px;
     align-items: flex-start;
@@ -3181,6 +3220,12 @@ footer {
 
   .top-brand {
     min-height: 44px;
+  }
+
+  .locale-switcher {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-4);
   }
 
   .top-nav-links {
