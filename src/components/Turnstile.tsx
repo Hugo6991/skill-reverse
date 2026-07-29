@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { useLocale } from "../LocaleContext";
 
 declare global {
   interface Window {
@@ -23,7 +24,7 @@ declare global {
 
 let scriptPromise: Promise<void> | undefined;
 
-function loadTurnstile(): Promise<void> {
+function loadTurnstile(errorMessage: string): Promise<void> {
   if (window.turnstile) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
   scriptPromise = new Promise((resolve, reject) => {
@@ -32,7 +33,7 @@ function loadTurnstile(): Promise<void> {
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Turnstile could not be loaded"));
+    script.onerror = () => reject(new Error(errorMessage));
     document.head.appendChild(script);
   });
   return scriptPromise;
@@ -49,6 +50,7 @@ export function Turnstile({
   onToken(token: string): void;
   onError(message: string): void;
 }) {
+  const { copy } = useLocale();
   const reactId = useId();
   const elementId = `turnstile-${reactId.replaceAll(":", "")}`;
   const widgetId = useRef<string | undefined>(undefined);
@@ -56,7 +58,7 @@ export function Turnstile({
   useEffect(() => {
     if (!siteKey) return;
     let active = true;
-    loadTurnstile()
+    loadTurnstile(copy.turnstile.loadFailed)
       .then(() => {
         if (!active || !window.turnstile) return;
         widgetId.current = window.turnstile.render(`#${elementId}`, {
@@ -66,15 +68,15 @@ export function Turnstile({
           size: "flexible",
           callback: onToken,
           "expired-callback": () => onToken(""),
-          "error-callback": () => onError("Human verification could not load")
+          "error-callback": () => onError(copy.turnstile.verificationFailed)
         });
       })
-      .catch((error) => onError(error instanceof Error ? error.message : "Turnstile failed"));
+      .catch((error) => onError(error instanceof Error ? error.message : copy.turnstile.failed));
     return () => {
       active = false;
       if (widgetId.current && window.turnstile) window.turnstile.remove(widgetId.current);
     };
-  }, [action, elementId, onError, onToken, siteKey]);
+  }, [action, copy.turnstile, elementId, onError, onToken, siteKey]);
 
-  return <div className="turnstile-shell" id={elementId} aria-label="Human verification" />;
+  return <div className="turnstile-shell" id={elementId} aria-label={copy.turnstile.aria} />;
 }

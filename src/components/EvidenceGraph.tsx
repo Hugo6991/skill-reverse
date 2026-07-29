@@ -1,5 +1,6 @@
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import { useMemo } from "react";
+import { useLocale } from "../LocaleContext";
 import { withoutTerminalFullStop } from "../text";
 import type { ReverseReport } from "../types";
 
@@ -10,6 +11,13 @@ function nodeType(id: string) {
 }
 
 export function EvidenceGraph({ report }: { report: ReverseReport }) {
+  const { copy } = useLocale();
+  const relationLabels = {
+    supports: copy.report.supports,
+    contradicts: copy.report.contradicts,
+    derived_from: copy.report.derivedFrom,
+    baseline_for: copy.report.baselineFor
+  };
   const { nodes, edges } = useMemo(() => {
     const labels = new Map<string, string>();
     report.sources.forEach((item) => labels.set(item.id, item.title));
@@ -37,17 +45,17 @@ export function EvidenceGraph({ report }: { report: ReverseReport }) {
       id: edge.id,
       source: edge.source,
       target: edge.target,
-      label: edge.relation.replaceAll("_", " "),
+      label: relationLabels[edge.relation],
       type: "smoothstep",
       animated: edge.relation === "contradicts",
       markerEnd: { type: MarkerType.ArrowClosed },
       style: { stroke: edge.relation === "contradicts" ? "#c94c34" : "#62756e" }
     }));
     return { nodes, edges };
-  }, [report]);
+  }, [copy.report, report]);
 
   return (
-    <div className="evidence-graph" aria-label="Evidence relationship graph">
+    <div className="evidence-graph" aria-label={copy.report.graphAria}>
       <ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.45} maxZoom={1.4}>
         <Background color="#b9b9af" gap={22} size={1} />
         <Controls showInteractive={false} />

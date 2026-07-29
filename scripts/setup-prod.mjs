@@ -124,6 +124,10 @@ const hasPerplexityKey = remoteSecrets.has("PERPLEXITY_API_KEY");
 const hasOpenRouterKey = remoteSecrets.has("OPENROUTER_API_KEY");
 const hasTwitterKey = remoteSecrets.has("TWITTERAPI_KEY");
 const hasAnonSessionSecret = remoteSecrets.has("ANON_SESSION_SECRET");
+const hasAccessConfig =
+  remoteSecrets.has("CF_ACCESS_TEAM_DOMAIN") &&
+  remoteSecrets.has("CF_ACCESS_AUD") &&
+  remoteSecrets.has("CF_ACCESS_ALLOWED_EMAIL");
 const hasTurnstileKeys =
   remoteSecrets.has("TURNSTILE_SITE_KEY") && remoteSecrets.has("TURNSTILE_SECRET_KEY");
 if (hasPerplexityKey || hasOpenRouterKey || hasTwitterKey || hasTurnstileKeys) {
@@ -132,7 +136,8 @@ if (hasPerplexityKey || hasOpenRouterKey || hasTwitterKey || hasTurnstileKeys) {
       hasPerplexityKey && "Perplexity",
       hasOpenRouterKey && "OpenRouter",
       hasTwitterKey && "TwitterAPI.io",
-      hasTurnstileKeys && "Turnstile"
+      hasTurnstileKeys && "Turnstile",
+      hasAccessConfig && "Cloudflare Access"
     ]
       .filter(Boolean)
       .join(", ")}`
@@ -146,6 +151,25 @@ if (deployment.protocol !== "https:") {
   rl.close();
   process.exit(1);
 }
+
+const accessTeamDomain = await ask(
+  hasAccessConfig
+    ? "Cloudflare Access team domain (leave blank to keep existing)"
+    : "Cloudflare Access team domain (for example your-team.cloudflareaccess.com)",
+  { optional: hasAccessConfig }
+);
+const accessAud = await ask(
+  hasAccessConfig
+    ? "Cloudflare Access application AUD (leave blank to keep existing)"
+    : "Cloudflare Access application AUD",
+  { optional: hasAccessConfig }
+);
+const accessAllowedEmail = await askSecret(
+  hasAccessConfig
+    ? "Cloudflare Access owner email (leave blank to keep existing)"
+    : "Cloudflare Access owner email",
+  { optional: hasAccessConfig }
+);
 
 const perplexityKey = await askSecret(
   hasPerplexityKey ? "Perplexity API key (leave blank to keep existing)" : "Perplexity API key",
@@ -203,8 +227,19 @@ if (!hasAnonSessionSecret) {
 if (perplexityKey) secrets.PERPLEXITY_API_KEY = perplexityKey;
 if (openRouterKey) secrets.OPENROUTER_API_KEY = openRouterKey;
 if (twitterKey) secrets.TWITTERAPI_KEY = twitterKey;
+if (accessTeamDomain) secrets.CF_ACCESS_TEAM_DOMAIN = accessTeamDomain;
+if (accessAud) secrets.CF_ACCESS_AUD = accessAud;
+if (accessAllowedEmail) secrets.CF_ACCESS_ALLOWED_EMAIL = accessAllowedEmail.trim().toLowerCase();
 
 run(["d1", "migrations", "apply", "DB", "--remote"]);
+const backfill = spawnSync("node", ["scripts/backfill-target-keys.mjs"], {
+  stdio: "inherit",
+  shell: process.platform === "win32"
+});
+if (backfill.status !== 0) {
+  rl.close();
+  process.exit(backfill.status ?? 1);
+}
 run(["deploy"]);
 for (const [name, value] of Object.entries(secrets)) {
   await runWithRetries(["secret", "put", name], { input: `${value}\n` });
@@ -307,8 +342,20 @@ const verifiedClaimsAreSupported = (smokeReport.claims ?? [])
       claim.evidenceIds.length > 0 &&
       claim.evidenceIds.every((sourceId) => sourceIds.has(sourceId))
   );
-if (!smokeReportResponse.ok || !citationsAreValid || !verifiedClaimsAreSupported) {
-  console.error("✕ Smoke report failed citation or verified-claim validation");
+const gameProfileIsValid =
+  smokeReport.gameProfile?.rubricVersion === "game-profile-v2" &&
+  typeof smokeReport.gameProfile?.identity?.title === "string" &&
+  smokeReport.gameProfile.identity.title.length >= 4 &&
+  Array.isArray(smokeReport.gameProfile?.axes) &&
+  smokeReport.gameProfile.axes.length === 6 &&
+  new Set(smokeReport.gameProfile.axes.map((axis) => axis.id)).size === 6;
+if (
+  !smokeReportResponse.ok ||
+  !citationsAreValid ||
+  !verifiedClaimsAreSupported ||
+  !gameProfileIsValid
+) {
+  console.error("✕ Smoke report failed citation claim or game-profile validation");
   console.error("Production remains locked");
   rl.close();
   process.exit(1);

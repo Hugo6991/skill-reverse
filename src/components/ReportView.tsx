@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  Archive,
   BookOpen,
   Check,
   CheckCircle2,
@@ -9,73 +10,38 @@ import {
   ExternalLink,
   Fingerprint,
   Lightbulb,
+  Image,
   MessageSquareText,
   Network,
   ShieldCheck,
   TriangleAlert
 } from "lucide-react";
-import { useState } from "react";
-import { withoutTerminalFullStop } from "../text";
+import { toPng } from "html-to-image";
+import { useRef, useState, type ComponentType } from "react";
+import { BsOpenai } from "react-icons/bs";
+import { SiAnthropic, SiGooglegemini, SiPerplexity } from "react-icons/si";
+import {
+  buildAskAiLinks,
+  buildChatPrompt,
+  type AskAiProviderId
+} from "../chatPrompt";
+import { useLocale } from "../LocaleContext";
+import { formatCopy } from "../locales";
+import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
+import { GameProfileHero } from "./GameProfileHero";
+import { SharePoster } from "./SharePoster";
 
-const confidenceLabels: Record<EvidenceStatus, string> = {
-  verified: "Verified",
-  supported_inference: "Supported inference",
-  plausible: "Plausible",
-  unknown_contradicted: "Unknown / contradicted"
-};
-
-const deltaLabels: Record<DeltaManifestation, string> = {
-  evidenced: "Visible in result",
-  author_specific_extension: "Author-specific extension",
-  missing_but_expected: "Missing but expected",
-  not_observable: "Not observable",
-  contradicted: "Contradicted"
-};
-
-const failureGuides: Record<
-  ReverseReport["framework"]["steps"][number]["failureType"],
-  { label: string; question: string }
+const askAiIcons: Record<
+  AskAiProviderId,
+  ComponentType<{ size?: number; "aria-hidden"?: boolean }>
 > = {
-  discipline: {
-    label: "容易跳過",
-    question: "哪個步驟一忙、一趕或交給 AI 後，最容易被省略？"
-  },
-  shape: {
-    label: "輸出走樣",
-    question: "如果結果看似完成卻不好用，理想輸出應該長什麼樣？"
-  },
-  omission: {
-    label: "關鍵遺漏",
-    question: "少了哪個必要資訊，整個判斷就不再可靠？"
-  },
-  conditional: {
-    label: "條件改變",
-    question: "什麼條件一變，做法也必須跟著改？"
-  }
+  claude: SiAnthropic,
+  chatgpt: BsOpenai,
+  gemini: SiGooglegemini,
+  perplexity: SiPerplexity
 };
-
-function buildChatPrompt(report: ReverseReport): string {
-  const rules = report.framework.steps
-    .map((step, index) => `${index + 1}. ${withoutTerminalFullStop(step.instruction)}`)
-    .join("\n");
-
-  return `我正在處理一個問題，想先用純文字試跑「${withoutTerminalFullStop(
-    report.framework.name
-  )}」，不要先推薦我安裝 skill、plugin 或 agent
-
-我的問題／情境：
-[請填在這裡]
-
-請依照以下規則帶我思考：
-${rules}
-
-最後請分成三段回答：
-1. 這個框架替我看見了什麼
-2. 哪些部分仍需要我的情境判斷
-3. 是否值得把它做成可重複使用的 prompt 或 skill；若只用一次，請明確建議不要封裝`;
-}
 
 export function ReportView({
   report,
@@ -84,9 +50,57 @@ export function ReportView({
   report: ReverseReport;
   onBack(): void;
 }) {
+  const { copy, locale } = useLocale();
+  const confidenceLabels: Record<EvidenceStatus, string> = {
+    verified: copy.report.verified,
+    supported_inference: copy.report.supportedInference,
+    plausible: copy.report.plausible,
+    unknown_contradicted: copy.report.unknownContradicted
+  };
+  const deltaLabels: Record<DeltaManifestation, string> = {
+    evidenced: copy.report.visible,
+    author_specific_extension: copy.report.authorExtension,
+    missing_but_expected: copy.report.missingExpected,
+    not_observable: copy.report.notObservable,
+    contradicted: copy.report.contradicted
+  };
+  const competencyKindLabels = {
+    task: copy.report.task,
+    knowledge: copy.report.knowledge,
+    skill: copy.report.skill,
+    technology: copy.report.technology
+  };
+  const sourceStatusLabels = {
+    verified_at_retrieval: copy.report.verifiedAtRetrieval,
+    inherited: copy.report.inherited,
+    unverified: copy.report.unverified
+  };
+  const failureGuides: Record<
+    ReverseReport["framework"]["steps"][number]["failureType"],
+    { label: string; question: string }
+  > = {
+    discipline: {
+      label: copy.report.disciplineLabel,
+      question: copy.report.disciplineQuestion
+    },
+    shape: { label: copy.report.shapeLabel, question: copy.report.shapeQuestion },
+    omission: {
+      label: copy.report.omissionLabel,
+      question: copy.report.omissionQuestion
+    },
+    conditional: {
+      label: copy.report.conditionalLabel,
+      question: copy.report.conditionalQuestion
+    }
+  };
   const [tab, setTab] = useState<"framework" | "baseline" | "evidence">("framework");
   const [copied, setCopied] = useState(false);
-  const chatPrompt = buildChatPrompt(report);
+  const [trialContext, setTrialContext] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareNote, setShareNote] = useState("");
+  const posterRef = useRef<HTMLElement>(null);
+  const chatPrompt = buildChatPrompt(report, locale);
+  const askAiLinks = buildAskAiLinks(report, trialContext, locale);
 
   async function copyChatPrompt() {
     await navigator.clipboard.writeText(chatPrompt);
@@ -94,37 +108,99 @@ export function ReportView({
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  async function downloadPoster() {
+    if (!posterRef.current) return;
+    await document.fonts.ready;
+    const dataUrl = await toPng(posterRef.current, {
+      width: 1080,
+      height: 1350,
+      canvasWidth: 1080,
+      canvasHeight: 1350,
+      pixelRatio: 1,
+      backgroundColor: "#f7f5ff",
+      cacheBust: true
+    });
+    const link = document.createElement("a");
+    link.download = `${report.id === "demo" ? "skill-destiny-demo" : report.id}.png`;
+    link.href = dataUrl;
+    link.click();
+    setShareNote(copy.game.downloaded);
+  }
+
+  async function shareProfile() {
+    setShareBusy(true);
+    setShareNote("");
+    try {
+      const response = await fetch(`/api/cards/${encodeURIComponent(report.id)}/share`, {
+        method: "POST"
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        shareUrl?: string;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.shareUrl) {
+        throw new Error(body.error?.message ?? copy.game.shareOpenFailed);
+      }
+      const highlight = report.gameProfile.axes.find(
+        (axis) => axis.id === report.gameProfile.highlightAxisId
+      );
+      const text = formatCopy(copy.game.shareText, {
+        title: report.gameProfile.identity.title,
+        summary: report.gameProfile.identity.oneLiner,
+        axis: copy.game.axes[report.gameProfile.highlightAxisId].label,
+        value: highlight?.value ?? copy.game.unknown
+      });
+      if (navigator.share) {
+        await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
+        setShareNote(copy.game.shared);
+      } else {
+        await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
+        setShareNote(copy.game.copied);
+      }
+    } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      setShareNote(caught instanceof Error ? caught.message : copy.game.shareFailed);
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
   return (
     <main className="report-page">
       <button className="back-button" type="button" onClick={onBack}>
         <ArrowLeft size={16} aria-hidden="true" />
-        New docket
+        {copy.report.back}
       </button>
 
-      <header className="report-hero">
-        <div className="report-kicker">
-          <span>Decision brief · 先理解，再決定要不要採用</span>
-          <span>{new Date(report.generatedAt).toLocaleDateString("zh-TW")}</span>
+      <GameProfileHero
+        report={report}
+        onDownload={() => void downloadPoster()}
+        onShare={report.viewerCanShare ? () => void shareProfile() : undefined}
+        shareBusy={shareBusy}
+      />
+      {shareNote && (
+        <div className="share-note" role="status">
+          {shareNote}
         </div>
-        <h1>{withoutTerminalFullStop(report.title)}</h1>
-        <div className="decision-verdict">
-          <span className="decision-label">目前建議</span>
-          <p>{withoutTerminalFullStop(report.verdict)}</p>
-        </div>
-        <div className="decision-path" aria-label="Recommended adoption path">
-          <span className="active">讀懂思維</span>
+      )}
+
+      <section className="report-verdict-strip" aria-label={copy.report.currentRecommendation}>
+        <span>{copy.report.currentRecommendation}</span>
+        <p>{withoutTerminalFullStop(report.verdict)}</p>
+        <div className="decision-path" aria-label={copy.report.pathAria}>
+          <strong>{copy.report.pathRead}</strong>
           <i aria-hidden="true" />
-          <span>丟進 Chat 試一次</span>
+          <strong>{copy.report.pathTry}</strong>
           <i aria-hidden="true" />
-          <span>反覆需要時才封裝</span>
+          <strong>{copy.report.pathPackage}</strong>
         </div>
-      </header>
+      </section>
 
       {report.degraded.length > 0 && (
         <div className="report-degraded">
           <TriangleAlert size={20} aria-hidden="true" />
           <div>
-            <strong>Some evidence lanes were unavailable</strong>
+            <strong>{copy.report.degradedTitle}</strong>
             <span>
               {report.degraded.map(withoutTerminalFullStop).join(" · ")}
             </span>
@@ -132,43 +208,43 @@ export function ReportView({
         </div>
       )}
 
-      <nav className="report-tabs" aria-label="Report sections">
+      <nav className="report-tabs" aria-label={copy.report.tabsAria}>
         <button className={tab === "framework" ? "active" : ""} onClick={() => setTab("framework")}>
           <Fingerprint size={17} aria-hidden="true" />
-          思考與試用
+          {copy.report.frameworkTab}
         </button>
         <button className={tab === "baseline" ? "active" : ""} onClick={() => setTab("baseline")}>
           <BookOpen size={17} aria-hidden="true" />
-          應用場景
+          {copy.report.baselineTab}
         </button>
         <button className={tab === "evidence" ? "active" : ""} onClick={() => setTab("evidence")}>
           <Network size={17} aria-hidden="true" />
-          證據與來源
+          {copy.report.evidenceTab}
         </button>
       </nav>
 
       {tab === "framework" && (
         <div className="report-grid">
           <section className="framework-panel">
-            <span className="eyebrow">你真正要帶走的東西</span>
+            <span className="eyebrow">{copy.report.takeaway}</span>
             <h2>{withoutTerminalFullStop(report.framework.name)}</h2>
             <p className="framework-summary">
               {withoutTerminalFullStop(report.framework.summary)}
             </p>
             <div className="when-grid">
               <div>
-                <span>這時值得用</span>
+                <span>{copy.report.useWhen}</span>
                 <p>{withoutTerminalFullStop(report.framework.useWhen)}</p>
               </div>
               <div>
-                <span>這時先別用</span>
+                <span>{copy.report.avoidWhen}</span>
                 <p>{withoutTerminalFullStop(report.framework.avoidWhen)}</p>
               </div>
             </div>
             <div className="framework-section-heading">
               <div>
-                <span className="eyebrow">白話初篩</span>
-                <h3>先問這些問題，不必先安裝任何東西</h3>
+                <span className="eyebrow">{copy.report.plainScreen}</span>
+                <h3>{copy.report.questionsTitle}</h3>
               </div>
               <Compass size={20} aria-hidden="true" />
             </div>
@@ -193,19 +269,48 @@ export function ReportView({
             <section className="chat-trial" aria-labelledby="chat-trial-title">
               <div className="section-title-row">
                 <div>
-                  <span className="eyebrow">任何 AI 都能先試</span>
-                  <h3 id="chat-trial-title">先用一段文字驗證它是否真的幫到你</h3>
+                  <span className="eyebrow">{copy.report.chatEyebrow}</span>
+                  <h3 id="chat-trial-title">{copy.report.chatTitle}</h3>
                 </div>
                 <MessageSquareText size={20} aria-hidden="true" />
               </div>
-              <p>
-                這段提示不依賴本地 agent；你可以貼進 ChatGPT、Claude、Gemini、Grok，
-                先跑一次真實問題，再決定是否值得變成長期系統
-              </p>
+              <p>{copy.report.chatDescription}</p>
+              <label className="chat-context-field">
+                <span>
+                  {copy.report.yourContext}
+                  <small>{copy.report.optional}</small>
+                </span>
+                <textarea
+                  value={trialContext}
+                  onChange={(event) => setTrialContext(event.target.value)}
+                  placeholder={copy.report.contextPlaceholder}
+                  maxLength={600}
+                  rows={3}
+                />
+              </label>
+              <div className="ask-ai-group">
+                <span>{copy.report.askWithCase}</span>
+                <div className="ask-ai-links">
+                  {askAiLinks.map((link) => {
+                    const Icon = askAiIcons[link.id];
+                    return (
+                      <a
+                        key={link.id}
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Icon size={17} aria-hidden={true} />
+                        {link.label}
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
               <pre>{chatPrompt}</pre>
               <button className="secondary-button copy-prompt-button" type="button" onClick={copyChatPrompt}>
                 {copied ? <Check size={16} aria-hidden="true" /> : <Clipboard size={16} aria-hidden="true" />}
-                {copied ? "已複製" : "複製試跑文字"}
+                {copied ? copy.report.copied : copy.report.copyPrompt}
               </button>
             </section>
           </section>
@@ -214,19 +319,19 @@ export function ReportView({
             <section className="adoption-card">
               <div className="section-title-row">
                 <div>
-                  <span className="eyebrow">從收藏改成判斷</span>
-                  <h2>什麼時候才需要封裝？</h2>
+                  <span className="eyebrow">{copy.report.packagingEyebrow}</span>
+                  <h2>{copy.report.packagingTitle}</h2>
                 </div>
                 <Lightbulb size={19} aria-hidden="true" />
               </div>
               <ol>
-                <li><strong>只用一次</strong><span>留成一段 prompt 或筆記就夠</span></li>
-                <li><strong>反覆用到</strong><span>再整理成可重複的 Chat 指令</span></li>
-                <li><strong>步驟常被漏掉</strong><span>這時才值得做成 skill 或 agent</span></li>
+                <li><strong>{copy.report.once}</strong><span>{copy.report.onceDetail}</span></li>
+                <li><strong>{copy.report.repeated}</strong><span>{copy.report.repeatedDetail}</span></li>
+                <li><strong>{copy.report.omitted}</strong><span>{copy.report.omittedDetail}</span></li>
               </ol>
               {report.adoption.length > 0 && (
                 <div className="transfer-list">
-                  <span>本案例可直接帶走</span>
+                  <span>{copy.report.transfer}</span>
                   <ul>
                     {report.adoption.slice(0, 4).map((item) => (
                       <li key={item}>{withoutTerminalFullStop(item)}</li>
@@ -236,18 +341,27 @@ export function ReportView({
               )}
             </section>
             <section className="author-card">
-              <span className="eyebrow">創作者脈絡 · 不是權威背書</span>
+              <span className="eyebrow">{copy.report.authorEyebrow}</span>
+              <span className="author-kind">
+                {report.author.kind === "person"
+                  ? copy.report.creatorPerson
+                  : report.author.kind === "organization"
+                    ? copy.report.creatorOrganization
+                    : report.author.kind === "team"
+                      ? copy.report.creatorTeam
+                      : copy.report.creatorUnknown}
+              </span>
               <h2>{withoutTerminalFullStop(report.author.name)}</h2>
               {report.author.handle && <span className="author-handle">@{report.author.handle}</span>}
               <p>{withoutTerminalFullStop(report.author.background)}</p>
-              <strong className="context-heading">這套方法為什麼會形成</strong>
+              <strong className="context-heading">{copy.report.contextHeading}</strong>
               <div className="context-note">
                 {withoutTerminalFullStop(report.author.context)}
               </div>
             </section>
             <section className="claims-card">
               <div className="section-title-row">
-                <h2>目前哪些判斷站得住腳</h2>
+                <h2>{copy.report.claimsTitle}</h2>
                 <ShieldCheck size={19} aria-hidden="true" />
               </div>
               <div className="claim-list">
@@ -268,14 +382,12 @@ export function ReportView({
               </div>
             </section>
             <section className="source-context-card">
-              <span className="eyebrow">案例來源 · 不是主角</span>
+              <span className="eyebrow">{copy.report.sourceContext}</span>
               <a href={report.targetUrl} target="_blank" rel="noreferrer">
                 <span>{new URL(report.targetUrl).hostname}</span>
                 <ExternalLink size={15} aria-hidden="true" />
               </a>
-              <p>
-                這個來源只用來追溯本次判斷；你不需要先認識創作者，也不需要下載內容，才能使用上面的框架
-              </p>
+              <p>{copy.report.sourceContextBody}</p>
             </section>
           </aside>
         </div>
@@ -284,29 +396,31 @@ export function ReportView({
       {tab === "baseline" && (
         <div className="baseline-layout">
           <section className="occupation-profile">
-            <span className="eyebrow">Selected baseline</span>
+            <span className="eyebrow">{copy.report.selectedBaseline}</span>
             <h2>{report.occupation.title}</h2>
             <p>{withoutTerminalFullStop(report.occupation.description)}</p>
             <div className="occupation-source">
               <span>{report.occupation.code}</span>
               <span>O*NET {report.occupation.version}</span>
               <a href={report.occupation.sourceUri} target="_blank" rel="noreferrer">
-                Source <ExternalLink size={14} aria-hidden="true" />
+                {copy.common.source} <ExternalLink size={14} aria-hidden="true" />
               </a>
             </div>
           </section>
-          <section className="delta-table" aria-label="Professional competency comparison">
+          <section className="delta-table" aria-label={copy.report.interpretation}>
             <div className="delta-heading">
-              <span>Competency</span>
-              <span>Result</span>
-              <span>Evidence-aware interpretation</span>
+              <span>{copy.report.competency}</span>
+              <span>{copy.report.result}</span>
+              <span>{copy.report.interpretation}</span>
             </div>
             {report.professionalDelta.map((delta) => (
               <article key={delta.competency.label}>
                 <div>
-                  <span className="competency-kind">{delta.competency.kind}</span>
+                  <span className="competency-kind">
+                    {competencyKindLabels[delta.competency.kind]}
+                  </span>
                   <strong>{withoutTerminalFullStop(delta.competency.label)}</strong>
-                  <small>Importance {delta.competency.importance}</small>
+                  <small>{copy.report.importance} {delta.competency.importance}</small>
                 </div>
                 <span className={`delta-state delta-${delta.manifestation}`}>
                   {deltaLabels[delta.manifestation]}
@@ -316,8 +430,8 @@ export function ReportView({
             ))}
           </section>
           <div className="baseline-caution">
-            <strong>Absence of evidence is not evidence of absence</strong>
-            <span>這張表描述成果能證明什麼，不用來評斷作者具不具備某項能力</span>
+            <strong>{copy.report.absenceTitle}</strong>
+            <span>{copy.report.absenceBody}</span>
           </div>
         </div>
       )}
@@ -327,32 +441,53 @@ export function ReportView({
           <section className="graph-panel">
             <div className="section-title-row">
               <div>
-                <span className="eyebrow">Traceable reasoning</span>
-                <h2>Source → observation → claim</h2>
+                <span className="eyebrow">{copy.report.traceable}</span>
+                <h2>{copy.report.sourceObservationClaim}</h2>
               </div>
               <div className="graph-legend">
-                <span><i className="legend-source" /> Source</span>
-                <span><i className="legend-observation" /> Observation</span>
-                <span><i className="legend-claim" /> Claim</span>
+                <span><i className="legend-source" /> {copy.common.source}</span>
+                <span><i className="legend-observation" /> {copy.report.sourceObservationClaim.split(" → ")[1]}</span>
+                <span><i className="legend-claim" /> {copy.report.sourceObservationClaim.split(" → ")[2]}</span>
               </div>
             </div>
             <EvidenceGraph report={report} />
           </section>
           <section className="source-ledger">
-            <h2>Source ledger</h2>
+            <h2>{copy.report.sourceLedger}</h2>
             {report.sources.map((source, index) => (
-              <a href={source.url} target="_blank" rel="noreferrer" key={source.id}>
-                <span className="source-number">{String(index + 1).padStart(2, "0")}</span>
-                <span>
-                  <strong>{source.title}</strong>
-                  <small>{source.status.replaceAll("_", " ")}</small>
-                </span>
-                <ExternalLink size={15} aria-hidden="true" />
-              </a>
+              <article className="source-ledger-row" key={source.id}>
+                <a
+                  className="source-original-link"
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="source-number">{String(index + 1).padStart(2, "0")}</span>
+                  <span>
+                    <strong>{source.title}</strong>
+                    <small>{sourceStatusLabels[source.status]}</small>
+                  </span>
+                  <ExternalLink size={15} aria-hidden="true" />
+                </a>
+                {source.archive && (
+                  <div className="source-archive-actions" aria-label={`${copy.report.archivedEvidence}: ${source.title}`}>
+                    <a href={source.archive.snapshotUrl} target="_blank" rel="noreferrer">
+                      <Archive size={14} aria-hidden="true" />
+                      {copy.report.savedText}
+                    </a>
+                    {source.archive.screenshotUrl && (
+                      <a href={source.archive.screenshotUrl} target="_blank" rel="noreferrer">
+                        <Image size={14} aria-hidden="true" />
+                        {copy.report.screenshot}
+                      </a>
+                    )}
+                  </div>
+                )}
+              </article>
             ))}
           </section>
           <section className="caveat-list">
-            <h2>Interpretation limits</h2>
+            <h2>{copy.report.interpretationLimits}</h2>
             <ul>
               {report.caveats.map((caveat) => (
                 <li key={caveat}>{withoutTerminalFullStop(caveat)}</li>
@@ -361,6 +496,14 @@ export function ReportView({
           </section>
         </div>
       )}
+      <div className="share-poster-export" aria-hidden="true">
+        <SharePoster
+          ref={posterRef}
+          displayName={cleanDisplayTitle(report.title)}
+          occupationTitle={report.occupation.title}
+          profile={report.gameProfile}
+        />
+      </div>
     </main>
   );
 }

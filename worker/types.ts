@@ -1,5 +1,10 @@
-import type { ActorGate, DailyBudget } from "./durable";
+import type { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import type { ResearchWorkflowParams } from "./workflow";
+import type { PublicationStatus } from "./publication";
+
+export interface ResearchQueueMessage {
+  jobId: string;
+}
 
 export interface BrowserRunBinding {
   quickAction(
@@ -10,7 +15,20 @@ export interface BrowserRunBinding {
 
 export interface WorkflowInstance {
   id: string;
-  status(): Promise<unknown>;
+  status(): Promise<{
+    status:
+      | "queued"
+      | "running"
+      | "paused"
+      | "errored"
+      | "terminated"
+      | "complete"
+      | "waiting"
+      | "waitingForPause"
+      | "unknown";
+    error?: { name: string; message: string };
+    output?: unknown;
+  }>;
   sendEvent<T>(options: { type: string; payload: T }): Promise<void>;
   restart(options?: { from?: { name: string } }): Promise<void>;
 }
@@ -24,6 +42,12 @@ export interface RateLimitBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
+export interface VersionMetadataBinding {
+  id: string;
+  tag: string;
+  timestamp: string;
+}
+
 export interface AppEnv {
   DB: D1Database;
   ARTIFACTS: R2Bucket;
@@ -31,15 +55,26 @@ export interface AppEnv {
   RESEARCH_WORKFLOW: WorkflowBinding<ResearchWorkflowParams>;
   ACTOR_GATE: DurableObjectNamespace<ActorGate>;
   DAILY_BUDGET: DurableObjectNamespace<DailyBudget>;
+  RESEARCH_SCHEDULER: DurableObjectNamespace<ResearchScheduler>;
+  RESEARCH_QUEUE: Queue<ResearchQueueMessage>;
   BURST_LIMITER: RateLimitBinding;
   ASSETS: Fetcher;
+  CF_VERSION_METADATA?: VersionMetadataBinding;
   APP_MODE: "locked" | "demo" | "public";
   JOB_USD_LIMIT: string;
   DAILY_USD_LIMIT: string;
   ANON_DAILY_JOB_LIMIT: string;
+  GLOBAL_RESEARCH_CONCURRENCY: string;
+  ACTOR_ACTIVE_JOB_LIMIT: string;
+  ACTOR_OUTSTANDING_JOB_LIMIT: string;
+  AUTO_RETRY_LIMIT: string;
+  PUBLIC_APP_URL: string;
   OPENROUTER_SYNTHESIS_MODEL: string;
   REPORT_TTL_DAYS: string;
   ARTIFACT_TTL_DAYS: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+  CF_ACCESS_ALLOWED_EMAIL?: string;
   PERPLEXITY_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   TWITTERAPI_KEY?: string;
@@ -72,6 +107,7 @@ export interface JobRow {
   progress: number;
   reserved_cents: number;
   actual_cents: number;
+  capability_hash: string | null;
   workflow_id: string | null;
   report_id: string | null;
   degraded_json: string;
@@ -81,6 +117,16 @@ export interface JobRow {
   sources_finalized_at: string | null;
   retry_count: number;
   last_retry_at: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  auto_retry_count: number;
+  last_auto_retry_at: string | null;
+  publication_status: PublicationStatus;
+  published_at: string | null;
+  hidden_at: string | null;
+  moderation_note: string | null;
+  target_key: string | null;
   created_at: string;
   updated_at: string;
   expires_at: string;

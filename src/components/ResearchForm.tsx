@@ -1,7 +1,12 @@
-import { ArrowRight, Link2, LockKeyhole, Search } from "lucide-react";
+import { ArrowRight, FileSearch2, Globe2, Link2, LoaderCircle, LockKeyhole, Search } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { uiCopy } from "../copy";
-import type { OccupationProfile, PublicConfig } from "../types";
+import { useLocale } from "../LocaleContext";
+import type {
+  HistoryItem,
+  HistoryPage as HistoryResponse,
+  OccupationProfile,
+  PublicConfig
+} from "../types";
 import { Turnstile } from "./Turnstile";
 
 export interface ResearchInput {
@@ -10,13 +15,16 @@ export interface ResearchInput {
   turnstileToken: string;
 }
 
-function validatePublicUrl(value: string): string | undefined {
+function validatePublicUrl(
+  value: string,
+  messages: { invalidHttps: string; invalidUrl: string }
+): string | undefined {
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:") return "Enter a public HTTPS URL";
+    if (url.protocol !== "https:") return messages.invalidHttps;
     return undefined;
   } catch {
-    return "Enter a complete URL such as https://example.com";
+    return messages.invalidUrl;
   }
 }
 
@@ -24,13 +32,16 @@ export function ResearchForm({
   config,
   busy,
   onSubmit,
-  onOpenDemo
+  onOpenDemo,
+  onOpenReport
 }: {
   config: PublicConfig;
   busy: boolean;
   onSubmit(input: ResearchInput): Promise<void>;
   onOpenDemo(): void;
+  onOpenReport(reportId: string): void;
 }) {
+  const { copy, locale } = useLocale();
   const [targetUrl, setTargetUrl] = useState("");
   const [urlReady, setUrlReady] = useState(false);
   const [occupationQuery, setOccupationQuery] = useState("");
@@ -38,6 +49,8 @@ export function ResearchForm({
   const [occupation, setOccupation] = useState<OccupationProfile>();
   const [token, setToken] = useState(config.mode === "demo" ? "demo-token" : "");
   const [error, setError] = useState("");
+  const [previousRuns, setPreviousRuns] = useState<HistoryItem[]>([]);
+  const [checkingHistory, setCheckingHistory] = useState(false);
   const occupationInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,10 +59,10 @@ export function ResearchForm({
     const timeout = window.setTimeout(async () => {
       try {
         const response = await fetch(
-          `/api/occupations?q=${encodeURIComponent(occupationQuery.trim())}`,
+          `/api/occupations?q=${encodeURIComponent(occupationQuery.trim())}&lang=${encodeURIComponent(locale)}`,
           { signal: controller.signal }
         );
-        if (!response.ok) throw new Error("Occupation catalog is unavailable");
+        if (!response.ok) throw new Error(copy.home.occupationUnavailable);
         const data = (await response.json()) as { occupations: OccupationProfile[] };
         setOccupations(data.occupations);
         setOccupation((current) =>
@@ -59,7 +72,7 @@ export function ResearchForm({
         );
       } catch (caught) {
         if (!(caught instanceof DOMException && caught.name === "AbortError")) {
-          setError(caught instanceof Error ? caught.message : "Occupation search failed");
+          setError(caught instanceof Error ? caught.message : copy.home.occupationSearchFailed);
         }
       }
     }, 180);
@@ -67,18 +80,46 @@ export function ResearchForm({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [occupationQuery, urlReady]);
+  }, [copy.home.occupationSearchFailed, copy.home.occupationUnavailable, locale, occupationQuery, urlReady]);
 
   useEffect(() => {
     if (urlReady) occupationInput.current?.focus();
   }, [urlReady]);
+
+  useEffect(() => {
+    if (!urlReady) {
+      setPreviousRuns([]);
+      setCheckingHistory(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCheckingHistory(true);
+    const search = new URLSearchParams({ limit: "3", targetUrl, lang: locale });
+    void fetch(`/api/history?${search}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as HistoryResponse & {
+          error?: { message?: string };
+        };
+        if (!response.ok) throw new Error(body.error?.message ?? copy.home.previousUnavailable);
+        setPreviousRuns(body.items);
+      })
+      .catch((caught) => {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) {
+          setPreviousRuns([]);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCheckingHistory(false);
+      });
+    return () => controller.abort();
+  }, [copy.home.previousUnavailable, locale, targetUrl, urlReady]);
 
   const onToken = useCallback((value: string) => setToken(value), []);
   const onTurnstileError = useCallback((message: string) => setError(message), []);
 
   function continueFromUrl() {
     setError("");
-    const problem = validatePublicUrl(targetUrl);
+    const problem = validatePublicUrl(targetUrl, copy.home);
     if (problem) {
       setError(problem);
       return;
@@ -94,11 +135,11 @@ export function ResearchForm({
       return;
     }
     if (!occupation) {
-      setError("Choose one occupation before starting");
+      setError(copy.home.chooseOccupation);
       return;
     }
     if (!token && config.mode === "public") {
-      setError("Complete human verification before starting");
+      setError(copy.home.completeVerification);
       return;
     }
     try {
@@ -108,7 +149,7 @@ export function ResearchForm({
         turnstileToken: token || "demo-token"
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Research could not start");
+      setError(caught instanceof Error ? caught.message : copy.home.researchStartFailed);
       if (config.mode === "public") {
         setToken("");
         window.turnstile?.reset();
@@ -119,14 +160,14 @@ export function ResearchForm({
   return (
     <section className="research-hero" aria-labelledby="research-title">
       <div className="hero-heading">
-        <span className="eyebrow">{uiCopy.home.eyebrow}</span>
-        <h1 id="research-title">{uiCopy.home.title}</h1>
-        <p>{uiCopy.home.description}</p>
+        <span className="eyebrow">{copy.home.eyebrow}</span>
+        <h1 id="research-title">{copy.home.title}</h1>
+        <p>{copy.home.description}</p>
       </div>
 
       <form className="hero-composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="target-url">
-          {uiCopy.home.urlLabel}
+          {copy.home.urlLabel}
         </label>
         <div className={urlReady ? "url-composer ready" : "url-composer"}>
           <Link2 size={20} aria-hidden="true" />
@@ -134,7 +175,6 @@ export function ResearchForm({
             id="target-url"
             type="url"
             inputMode="url"
-            autoFocus
             required
             value={targetUrl}
             onChange={(event) => {
@@ -144,11 +184,11 @@ export function ResearchForm({
                 setOccupation(undefined);
               }
             }}
-            placeholder={uiCopy.home.urlPlaceholder}
+            placeholder={copy.home.urlPlaceholder}
           />
           {!urlReady && (
             <button className="composer-button" type="button" onClick={continueFromUrl}>
-              {uiCopy.home.continue}
+              {copy.home.continue}
               <ArrowRight size={18} aria-hidden="true" />
             </button>
           )}
@@ -158,19 +198,62 @@ export function ResearchForm({
               type="button"
               onClick={() => setUrlReady(false)}
             >
-              {uiCopy.home.changeUrl}
+              {copy.home.changeUrl}
             </button>
           )}
         </div>
+
+        {urlReady && (checkingHistory || previousRuns.length > 0) && (
+          <section className="previous-runs" aria-labelledby="previous-runs-title">
+            <div className="previous-runs-heading">
+              <span className="previous-runs-icon">
+                {checkingHistory ? (
+                  <LoaderCircle className="spin" size={17} aria-hidden="true" />
+                ) : (
+                  <FileSearch2 size={17} aria-hidden="true" />
+                )}
+              </span>
+              <div>
+                <h2 id="previous-runs-title">
+                  {checkingHistory ? copy.home.checkingPrevious : copy.home.previousTitle}
+                </h2>
+                <p>{copy.home.previousBody}</p>
+              </div>
+            </div>
+            {!checkingHistory && (
+              <div className="previous-runs-list">
+                {previousRuns.map((run) => (
+                  <button
+                    type="button"
+                    key={run.reportId}
+                    onClick={() => onOpenReport(run.reportId)}
+                  >
+                    <span>
+                      <strong>{run.displayName}</strong>
+                      <small>{run.occupationTitle}</small>
+                    </span>
+                    <time dateTime={run.publishedAt}>
+                      {new Intl.DateTimeFormat(locale, {
+                        month: "short",
+                        day: "numeric"
+                      }).format(new Date(run.publishedAt))}
+                    </time>
+                    <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
 
         {urlReady && (
           <div className="occupation-stage">
             <div className="stage-heading">
               <div>
                 <span className="stage-number">02</span>
-                <h2>{uiCopy.home.occupationLabel}</h2>
+                <h2>{copy.home.occupationLabel}</h2>
               </div>
-              <p>{uiCopy.home.occupationHelp}</p>
+              <p>{copy.home.occupationHelp}</p>
             </div>
             <div className="input-with-icon occupation-search">
               <Search size={18} aria-hidden="true" />
@@ -179,10 +262,10 @@ export function ResearchForm({
                 id="occupation-search"
                 value={occupationQuery}
                 onChange={(event) => setOccupationQuery(event.target.value)}
-                placeholder={uiCopy.home.occupationPlaceholder}
+                placeholder={copy.home.occupationPlaceholder}
               />
             </div>
-            <div className="occupation-list" role="radiogroup" aria-label="Choose one occupation">
+            <div className="occupation-list" role="radiogroup" aria-label={copy.home.occupationAria}>
               {occupations.map((item) => (
                 <button
                   type="button"
@@ -205,7 +288,7 @@ export function ResearchForm({
 
             {config.mode === "public" && config.turnstileSiteKey && (
               <div className="verification-block">
-                <span>Human verification</span>
+                <span>{copy.home.humanVerification}</span>
                 <Turnstile
                   siteKey={config.turnstileSiteKey}
                   onToken={onToken}
@@ -218,25 +301,31 @@ export function ResearchForm({
               <div className="locked-notice" role="status">
                 <LockKeyhole size={19} aria-hidden="true" />
                 <div>
-                  <strong>{uiCopy.home.lockedTitle}</strong>
-                  <span>{uiCopy.home.lockedBody}</span>
+                  <strong>{copy.home.lockedTitle}</strong>
+                  <span>{copy.home.lockedBody}</span>
                 </div>
                 <button className="secondary-button" type="button" onClick={onOpenDemo}>
-                  {uiCopy.home.openPilot}
+                  {copy.home.openPilot}
                 </button>
               </div>
             ) : (
-              <button className="start-button primary-button" type="submit" disabled={busy}>
-                {busy ? uiCopy.home.starting : uiCopy.home.start}
-                <ArrowRight size={18} aria-hidden="true" />
-              </button>
+              <>
+                <div className="public-submission-note">
+                  <Globe2 size={17} aria-hidden="true" />
+                  <span>{copy.home.publicNotice}</span>
+                </div>
+                <button className="start-button primary-button" type="submit" disabled={busy}>
+                  {busy ? copy.home.starting : copy.home.start}
+                  <ArrowRight size={18} aria-hidden="true" />
+                </button>
+              </>
             )}
           </div>
         )}
 
         {error && (
           <div className="form-error hero-error" role="alert">
-            <strong>Check this step</strong>
+            <strong>{copy.home.checkStep}</strong>
             <span>{error}</span>
           </div>
         )}

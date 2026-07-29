@@ -1,9 +1,11 @@
 import type { ReverseReport } from "../src/types";
+import { createBilingualReportBundle } from "../src/bilingual";
+import { computeGameProfile } from "./game-profile";
 import { pilotOccupation } from "./occupations";
 
 const generatedAt = "2026-07-28T00:00:00.000Z";
 
-export const demoReport: ReverseReport = {
+const demoReportBase: Omit<ReverseReport, "gameProfile"> = {
   id: "demo",
   title: "從 Anthropic skill-creator 提煉「先驗證，再封裝」",
   targetUrl: "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
@@ -40,6 +42,7 @@ export const demoReport: ReverseReport = {
     ]
   },
   author: {
+    kind: "team",
     name: "Anthropic Agent Skills team",
     background:
       "Anthropic 在官方 Agent Skills repository 公開 skill 規格、範例與實際使用的文件能力；這個案例取自其中的 skill-creator。",
@@ -134,7 +137,16 @@ export const demoReport: ReverseReport = {
       status: "verified_at_retrieval",
       title: "anthropics/skills",
       retrievedAt: generatedAt,
-      excerpt: "官方 repository 說明與 Agent Skills 範例集合。"
+      excerpt: "官方 repository 說明與 Agent Skills 範例集合。",
+      repositoryMetrics: {
+        provider: "github",
+        fullName: "anthropics/skills",
+        ownerType: "Organization",
+        stars: 164_700,
+        forks: 19_600,
+        watchers: 1_100,
+        retrievedAt: generatedAt
+      }
     }
   ],
   edges: [
@@ -170,3 +182,106 @@ export const demoReport: ReverseReport = {
   ],
   degraded: []
 };
+
+export const demoReport: ReverseReport = {
+  ...demoReportBase,
+  gameProfile: computeGameProfile(demoReportBase)
+};
+
+const demoOccupationEn = {
+  ...pilotOccupation,
+  title: "Web and Digital Interface Designers",
+  description: "Design digital interfaces and websites with attention to usability, aesthetics, and functional behavior."
+};
+
+export const demoReportEn: ReverseReport = {
+  ...demoReport,
+  title: "Extracting “validate before packaging” from Anthropic skill-creator",
+  verdict: "Borrow the thinking before installing anything: write the real workflow in plain language, validate it with several cases, and package only the parts that work repeatedly and are often skipped.",
+  framework: {
+    name: "Validate before packaging",
+    summary: "Find recurring goals, corrections, and failures in real conversations, then test the method as an ordinary prompt. Stabilize only the rules that repeatedly work; leave contextual judgment to people and models.",
+    useWhen: "Use it when the same kind of task recurs and you already know which steps are often skipped or distorted.",
+    avoidWhen: "Avoid it for a first-time problem, a rapidly changing workflow, or when a temporary prompt is already enough.",
+    steps: [
+      {
+        ...demoReport.framework.steps[0],
+        title: "Find the recurring problem first",
+        instruction: "When the same work returns, record the goal, inputs, corrections you gave the AI, and what counts as complete."
+      },
+      {
+        ...demoReport.framework.steps[1],
+        title: "Write it for any chat AI first",
+        instruction: "While the process is still being discovered, state the steps and conditions in plain language without binding them to a particular agent or tool."
+      },
+      {
+        ...demoReport.framework.steps[2],
+        title: "Test real cases instead of collecting by instinct",
+        instruction: "When a method seems worth keeping, run it on different real cases and see whether it consistently improves the result."
+      },
+      {
+        ...demoReport.framework.steps[3],
+        title: "Package only what must repeat reliably",
+        instruction: "When steps repeatedly work and are frequently skipped, package those steps as a skill; keep one-off context and judgment in the conversation."
+      }
+    ]
+  },
+  author: {
+    ...demoReport.author,
+    background: "Anthropic publishes the Agent Skills specification, examples, and working document capabilities in its official repository. This case uses its skill-creator.",
+    context: "The skill-creator clarifies intent before building test cases, comparing results, and iterating. The supported motivation is to turn effective but easily lost conversational practices into repeatable, testable behavior; deeper organizational philosophy would require first-party interviews."
+  },
+  gameProfile: {
+    ...demoReport.gameProfile,
+    identity: {
+      ...demoReport.gameProfile.identity,
+      title: "The Validation Smith",
+      oneLiner: "Turns repeated conversational corrections into a method that earns its packaging",
+      traits: ["evidence-led", "iteration-minded", "packaging-disciplined"]
+    }
+  },
+  occupation: demoOccupationEn,
+  professionalDelta: demoReport.professionalDelta.map((delta, index) => ({
+    ...delta,
+    competency: demoOccupationEn.competencies[index],
+    rationale: [
+      "The workflow defines the use context and desired output before implementation and evaluation.",
+      "It turns a subjective judgment about skill quality into case comparison and repeatable evaluation.",
+      "The official repository provides specifications, examples, and layered resources, making the method traceable.",
+      "The skill document demonstrates process design but cannot establish the team’s full engineering capability."
+    ][index]
+  })),
+  observations: demoReport.observations.map((observation, index) => ({
+    ...observation,
+    text: [
+      "The workflow first extracts goals, trigger contexts, output formats, and success criteria from the existing conversation.",
+      "After drafting, it must run test prompts, compare outcomes, and iterate rather than treating a completed document as finished."
+    ][index]
+  })),
+  claims: demoReport.claims.map((claim, index) => ({
+    ...claim,
+    text: [
+      "This method treats a skill as behavior that must be validated with cases, not merely an instruction file to collect.",
+      "Testing before packaging helps prevent an unstable one-off method from becoming a long-term system too early."
+    ][index]
+  })),
+  adoption: [
+    "Extract the process from conversations and corrections that already happened instead of starting from a blank template.",
+    "Write it so any chat AI can understand it, then run real cases before packaging.",
+    "Automate only steps that are stable, repeated, and easy to skip.",
+    "Do not force context-dependent judgment into absolute rules."
+  ],
+  caveats: [
+    "This is a built-in example, not a live research result.",
+    "Without a first-party interview, organization-level design philosophy remains an inference.",
+    "The application context supports comparison; it does not grade the creator’s ability."
+  ]
+};
+
+export const demoReportBundle = createBilingualReportBundle(demoReport, demoReportEn, {
+  sourceLocale: "zh-TW",
+  synthesizedAt: generatedAt,
+  synthesisModel: "demo-fixture",
+  translationModel: "demo-fixture",
+  sourceContentHash: "demo-fixture-v2"
+});

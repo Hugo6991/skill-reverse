@@ -1,11 +1,20 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
+import {
+  createBilingualGameProfileBundle,
+  createBilingualReportBundle,
+  resolveGameProfile
+} from "../src/bilingual";
 import { getOccupation } from "./occupations";
 import {
   assembleReport,
   captureUrl,
   draftToModelResult,
   fetchSocialEvidence,
+  reportContentHash,
+  resolveCreatorIdentity,
   runOpenRouterSynthesis,
+  runOpenRouterTranslation,
   runPerplexityResearch,
   type CapturedArtifact
 } from "./services";
@@ -16,6 +25,10 @@ import {
   providerErrorDetails
 } from "./provider-ledger";
 import type { AppEnv } from "./types";
+import { historyPresentation } from "./history";
+import { targetKey as normalizedTargetKey } from "./publication";
+import type { GameMotifId, GameProfile } from "../src/types";
+import { GAME_MOTIF_IDS, type IdentitySelectionContext } from "./game-identity";
 
 export interface ResearchWorkflowParams {
   kind?: "research" | "health";
@@ -43,6 +56,10 @@ async function updateJob(
     errorMessage?: string | null;
     sourceWindowClosesAt?: string | null;
     sourcesFinalizedAt?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+    autoRetryCount?: number;
+    lastAutoRetryAt?: string | null;
   }
 ): Promise<void> {
   const sets: string[] = ["updated_at = ?"];
@@ -64,6 +81,12 @@ async function updateJob(
   }
   if (values.sourcesFinalizedAt !== undefined) {
     add("sources_finalized_at", values.sourcesFinalizedAt);
+  }
+  if (values.startedAt !== undefined) add("started_at", values.startedAt);
+  if (values.finishedAt !== undefined) add("finished_at", values.finishedAt);
+  if (values.autoRetryCount !== undefined) add("auto_retry_count", values.autoRetryCount);
+  if (values.lastAutoRetryAt !== undefined) {
+    add("last_auto_retry_at", values.lastAutoRetryAt);
   }
   params.push(jobId);
   await db
@@ -94,13 +117,19 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
 
     const actor = this.env.ACTOR_GATE.getByName(actorHash);
     const budget = this.env.DAILY_BUDGET.getByName(day);
-    const degraded: string[] = [];
+    const providerRetryLimit = Math.max(
+      1,
+      Math.floor(Number(this.env.AUTO_RETRY_LIMIT || 1))
+    );
+    let degraded: string[] = [];
     try {
       await step.do("mark job running", async () => {
+        const startedAt = new Date().toISOString();
         await updateJob(this.env.DB, jobId, {
           stage: "capture",
           status: "running",
-          progress: 12
+          progress: 12,
+          startedAt
         });
       });
 
@@ -110,7 +139,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         async () => captureUrl(this.env, jobId, targetUrl, 1)
       );
 
-      await step.do("open optional source collection", async () => {
+      const sourceCollection = await step.do("open optional source collection", async () => {
+        const current = await this.env.DB.prepare(
+          "SELECT sources_finalized_at FROM jobs WHERE id = ?1"
+        )
+          .bind(jobId)
+          .first<{ sources_finalized_at: string | null }>();
+        if (current?.sources_finalized_at) {
+          return { finalized: true, sourceWindowClosesAt: null };
+        }
         const sourceWindowClosesAt = new Date(Date.now() + 90_000).toISOString();
         await updateJob(this.env.DB, jobId, {
           stage: "source_collection",
@@ -118,22 +155,24 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           progress: 22,
           sourceWindowClosesAt
         });
-        return sourceWindowClosesAt;
+        return { finalized: false, sourceWindowClosesAt };
       });
 
-      try {
-        await step.waitForEvent<{ urls?: string[] }>("wait for optional supporting sources", {
-          type: "sources-ready",
-          timeout: "90 seconds"
-        });
-      } catch (error) {
-        console.info(
-          JSON.stringify({
-            event: "source_collection_timeout",
-            jobId,
-            message: error instanceof Error ? error.message : "timeout"
-          })
-        );
+      if (!sourceCollection.finalized) {
+        try {
+          await step.waitForEvent<{ urls?: string[] }>("wait for optional supporting sources", {
+            type: "sources-ready",
+            timeout: "90 seconds"
+          });
+        } catch (error) {
+          console.info(
+            JSON.stringify({
+              event: "source_collection_timeout",
+              jobId,
+              message: error instanceof Error ? error.message : "timeout"
+            })
+          );
+        }
       }
 
       const supportingUrls = await step.do("finalize optional sources", async () => {
@@ -144,27 +183,40 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         return selectCaptureSources(targetUrl, values);
       });
 
-      const supportingCaptures = await step.do(
+      const supportingCaptureResult = await step.do(
         "capture supporting artifacts",
         { retries: { limit: 1, delay: "10 seconds", backoff: "linear" } },
         async () => {
           const results: CapturedArtifact[] = [];
+          const warnings: string[] = [];
           for (let index = 0; index < supportingUrls.length; index += 1) {
             const url = supportingUrls[index];
             try {
               results.push(await captureUrl(this.env, jobId, url, index + 2));
             } catch (error) {
-              degraded.push(
+              warnings.push(
                 `Supporting source skipped (${new URL(url).hostname}): ${
                   error instanceof Error ? error.message : "capture error"
                 }`
               );
             }
           }
-          return results;
+          return { artifacts: results, degraded: warnings };
         }
       );
-      const captured = [primaryCapture, ...supportingCaptures];
+      degraded = [...degraded, ...supportingCaptureResult.degraded];
+
+      const creatorResult = await step.do(
+        "resolve first-party creator identity",
+        { retries: { limit: 1, delay: "10 seconds", backoff: "linear" } },
+        async () => resolveCreatorIdentity(this.env, jobId, targetUrl, primaryCapture)
+      );
+      degraded = [...degraded, ...creatorResult.degraded];
+      const captured = [
+        primaryCapture,
+        ...supportingCaptureResult.artifacts,
+        ...creatorResult.artifacts
+      ];
 
       const occupation = await step.do("load professional baseline", async () => {
         await updateJob(this.env.DB, jobId, {
@@ -186,8 +238,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             progress: 46,
             degraded
           });
-          const result = await fetchSocialEvidence(this.env, captured, targetUrl);
-          if (result.degraded) degraded.push(result.degraded);
+          const result = await fetchSocialEvidence(
+            this.env,
+            creatorResult.identity,
+            targetUrl
+          );
+          const nextDegraded = result.degraded
+            ? [...degraded, result.degraded]
+            : degraded;
+          await updateJob(this.env.DB, jobId, { degraded: nextDegraded });
           await addJobCost(
             this.env.DB,
             jobId,
@@ -196,24 +255,53 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           return result;
         }
       );
+      if (social.degraded) degraded = [...degraded, social.degraded];
 
       const researched = await step.do(
         "reverse research with structured evidence",
-        { retries: { limit: 2, delay: "20 seconds", backoff: "exponential" } },
-        async () => {
+        {
+          retries: {
+            limit: providerRetryLimit,
+            delay: ({ error }) =>
+              providerErrorDetails(error).code === "provider_rate_limited"
+                ? "60 seconds"
+                : "20 seconds",
+            backoff: "exponential"
+          }
+        },
+        async (context) => {
+          if (context.attempt > 1) {
+            const retriedAt = new Date().toISOString();
+            await updateJob(this.env.DB, jobId, {
+              autoRetryCount: context.attempt - 1,
+              lastAutoRetryAt: retriedAt
+            });
+          }
           await updateJob(this.env.DB, jobId, {
             stage: "source_verification",
             progress: 62,
             degraded
           });
-          return runPerplexityResearch(
-            this.env,
-            targetUrl,
-            occupation,
-            captured,
-            social.posts,
-            jobId
-          );
+          try {
+            return await runPerplexityResearch(
+              this.env,
+              targetUrl,
+              occupation,
+              captured,
+              social.posts,
+              jobId,
+              {
+                creator: creatorResult.identity,
+                profile: context.attempt > 1 ? "compact" : "full"
+              }
+            );
+          } catch (error) {
+            const details = providerErrorDetails(error);
+            if (!details.retryable) {
+              throw new NonRetryableError(details.internalMessage);
+            }
+            throw error;
+          }
         }
       );
 
@@ -221,6 +309,38 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         stage: "hypothesis_generation",
         progress: 76,
         degraded
+      });
+      const identityContext = await step.do("load collection identity context", async () => {
+        const result = await this.env.DB.prepare(
+          `SELECT game_profile_json
+           FROM skill_cards
+           WHERE actor_hash = ?1
+           ORDER BY created_at ASC, id ASC
+           LIMIT 200`
+        )
+          .bind(actorHash)
+          .all<{ game_profile_json: string }>();
+        const context: IdentitySelectionContext = {
+          usedTitles: [],
+          motifUsage: Object.fromEntries(
+            GAME_MOTIF_IDS.map((motif) => [motif, 0])
+          ) as Record<GameMotifId, number>
+        };
+        for (const row of result.results ?? []) {
+          try {
+            const profile = resolveGameProfile(
+              JSON.parse(row.game_profile_json) as GameProfile,
+              "zh-TW"
+            );
+            if (profile.rubricVersion !== "game-profile-v2" || !profile.identity) continue;
+            context.usedTitles?.push(profile.identity.title);
+            context.motifUsage![profile.identity.motifId] =
+              (context.motifUsage![profile.identity.motifId] ?? 0) + 1;
+          } catch {
+            // A malformed historical card must not block a new report.
+          }
+        }
+        return context;
       });
       let synthesized:
         | { result: ReturnType<typeof draftToModelResult>; estimatedCents: number; degraded?: undefined }
@@ -235,17 +355,46 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         try {
           const result = await step.do(
             "synthesize final report with OpenAI via OpenRouter",
-            { retries: { limit: 2, delay: "15 seconds", backoff: "exponential" } },
-            async () =>
-              runOpenRouterSynthesis(
-              this.env,
-              targetUrl,
-              occupation,
-              captured,
-              researched.result,
-              researched.citations,
-              jobId
-              )
+            {
+              retries: {
+                limit: providerRetryLimit,
+                delay: ({ error }) =>
+                  providerErrorDetails(error).code === "provider_rate_limited"
+                    ? "60 seconds"
+                    : "20 seconds",
+                backoff: "exponential"
+              }
+            },
+            async (context) => {
+              if (context.attempt > 1) {
+                await updateJob(this.env.DB, jobId, {
+                  autoRetryCount: context.attempt - 1,
+                  lastAutoRetryAt: new Date().toISOString()
+                });
+              }
+              try {
+                return await runOpenRouterSynthesis(
+                  this.env,
+                  targetUrl,
+                  occupation,
+                  captured,
+                  researched.result,
+                  researched.citations,
+                  jobId,
+                  {
+                    creator: creatorResult.identity,
+                    profile: context.attempt > 1 ? "compact" : "full",
+                    identityContext
+                  }
+                );
+              } catch (error) {
+                const details = providerErrorDetails(error);
+                if (!details.retryable) {
+                  throw new NonRetryableError(details.internalMessage);
+                }
+                throw error;
+              }
+            }
           );
           synthesized = { ...result, degraded: undefined };
         } catch (error) {
@@ -274,59 +423,153 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           captured,
           posts: social.posts,
           citations: researched.citations,
-          degraded
+          degraded,
+          identityContext,
+          useFallbackIdentity: Boolean(synthesized.degraded)
         });
       });
 
+      await updateJob(this.env.DB, jobId, {
+        stage: "translation",
+        progress: 90,
+        degraded
+      });
+      const translated = await step.do(
+        "translate final report to English",
+        {
+          retries: {
+            limit: providerRetryLimit,
+            delay: ({ error }) =>
+              providerErrorDetails(error).code === "provider_rate_limited"
+                ? "60 seconds"
+                : "20 seconds",
+            backoff: "exponential"
+          }
+        },
+        async (context) => {
+          if (context.attempt > 1) {
+            await updateJob(this.env.DB, jobId, {
+              autoRetryCount: context.attempt - 1,
+              lastAutoRetryAt: new Date().toISOString()
+            });
+          }
+          try {
+            return await runOpenRouterTranslation(this.env, report, jobId);
+          } catch (error) {
+            const details = providerErrorDetails(error);
+            if (!details.retryable) throw new NonRetryableError(details.internalMessage);
+            throw error;
+          }
+        }
+      );
+      const reportBundle = await step.do("assemble bilingual report", async () =>
+        createBilingualReportBundle(report, translated.report, {
+          sourceLocale: "zh-TW",
+          synthesizedAt: new Date().toISOString(),
+          synthesisModel: this.env.OPENROUTER_API_KEY
+            ? this.env.OPENROUTER_SYNTHESIS_MODEL || "openai/gpt-5.6-terra"
+            : "perplexity/sonar-pro-draft",
+          translationModel: translated.model,
+          sourceContentHash: await reportContentHash(report)
+        })
+      );
+
       await step.do("persist report", async () => {
         const now = new Date();
-        const expires = new Date(
-          now.getTime() + Number(this.env.REPORT_TTL_DAYS || 30) * 86_400_000
-        ).toISOString();
+        const publishedAt = now.toISOString();
+        const permanentExpiry = "9999-12-31T23:59:59.999Z";
+        const cardExpires = new Date(now.getTime() + 365 * 86_400_000).toISOString();
+        const presentation = historyPresentation(targetUrl, JSON.stringify(report));
+        const targetKey = normalizedTargetKey(targetUrl);
         const statements = captured.map((artifact) =>
           this.env.DB.prepare(
             `INSERT OR REPLACE INTO source_artifacts
              (id, job_id, url, kind, status, title, retrieved_at, r2_key, excerpt, metadata_json)
-             VALUES (?1, ?2, ?3, ?4, 'verified_at_retrieval', ?5, ?6, ?7, ?8, '{}')`
+             VALUES (?1, ?2, ?3, ?4, 'verified_at_retrieval', ?5, ?6, ?7, ?8, ?9)`
           ).bind(
             `${jobId}-${artifact.id}`,
             jobId,
             artifact.url,
             artifact.url.includes("github.com") ? "github" : "website",
             artifact.title,
-            now.toISOString(),
+            publishedAt,
             artifact.r2Key,
-            artifact.excerpt
+            artifact.excerpt,
+            JSON.stringify({
+              screenshotKey: artifact.screenshotKey ?? null,
+              repositoryMetrics: artifact.repositoryMetrics ?? null
+            })
           )
         );
-        await this.env.DB.batch(statements);
-        await this.env.DB.prepare(
+        const reportInsert = this.env.DB.prepare(
           `INSERT INTO reports
-           (id, job_id, capability_hash, title, payload_json, created_at, expires_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-        )
-          .bind(
-            report.id,
-            jobId,
-            capabilityHash,
-            report.title,
-            JSON.stringify(report),
-            now.toISOString(),
-            expires
-          )
-          .run();
-        await updateJob(this.env.DB, jobId, {
-          stage: "report",
-          status: "completed",
-          progress: 100,
-          reportId: report.id,
-          degraded
-        });
+           (id, job_id, capability_hash, title, payload_json, created_at, expires_at,
+            content_schema_version)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 2)`
+        ).bind(
+          report.id,
+          jobId,
+          capabilityHash,
+          report.title,
+          JSON.stringify(reportBundle),
+          publishedAt,
+          permanentExpiry
+        );
+        const skillCardUpsert = this.env.DB.prepare(
+          `INSERT INTO skill_cards
+           (id, actor_hash, job_id, report_id, target_key, target_url, display_name,
+            occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
+           VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11)
+           ON CONFLICT(actor_hash, target_key, occupation_code) DO UPDATE SET
+             id = excluded.id,
+             job_id = excluded.job_id,
+             report_id = excluded.report_id,
+             target_url = excluded.target_url,
+             display_name = excluded.display_name,
+             occupation_title = excluded.occupation_title,
+             game_profile_json = excluded.game_profile_json,
+             updated_at = excluded.updated_at,
+             expires_at = excluded.expires_at`
+        ).bind(
+          report.id,
+          actorHash,
+          jobId,
+          targetKey,
+          targetUrl,
+          presentation.displayName,
+          occupation.code,
+          occupation.title,
+          JSON.stringify(
+            createBilingualGameProfileBundle(
+              report.gameProfile,
+              translated.report.gameProfile
+            )
+          ),
+          publishedAt,
+          cardExpires
+        );
+        const publishJob = this.env.DB.prepare(
+          `UPDATE jobs
+           SET stage = 'report', status = 'completed', progress = 100, report_id = ?1,
+               degraded_json = ?2, finished_at = ?3, publication_status = 'published',
+               published_at = ?3, hidden_at = NULL, moderation_note = NULL, updated_at = ?3
+           WHERE id = ?4`
+        ).bind(report.id, JSON.stringify(degraded), publishedAt, jobId);
+        await this.env.DB.batch([
+          ...statements,
+          reportInsert,
+          skillCardUpsert,
+          publishJob
+        ]);
       });
 
       await step.do("settle gates", async () => {
         const actualCents = await getJobCost(this.env.DB, jobId);
-        await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
+        await Promise.all([
+          actor.release(jobId),
+          budget.settle(jobId, actualCents),
+          this.env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
+        ]);
       });
       const actualCents = await getJobCost(this.env.DB, jobId);
       return { reportId: report.id, actualCents, degraded };
@@ -336,10 +579,15 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         status: "failed",
         degraded,
         errorCode: details.code,
-        errorMessage: details.internalMessage.slice(0, 500)
+        errorMessage: details.internalMessage.slice(0, 500),
+        finishedAt: new Date().toISOString()
       });
       const actualCents = await getJobCost(this.env.DB, jobId);
-      await Promise.all([actor.release(jobId), budget.settle(jobId, actualCents)]);
+      await Promise.allSettled([
+        actor.release(jobId),
+        budget.settle(jobId, actualCents),
+        this.env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
+      ]);
       throw error;
     }
   }

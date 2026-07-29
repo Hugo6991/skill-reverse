@@ -36,7 +36,7 @@ export function providerErrorDetails(error: unknown): {
     };
   }
   if (error instanceof Error) {
-    const code = error.message.match(/^\[([a-z0-9_]+)\]\s/)?.[1];
+    const code = error.message.match(/\[([a-z0-9_]+)\](?:\s|$)/)?.[1];
     if (code) {
       return {
         code,
