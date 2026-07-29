@@ -171,7 +171,6 @@ export function ResearchForm({
             id="target-url"
             type="url"
             inputMode="url"
-            autoFocus
             required
             value={targetUrl}
             onChange={(event) => {
