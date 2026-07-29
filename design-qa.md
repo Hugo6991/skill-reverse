@@ -91,3 +91,47 @@
 - No actionable P0 P1 or P2 findings remain after the second capture
 
 final result: passed
+
+## Ask AI deep links iteration
+
+### Source truth
+
+- Reference: `/var/folders/fq/yt9wyj6548q33d4qsw9_zf2w0000gn/T/codex-clipboard-ef3215bd-dcb7-485d-b4cf-905e1366fdb2.png`
+- Implementation desktop capture: `/private/tmp/skill-destiny-ask-ai-desktop.png`
+- Implementation mobile capture: `/private/tmp/skill-destiny-ask-ai-mobile.png`
+- Side-by-side comparison: `/private/tmp/skill-destiny-ask-ai-comparison.png`
+
+### Viewports and states
+
+- Desktop: 1280 × 720
+- Mobile: 390 × 844
+- Default state: optional context empty
+- Filled state: context updates all four encoded deep links
+
+### Focused comparison
+
+The Rain reference uses a short caption followed by four outlined brand pills with generous spacing
+
+The implementation keeps that recognizable pattern inside the existing report card, using the current type, stroke, color and radius tokens rather than importing the reference page styling wholesale
+
+### Verification
+
+- Four provider buttons render with the requested labels and brand marks
+- Claude, ChatGPT, Gemini and Perplexity URLs use the requested destinations
+- Every link opens in a new tab with `rel="noreferrer"`
+- The concise prompt contains the framework name, case summary and source URL
+- Optional user context is added to the concise prompt after input
+- The full copied trial prompt does not inherit the optional context
+- Desktop layout stays on one row when space permits
+- Mobile layout forms a balanced two-by-two grid with no horizontal overflow
+- Keyboard focus styles are visible
+- Motion is limited to hover-capable, non-reduced-motion environments
+- Browser console contains no warnings or errors
+
+### Review history
+
+- Pass 1: desktop hierarchy and button treatment matched the reference pattern
+- Pass 2: mobile layout verified at 390 px with all four actions visible
+- Pass 3: context, encoded query parameters and full-copy separation verified in the browser
+
+final result: passed

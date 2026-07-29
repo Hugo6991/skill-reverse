@@ -1389,6 +1389,111 @@ footer {
   line-height: 1.65;
 }
 
+.chat-context-field {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.chat-context-field > span {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-context-field small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.chat-context-field textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: var(--space-3);
+  color: var(--text);
+  background: hsl(0 0% 100% / 0.76);
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--radius-md);
+  outline: none;
+  font: inherit;
+  line-height: 1.55;
+}
+
+.chat-context-field textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.chat-context-field textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px hsl(238 83% 63% / 0.14);
+}
+
+.ask-ai-group {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.34fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.ask-ai-group > span {
+  max-width: 120px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ask-ai-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ask-ai-links a {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  color: var(--text);
+  background: hsl(0 0% 100% / 0.58);
+  border: 1px solid var(--text);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ask-ai-links a:hover {
+  color: var(--surface);
+  background: var(--text);
+}
+
+.ask-ai-links a:focus-visible {
+  outline: 3px solid hsl(238 83% 63% / 0.2);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ask-ai-links a {
+    transition:
+      background 140ms ease,
+      color 140ms ease,
+      transform 140ms ease;
+  }
+
+  .ask-ai-links a:hover {
+    transform: translateY(-1px);
+  }
+}
+
 .chat-trial pre {
   max-height: 320px;
   margin: 0;
@@ -2147,6 +2252,19 @@ footer {
 
   .chat-trial {
     padding: var(--space-4);
+  }
+
+  .ask-ai-group {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .ask-ai-group > span {
+    max-width: none;
+  }
+
+  .ask-ai-links a {
+    flex: 1 1 138px;
   }
 
   .delta-heading {
