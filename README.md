@@ -6,6 +6,8 @@
 
 這是 owner-operated production application。原始碼 repository 維持 Private，不是公開 template，也不提供 fork 或一鍵複製部署流程。
 
+這個產品如何從一個念頭逐步長成現在的系統，以及開發過程如何改變提問與 AI 協作方式，記錄在 [開發札記](./DEVELOPMENT-NOTES.md)。
+
 ## 目前可用
 
 - React + Vite 研究工作台與互動報告
