@@ -17,6 +17,7 @@ import {
   TriangleAlert
 } from "lucide-react";
 import { useState } from "react";
+import { buildChatPrompt } from "../chatPrompt";
 import { withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
@@ -57,27 +58,6 @@ const failureGuides: Record<
     question: "什麼條件一變，做法也必須跟著改？"
   }
 };
-
-function buildChatPrompt(report: ReverseReport): string {
-  const rules = report.framework.steps
-    .map((step, index) => `${index + 1}. ${withoutTerminalFullStop(step.instruction)}`)
-    .join("\n");
-
-  return `我正在處理一個問題，想先用純文字試跑「${withoutTerminalFullStop(
-    report.framework.name
-  )}」，不要先推薦我安裝 skill、plugin 或 agent
-
-我的問題／情境：
-[請填在這裡]
-
-請依照以下規則帶我思考：
-${rules}
-
-最後請分成三段回答：
-1. 這個框架替我看見了什麼
-2. 哪些部分仍需要我的情境判斷
-3. 是否值得把它做成可重複使用的 prompt 或 skill；若只用一次，請明確建議不要封裝`;
-}
 
 export function ReportView({
   report,
@@ -196,13 +176,13 @@ export function ReportView({
               <div className="section-title-row">
                 <div>
                   <span className="eyebrow">任何 AI 都能先試</span>
-                  <h3 id="chat-trial-title">先用一段文字驗證它是否真的幫到你</h3>
+                  <h3 id="chat-trial-title">先讀既有脈絡，再直接交付第一版</h3>
                 </div>
                 <MessageSquareText size={20} aria-hidden="true" />
               </div>
               <p>
-                這段提示不依賴本地 agent；你可以貼進 ChatGPT、Claude、Gemini、Grok，
-                先跑一次真實問題，再決定是否值得變成長期系統
+                這段提示會要求 AI 先使用可取得的對話、記憶與既有產出，即使仍有缺口也先給
+                v0，再讓你用結果校正它
               </p>
               <pre>{chatPrompt}</pre>
               <button className="secondary-button copy-prompt-button" type="button" onClick={copyChatPrompt}>
