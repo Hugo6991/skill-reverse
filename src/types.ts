@@ -183,6 +183,7 @@ export interface GameProfile {
 
 export interface ReverseReport {
   id: string;
+  viewerCanShare?: boolean;
   title: string;
   targetUrl: string;
   generatedAt: string;

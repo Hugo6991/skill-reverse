@@ -145,7 +145,7 @@ export function ReportView({
       <GameProfileHero
         report={report}
         onDownload={() => void downloadPoster()}
-        onShare={report.id === "demo" ? undefined : () => void shareProfile()}
+        onShare={report.viewerCanShare ? () => void shareProfile() : undefined}
         shareBusy={shareBusy}
       />
       {shareNote && (

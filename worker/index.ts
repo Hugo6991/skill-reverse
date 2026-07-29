@@ -1364,7 +1364,26 @@ app.get("/api/reports/:id", async (c) => {
         : source;
     });
   }
-  return c.json(report);
+  if (!c.env.ANON_SESSION_SECRET) {
+    return c.json({ ...report, viewerCanShare: false });
+  }
+  const actor = await getOrCreateActor(c.req.raw, c.env);
+  c.set("actorId", actor.actorId);
+  c.set("actorHash", actor.actorHash);
+  if (actor.setCookie) c.set("setActorCookie", actor.setCookie);
+  const ownedCard = await c.env.DB.prepare(
+    `SELECT 1 AS owned
+     FROM skill_cards
+     WHERE report_id = ?1
+       AND actor_hash = ?2
+       AND expires_at > ?3`
+  )
+    .bind(c.req.param("id"), actor.actorHash, new Date().toISOString())
+    .first<{ owned: number }>();
+  return attachActorCookie(
+    c,
+    c.json({ ...report, viewerCanShare: Boolean(ownedCard) })
+  );
 });
 
 app.get("/api/reports/:reportId/artifacts/:sourceId", async (c) => {
