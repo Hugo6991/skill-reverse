@@ -19,6 +19,8 @@ import {
 import type { AppEnv } from "./types";
 import { historyPresentation } from "./history";
 import { targetKey as normalizedTargetKey } from "./publication";
+import type { GameMotifId, GameProfile } from "../src/types";
+import { GAME_MOTIF_IDS, type IdentitySelectionContext } from "./game-identity";
 
 export interface ResearchWorkflowParams {
   kind?: "research" | "health";
@@ -271,6 +273,35 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         progress: 76,
         degraded
       });
+      const identityContext = await step.do("load collection identity context", async () => {
+        const result = await this.env.DB.prepare(
+          `SELECT game_profile_json
+           FROM skill_cards
+           WHERE actor_hash = ?1
+           ORDER BY created_at ASC, id ASC
+           LIMIT 200`
+        )
+          .bind(actorHash)
+          .all<{ game_profile_json: string }>();
+        const context: IdentitySelectionContext = {
+          usedTitles: [],
+          motifUsage: Object.fromEntries(
+            GAME_MOTIF_IDS.map((motif) => [motif, 0])
+          ) as Record<GameMotifId, number>
+        };
+        for (const row of result.results ?? []) {
+          try {
+            const profile = JSON.parse(row.game_profile_json) as Partial<GameProfile>;
+            if (profile.rubricVersion !== "game-profile-v2" || !profile.identity) continue;
+            context.usedTitles?.push(profile.identity.title);
+            context.motifUsage![profile.identity.motifId] =
+              (context.motifUsage![profile.identity.motifId] ?? 0) + 1;
+          } catch {
+            // A malformed historical card must not block a new report.
+          }
+        }
+        return context;
+      });
       let synthesized:
         | { result: ReturnType<typeof draftToModelResult>; estimatedCents: number; degraded?: undefined }
         | { result: ReturnType<typeof draftToModelResult>; estimatedCents: 0; degraded: string };
@@ -309,7 +340,8 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
                   captured,
                   researched.result,
                   researched.citations,
-                  jobId
+                  jobId,
+                  identityContext
                 );
               } catch (error) {
                 const details = providerErrorDetails(error);
@@ -347,7 +379,9 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           captured,
           posts: social.posts,
           citations: researched.citations,
-          degraded
+          degraded,
+          identityContext,
+          useFallbackIdentity: Boolean(synthesized.degraded)
         });
       });
 

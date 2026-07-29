@@ -384,7 +384,11 @@ describe("Cloudflare bindings in workerd", () => {
     expect(report.status).toBe(200);
     expect(await report.json()).toMatchObject({
       gameProfile: {
-        rubricVersion: "game-profile-v1.1",
+        rubricVersion: "game-profile-v2",
+        identity: {
+          title: expect.any(String),
+          source: "fallback"
+        },
         axes: expect.arrayContaining([expect.objectContaining({ id: "potency" })])
       },
       sources: [

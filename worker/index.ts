@@ -43,6 +43,15 @@ export function publicConfig(env: AppEnv) {
   };
 }
 
+function currentGameProfile(profileJson: string, reportPayloadJson?: string): GameProfile {
+  const stored = JSON.parse(profileJson) as Partial<GameProfile>;
+  if (stored.rubricVersion === "game-profile-v2" && stored.identity) {
+    return stored as GameProfile;
+  }
+  if (!reportPayloadJson) throw new ReportUpgradeError();
+  return upgradeStoredReport(JSON.parse(reportPayloadJson)).gameProfile;
+}
+
 class JobGateError extends Error {
   constructor(
     readonly code: string,
@@ -1059,9 +1068,10 @@ app.get("/api/collection", async (c) => {
     c.env.DB.prepare(
       `SELECT sc.id, sc.report_id, sc.target_url, sc.display_name, sc.occupation_code,
               sc.occupation_title, sc.game_profile_json, sc.share_slug,
-              sc.created_at, sc.updated_at
+              sc.created_at, sc.updated_at, r.payload_json AS report_payload_json
        FROM skill_cards sc
        JOIN jobs j ON j.id = sc.job_id
+       JOIN reports r ON r.id = sc.report_id
        WHERE sc.actor_hash = ?1
          AND sc.expires_at > ?2
          AND j.publication_status = 'published'
@@ -1080,6 +1090,7 @@ app.get("/api/collection", async (c) => {
         share_slug: string | null;
         created_at: string;
         updated_at: string;
+        report_payload_json: string;
       }>(),
     c.env.DB.prepare(
       `SELECT j.id, j.target_url, j.occupation_code, o.title AS occupation_title,
@@ -1126,7 +1137,7 @@ app.get("/api/collection", async (c) => {
     displayName: row.display_name,
     occupationCode: row.occupation_code,
     occupationTitle: row.occupation_title,
-    gameProfile: JSON.parse(row.game_profile_json) as GameProfile,
+    gameProfile: currentGameProfile(row.game_profile_json, row.report_payload_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     shareSlug: row.share_slug ?? undefined
@@ -1224,9 +1235,10 @@ app.post("/api/cards/:id/share", async (c) => {
 app.get("/api/public/cards/:slug", async (c) => {
   const row = await c.env.DB.prepare(
     `SELECT sc.id, sc.target_url, sc.display_name, sc.occupation_title,
-            sc.game_profile_json, sc.created_at
+            sc.game_profile_json, sc.created_at, r.payload_json AS report_payload_json
      FROM skill_cards sc
      JOIN jobs j ON j.id = sc.job_id
+     JOIN reports r ON r.id = sc.report_id
      WHERE sc.share_slug = ?1
        AND sc.expires_at > ?2
        AND j.publication_status = 'published'`
@@ -1239,11 +1251,12 @@ app.get("/api/public/cards/:slug", async (c) => {
       occupation_title: string;
       game_profile_json: string;
       created_at: string;
+      report_payload_json: string;
     }>();
   if (!row) {
     return c.json({ error: { code: "not_found", message: "Shared manual not found" } }, 404);
   }
-  const storedProfile = JSON.parse(row.game_profile_json) as GameProfile;
+  const storedProfile = currentGameProfile(row.game_profile_json, row.report_payload_json);
   const publicProfile: GameProfile = {
     ...storedProfile,
     axes: storedProfile.axes.map((axis) => ({

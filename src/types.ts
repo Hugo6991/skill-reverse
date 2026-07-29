@@ -118,6 +118,29 @@ export type GameAxisId =
   | "renown"
   | "ascension";
 
+export type GameMotifId =
+  | "compass"
+  | "forge"
+  | "prism"
+  | "lattice"
+  | "beacon"
+  | "scroll"
+  | "shield"
+  | "lens";
+
+export interface GameIdentityCandidate {
+  title: string;
+  oneLiner: string;
+  traits: [string, string, string];
+  motifId: GameMotifId;
+  evidenceUrls: string[];
+}
+
+export interface GameIdentity extends GameIdentityCandidate {
+  source: "generated" | "fallback";
+}
+
+/** Historical v1 values are read only so stored reports can be upgraded safely. */
 export type GameArchetypeId =
   | "wealth_with_proof"
   | "all_aura"
@@ -167,6 +190,21 @@ export interface GameAxisSignal {
 }
 
 export interface GameProfile {
+  rubricVersion: "game-profile-v2";
+  axes: GameAxis[];
+  identity: GameIdentity;
+  badges: GameBadgeId[];
+  highlightAxisId: GameAxisId;
+  accentAxisId: GameAxisId;
+  riskAxisId: GameAxisId;
+  author: {
+    avatarUrl?: string;
+    profileUrl?: string;
+    attribution: "repository_owner" | "identified_creator" | "source_creator";
+  };
+}
+
+export interface LegacyGameProfile {
   rubricVersion: "game-profile-v1" | "game-profile-v1.1";
   axes: GameAxis[];
   archetypeId: GameArchetypeId;
@@ -174,11 +212,7 @@ export interface GameProfile {
   badges: GameBadgeId[];
   strongestAxisId: GameAxisId;
   weakestAxisId: GameAxisId;
-  author: {
-    avatarUrl?: string;
-    profileUrl?: string;
-    attribution: "repository_owner" | "identified_creator" | "source_creator";
-  };
+  author: GameProfile["author"];
 }
 
 export interface ReverseReport {
@@ -214,7 +248,7 @@ export interface ReverseReport {
 }
 
 export type StoredReverseReport = Omit<ReverseReport, "gameProfile"> & {
-  gameProfile?: GameProfile;
+  gameProfile?: GameProfile | LegacyGameProfile;
 };
 
 export interface JobStatus {

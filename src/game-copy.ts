@@ -1,8 +1,6 @@
 import type {
-  GameArchetypeId,
   GameAxisId,
-  GameBadgeId,
-  GameRoastId
+  GameBadgeId
 } from "./types";
 
 export const gameAxisCopy: Record<
@@ -41,32 +39,6 @@ export const gameAxisCopy: Record<
   }
 };
 
-export const gameArchetypeCopy: Record<GameArchetypeId, string> = {
-  wealth_with_proof: "生財有道",
-  all_aura: "法相驚人",
-  quiet_power: "大巧不工",
-  hard_ascension: "渡劫飛升",
-  famous_sect: "名門正派",
-  hidden_manual: "隱世真傳",
-  instant_magic: "即學即靈",
-  money: "點石成金",
-  spectacle: "法相萬千",
-  potency: "靈驗如神",
-  activation: "九劫難成",
-  renown: "威震江湖",
-  ascension: "飛升有望"
-};
-
-export const gameRoastCopy: Record<GameRoastId, string> = {
-  all_aura: "這套功法目前主要修的是法相",
-  famous_but_unproven: "江湖都聽過 親眼見過靈驗的人還不多",
-  expensive_unknown_return: "渡劫成本不低 靈石回收期未知",
-  valuable_hard_start: "能賺錢 但要先活過入門期",
-  quiet_power: "沒什麼名氣 但可能真能打",
-  portable_manual: "換個門派也能繼續用",
-  balanced: "沒有一招封神 但每一招都接得住"
-};
-
 export const gameBadgeCopy: Record<GameBadgeId, string> = {
   evidence_rich: "證據充足",
   low_dependency: "低依賴",
@@ -82,6 +54,10 @@ export const gameSignalCopy: Record<string, string> = {
   framework_shape: "框架形狀",
   source_surface: "來源呈現",
   presentation_density: "資訊密度",
+  documented_presentation: "文檔呈現",
+  visual_craft: "視覺工藝",
+  distinct_naming: "專屬命名",
+  interaction_design: "互動設計",
   claim_strength: "主張強度",
   verified_claims: "已核實主張",
   evidence_coverage: "證據覆蓋",

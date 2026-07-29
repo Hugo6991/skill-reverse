@@ -1,5 +1,5 @@
 import type { GameProfile, ReverseReport, StoredReverseReport } from "../src/types";
-import { computeGameProfile } from "./game-profile";
+import { computeGameProfile, confidenceFromScore } from "./game-profile";
 
 const GAME_AXIS_IDS = new Set([
   "money",
@@ -18,8 +18,15 @@ function hasRenderableGameProfile(value: unknown): value is GameProfile {
   if (!isRecord(value) || !Array.isArray(value.axes) || value.axes.length !== 6) {
     return false;
   }
-  return value.axes.every(
-    (axis) => isRecord(axis) && typeof axis.id === "string" && GAME_AXIS_IDS.has(axis.id)
+  return (
+    value.rubricVersion === "game-profile-v2" &&
+    isRecord(value.identity) &&
+    typeof value.identity.title === "string" &&
+    typeof value.highlightAxisId === "string" &&
+    typeof value.riskAxisId === "string" &&
+    value.axes.every(
+      (axis) => isRecord(axis) && typeof axis.id === "string" && GAME_AXIS_IDS.has(axis.id)
+    )
   );
 }
 
@@ -49,12 +56,18 @@ export function upgradeStoredReport(value: unknown): ReverseReport {
   if (!isUpgradeableReport(value)) throw new ReportUpgradeError();
   if (hasRenderableGameProfile(value.gameProfile)) return value as ReverseReport;
   try {
-    return {
+    const normalized = {
       ...value,
-      gameProfile: computeGameProfile(value as Omit<ReverseReport, "gameProfile">)
+      claims: value.claims.map((claim) => ({
+        ...claim,
+        confidence: confidenceFromScore(claim.score)
+      }))
+    } as Omit<ReverseReport, "gameProfile">;
+    return {
+      ...normalized,
+      gameProfile: computeGameProfile(normalized)
     };
   } catch {
     throw new ReportUpgradeError();
   }
 }
-

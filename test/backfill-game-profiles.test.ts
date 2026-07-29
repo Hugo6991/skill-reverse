@@ -40,7 +40,8 @@ describe("game profile backfill", () => {
     expect(plan.failures).toEqual([]);
     expect(plan.reportUpdates).toHaveLength(1);
     expect(plan.cardUpserts).toHaveLength(1);
-    expect(plan.reportUpdates[0].profile.rubricVersion).toBe("game-profile-v1.1");
+    expect(plan.reportUpdates[0].profile.rubricVersion).toBe("game-profile-v2");
+    expect(plan.reportUpdates[0].profile.identity.title).not.toMatch(/法相驚人|法相萬千/);
     expect(cardUpsertSql(plan.cardUpserts[0], dependencies.now, plan.expiresAt))
       .not.toContain("share_slug");
   });
@@ -81,5 +82,42 @@ describe("game profile backfill", () => {
     expect(plan.reportUpdates).toHaveLength(2);
     expect(plan.cardUpserts).toHaveLength(1);
     expect(plan.cardUpserts[0].row.report_id).toBe("report-2");
+  });
+
+  it("gives six chronological legacy cards distinct titles and at least three motifs", () => {
+    const { gameProfile: _gameProfile, ...legacyReport } = demoReport;
+    const rows = Array.from({ length: 6 }, (_, index) =>
+      row(
+        {
+          ...legacyReport,
+          id: `report-${index + 1}`,
+          targetUrl: `https://example.com/skill-${index + 1}`,
+          framework: {
+            ...legacyReport.framework,
+            name: `第${["一", "二", "三", "四", "五", "六"][index]}套校準方法`
+          }
+        },
+        {
+          report_id: `report-${index + 1}`,
+          job_id: `job-${index + 1}`,
+          target_url: `https://example.com/skill-${index + 1}`,
+          target_key: `https://example.com/skill-${index + 1}`,
+          published_at: `2026-07-${String(20 + index).padStart(2, "0")}T00:00:00.000Z`
+        }
+      )
+    );
+    const plan = planGameProfileBackfill(rows, dependencies);
+    const titles = plan.reportUpdates.map((item) => item.profile.identity.title);
+    const oneLiners = plan.reportUpdates.map((item) => item.profile.identity.oneLiner);
+    const motifs = plan.reportUpdates.map((item) => item.profile.identity.motifId);
+
+    expect(new Set(titles).size).toBe(6);
+    expect(new Set(oneLiners).size).toBe(6);
+    expect(new Set(motifs).size).toBeGreaterThanOrEqual(3);
+    expect(titles.join("")).not.toMatch(/法相驚人|法相萬千/);
+    expect(plan.metrics).toMatchObject({
+      duplicateTitleRate: 0,
+      concentrated: false
+    });
   });
 });

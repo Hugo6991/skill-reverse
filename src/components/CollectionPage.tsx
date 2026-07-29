@@ -6,13 +6,13 @@ import {
   Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { gameArchetypeCopy, gameRoastCopy } from "../game-copy";
 import type {
   CollectionPage as CollectionResponse,
   MyResearchItem,
   SkillCardSummary
 } from "../types";
 import { GameRadar } from "./GameRadar";
+import { GameIdentityMark } from "./GameIdentityMark";
 
 async function loadCollection(): Promise<CollectionResponse> {
   const response = await fetch("/api/collection");
@@ -110,7 +110,12 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
           {cards.length > 0 && (
             <section className="collection-grid" aria-label="已收藏秘籍">
               {cards.map((card, index) => (
-                <article className="manual-card" key={card.id}>
+                <article
+                  className={`manual-card motif-${card.gameProfile.identity.motifId}`}
+                  data-axis={card.gameProfile.highlightAxisId}
+                  data-accent={card.gameProfile.accentAxisId}
+                  key={card.id}
+                >
                   <button
                     className="manual-card-main"
                     type="button"
@@ -122,17 +127,24 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                     <span className="manual-volume">
                       第{volumeNumber(cards.length - index)}卷
                     </span>
-                    <GameRadar
-                      axes={card.gameProfile.axes}
-                      compact
-                      ariaLabel={`${card.displayName} 六維畫像`}
-                    />
-                    <span className="manual-archetype">
-                      {gameArchetypeCopy[card.gameProfile.archetypeId]}
+                    <GameIdentityMark motifId={card.gameProfile.identity.motifId} />
+                    <span className="manual-identity-title">
+                      {card.gameProfile.identity.title}
                     </span>
                     <strong>{card.displayName}</strong>
                     <small>{card.occupationTitle}</small>
-                    <p>{gameRoastCopy[card.gameProfile.roastId]}</p>
+                    <p>{card.gameProfile.identity.oneLiner}</p>
+                    <span className="manual-traits" aria-label="三個身份特質">
+                      {card.gameProfile.identity.traits.map((trait) => (
+                        <span key={trait}>{trait}</span>
+                      ))}
+                    </span>
+                    <GameRadar
+                      axes={card.gameProfile.axes}
+                      compact
+                      accentAxisId={card.gameProfile.highlightAxisId}
+                      ariaLabel={`${card.displayName} 六維畫像`}
+                    />
                     <time dateTime={card.updatedAt}>
                       {new Intl.DateTimeFormat("zh-TW", {
                         year: "numeric",
