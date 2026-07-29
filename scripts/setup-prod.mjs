@@ -344,8 +344,9 @@ const verifiedClaimsAreSupported = (smokeReport.claims ?? [])
   );
 const gameProfileIsValid =
   smokeReport.gameProfile?.rubricVersion === "game-profile-v2" &&
+  smokeReport.gameProfile?.identity?.namingVersion === "four-beat-v1" &&
   typeof smokeReport.gameProfile?.identity?.title === "string" &&
-  smokeReport.gameProfile.identity.title.length >= 4 &&
+  /^\p{Script=Han}{4}$/u.test(smokeReport.gameProfile.identity.title) &&
   Array.isArray(smokeReport.gameProfile?.axes) &&
   smokeReport.gameProfile.axes.length === 6 &&
   new Set(smokeReport.gameProfile.axes.map((axis) => axis.id)).size === 6;

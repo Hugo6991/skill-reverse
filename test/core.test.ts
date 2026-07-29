@@ -7,6 +7,7 @@ import { modelResultSchema } from "../worker/schema";
 import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
 import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
 import {
+  applyReportTranslation,
   assembleReport,
   fetchSocialEvidence,
   inferCreatorIdentity,
@@ -26,6 +27,11 @@ import {
 } from "../worker/publication";
 import { computeGameProfile } from "../worker/game-profile";
 import { ReportUpgradeError, upgradeStoredReport } from "../worker/report-compat";
+import {
+  englishIdentityTitle,
+  GAME_IDENTITY_NAMING_VERSION,
+  isFourBeatTitle
+} from "../worker/game-identity";
 
 describe("report presentation copy", () => {
   it("removes only terminal Chinese full stops", () => {
@@ -179,42 +185,109 @@ describe("deterministic game profile", () => {
     expect(demoReport.claims.map((claim) => claim.confidence)).toEqual(before);
   });
 
-  it("requires a unique title and prefers a less-used visual motif", () => {
+  it("chooses a unique four-beat title before assigning a less-used visual motif", () => {
     const evidenceUrl = demoReport.sources[0].url;
     const candidates = [
       {
-        title: "來源鍛造心法",
+        title: "來源鍛造",
         oneLiner: "能把來源整理成方法，但仍需要逐項核對",
         traits: ["來源可查", "方法清楚", "需要核對"] as [string, string, string],
-        motifId: "forge" as const,
         evidenceUrls: [evidenceUrl]
       },
       {
-        title: "條件守門心法",
+        title: "條件守門",
         oneLiner: "能守住適用條件，但每次採用前都要檢查前提",
         traits: ["條件先行", "保留取捨", "逐次檢查"] as [string, string, string],
-        motifId: "shield" as const,
         evidenceUrls: [evidenceUrl]
       },
       {
-        title: "證據編排心法",
+        title: "證據編排",
         oneLiner: "能串起證據與結論，但來源不足時必須保留未知",
         traits: ["證據分層", "結論可查", "保留未知"] as [string, string, string],
-        motifId: "lens" as const,
         evidenceUrls: [evidenceUrl]
       }
     ];
     const profile = computeGameProfile(demoReport, candidates, {
-      usedTitles: ["來源鍛造心法"],
+      usedTitles: ["來源鍛造"],
       motifUsage: { shield: 5, lens: 0 }
     });
 
     expect(profile.identity).toMatchObject({
-      title: "證據編排心法",
-      motifId: "lens",
+      title: "條件守門",
+      namingVersion: GAME_IDENTITY_NAMING_VERSION,
       source: "generated"
     });
+    expect(profile.identity.motifId).not.toBe("shield");
     expect(profile.identity.evidenceUrls).toEqual([evidenceUrl]);
+  });
+
+  it("rejects clipped AI titles instead of slicing them into fragments", () => {
+    const evidenceUrl = demoReport.sources[0].url;
+    const profile = computeGameProfile(
+      demoReport,
+      [
+        {
+          title: "以可編輯威脅模型為中心",
+          oneLiner: "能先建立可調整的威脅模型，但仍要驗證每個風險假設",
+          traits: ["條件先行", "風險可查", "逐項驗證"],
+          evidenceUrls: [evidenceUrl]
+        },
+        {
+          title: "Evidence Grid",
+          oneLiner: "能排列證據，但需要逐項驗證來源",
+          traits: ["來源可查", "條件先行", "保留取捨"],
+          evidenceUrls: [evidenceUrl]
+        },
+        {
+          title: "法相驚人",
+          oneLiner: "能快速分類，但無法描述這份報告的具體方法",
+          traits: ["來源可查", "條件先行", "保留取捨"],
+          evidenceUrls: [evidenceUrl]
+        }
+      ]
+    );
+
+    expect(profile.identity.source).toBe("fallback");
+    expect(isFourBeatTitle(profile.identity.title)).toBe(true);
+    expect(profile.identity.title).not.toBe("以可編輯");
+  });
+
+  it("repairs duplicate candidate traits without rejecting the candidate", () => {
+    const evidenceUrl = demoReport.sources[0].url;
+    const profile = computeGameProfile(demoReport, [
+      {
+        title: "證據鍛造",
+        oneLiner: "能把來源整理成可核對主張，但資料不足時必須保留未知",
+        traits: ["來源可查", "來源可查", "來源可查"],
+        evidenceUrls: [evidenceUrl]
+      }
+    ]);
+
+    expect(profile.identity.source).toBe("generated");
+    expect(profile.identity.title).toBe("證據鍛造");
+    expect(new Set(profile.identity.traits).size).toBe(3);
+  });
+
+  it("names the threat-model and visual-article regressions with complete four-beat words", () => {
+    const threat = computeGameProfile({
+      ...demoReport,
+      framework: {
+        ...demoReport.framework,
+        name: "以可編輯威脅模型為中心的分階段安全分析框架",
+        summary: "先建立可由人調整的專案威脅模型，再依風險決定分析範圍"
+      }
+    });
+    const visual = computeGameProfile({
+      ...demoReport,
+      framework: {
+        ...demoReport.framework,
+        name: "文章內容圖文化分段輸出",
+        summary: "把文章拆成適合視覺呈現的段落並安排圖片"
+      }
+    });
+
+    expect(threat.identity.title).toBe("威脅沙盤");
+    expect(visual.identity.title).toBe("圖文編排");
   });
 
   it("uses a traceable report-derived fallback instead of stock copy", () => {
@@ -699,24 +772,21 @@ describe("evidence-aware report assembly", () => {
     professionalDelta: [],
     identityCandidates: [
       {
-        title: "條件鍛造心法",
+        title: "條件鍛造",
         oneLiner: "能把觀察改寫成條件規則，但需要先取得可核對的來源",
         traits: ["條件先行", "來源可查", "逐項驗證"],
-        motifId: "forge",
         evidenceUrls: ["https://example.com"]
       },
       {
-        title: "觀察校準訣",
+        title: "觀察校準",
         oneLiner: "能分開事實與推論，但在只有截圖時必須停止判斷",
         traits: ["事實分層", "保留未知", "避免腦補"],
-        motifId: "lens",
         evidenceUrls: ["https://example.com"]
       },
       {
-        title: "脈絡守門譜",
+        title: "脈絡守門",
         oneLiner: "能把適用情境說清楚，但代價是每次都要檢查前提",
         traits: ["脈絡明確", "標出取捨", "可作基線"],
-        motifId: "shield",
         evidenceUrls: ["https://example.com"]
       }
     ],
@@ -738,13 +808,13 @@ describe("evidence-aware report assembly", () => {
     caveats: baseModel.caveats
   };
 
-  it("rejects evidence confidence that differs from the component sum", () => {
+  it("accepts a correctable confidence mismatch for backend normalization", () => {
     expect(
       modelResultSchema.safeParse({
         ...baseModel,
         claims: [{ ...baseModel.claims[0], confidence: 75 }]
       }).success
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("downgrades verified claims without first-party evidence", () => {
@@ -799,6 +869,16 @@ describe("evidence-aware report assembly", () => {
   it("uses an OpenAI model through OpenRouter for final structured synthesis", async () => {
     const synthesized = {
       ...baseModel,
+      claims: [{ ...baseModel.claims[0], confidence: 75 }],
+      identityCandidates: baseModel.identityCandidates.map((candidate, index) =>
+        index === 0
+          ? {
+              ...candidate,
+              title: "以可編輯威脅模型為中心",
+              traits: ["來源可查", "來源可查", "來源可查"]
+            }
+          : candidate
+      ),
       author: { ...baseModel.author, handle: "" },
       title: "OpenAI reviewed report"
     };
@@ -835,6 +915,15 @@ describe("evidence-aware report assembly", () => {
     );
 
     expect(result.result.title).toBe("OpenAI reviewed report");
+    expect(result.result.claims[0].confidence).toBe(100);
+    expect(result.result.identityCandidates[0].traits).toEqual([
+      "來源可查",
+      "來源可查",
+      "來源可查"
+    ]);
+    expect(result.result.identityCandidates[0].title).toBe(
+      "以可編輯威脅模型為中心"
+    );
     expect(result.estimatedCents).toBe(5);
     const request = fetchMock.mock.calls[0];
     expect(request[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
@@ -941,6 +1030,56 @@ describe("evidence-aware report assembly", () => {
 });
 
 describe("bilingual report translation", () => {
+  it("keeps natural English names and repairs invalid translated titles locally", () => {
+    expect(englishIdentityTitle("威脅沙盤", "Threat Sandbox")).toBe(
+      "Threat Sandbox"
+    );
+    expect(englishIdentityTitle("威脅沙盤", "威脅沙盤")).toBe(
+      "Threat Sandbox"
+    );
+    const translation = {
+      title: demoReport.title,
+      verdict: demoReport.verdict,
+      framework: {
+        ...demoReport.framework,
+        steps: demoReport.framework.steps.map(({ title, instruction }) => ({
+          title,
+          instruction
+        }))
+      },
+      author: {
+        background: demoReport.author.background,
+        context: demoReport.author.context
+      },
+      gameIdentity: {
+        title: "流程守門",
+        oneLiner: "Strength with a concrete cost",
+        traits: ["traceable", "conditional", "practical"] as [
+          string,
+          string,
+          string
+        ]
+      },
+      occupation: {
+        title: demoReport.occupation.title,
+        description: demoReport.occupation.description,
+        aliases: demoReport.occupation.aliases,
+        competencyLabels: demoReport.occupation.competencies.map(
+          (competency) => competency.label
+        )
+      },
+      observations: demoReport.observations.map((item) => item.text),
+      claims: demoReport.claims.map((item) => item.text),
+      professionalDelta: demoReport.professionalDelta.map((item) => item.rationale),
+      adoption: demoReport.adoption,
+      caveats: demoReport.caveats,
+      degraded: demoReport.degraded
+    };
+    expect(
+      applyReportTranslation(demoReport, translation).gameProfile.identity.title
+    ).toBe("Workflow Guard");
+  });
+
   it("classifies a truncated English translation before publishing", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

@@ -138,11 +138,12 @@ export interface GameIdentityCandidate {
   title: string;
   oneLiner: string;
   traits: [string, string, string];
-  motifId: GameMotifId;
   evidenceUrls: string[];
 }
 
 export interface GameIdentity extends GameIdentityCandidate {
+  namingVersion: "four-beat-v1";
+  motifId: GameMotifId;
   source: "generated" | "fallback";
 }
 
