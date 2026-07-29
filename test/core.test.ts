@@ -53,6 +53,26 @@ describe("deterministic game profile", () => {
     expect("gameProfile" in legacyReport).toBe(false);
   });
 
+  it("replaces historical v1 labels when a stored report is read", () => {
+    const legacy = {
+      ...demoReport,
+      gameProfile: {
+        rubricVersion: "game-profile-v1.1",
+        axes: demoReport.gameProfile.axes,
+        archetypeId: "all_aura",
+        roastId: "all_aura",
+        badges: demoReport.gameProfile.badges,
+        strongestAxisId: "spectacle",
+        weakestAxisId: "potency",
+        author: demoReport.gameProfile.author
+      }
+    };
+    const upgraded = upgradeStoredReport(legacy);
+    expect(upgraded.gameProfile.rubricVersion).toBe("game-profile-v2");
+    expect(upgraded.gameProfile.identity.title).not.toBe("法相驚人");
+    expect("archetypeId" in upgraded.gameProfile).toBe(false);
+  });
+
   it("rejects malformed legacy reports instead of returning an unsafe partial result", () => {
     expect(() => upgradeStoredReport({ id: "broken" })).toThrow(ReportUpgradeError);
   });
@@ -90,11 +110,46 @@ describe("deterministic game profile", () => {
       expect.objectContaining({ id: "github_forks", value: 19_600, points: 25, maxPoints: 25 })
     ]);
     const profile = computeGameProfile(demoReport);
-    expect(profile.archetypeId).toBe("wealth_with_proof");
-    expect(profile.roastId).not.toBe("quiet_power");
+    expect(profile.rubricVersion).toBe("game-profile-v2");
+    expect(profile.identity.title).not.toMatch(/法相驚人|法相萬千/);
+    expect(profile.highlightAxisId).not.toBe("activation");
+    expect(profile.riskAxisId).toBe("activation");
   });
 
-  it("does not feed entertainment dimensions back into claim confidence", () => {
+  it("does not let source count, summary length, or generic steps inflate spectacle", () => {
+    const baseline = computeGameProfile(demoReport).axes.find(
+      (axis) => axis.id === "spectacle"
+    )?.value;
+    const profile = computeGameProfile({
+      ...demoReport,
+      framework: {
+        ...demoReport.framework,
+        summary: `${demoReport.framework.summary}${" 同一段內容".repeat(30)}`,
+        steps: [
+          ...demoReport.framework.steps,
+          ...Array.from({ length: 3 }, (_, index) => ({
+            title: `步驟 ${index}`,
+            instruction: "執行既有方法",
+            failureType: "discipline" as const
+          }))
+        ]
+      },
+      sources: [
+        ...demoReport.sources,
+        ...Array.from({ length: 4 }, (_, index) => ({
+          id: `extra-${index}`,
+          url: `https://example.com/${index}`,
+          kind: "article" as const,
+          status: "verified_at_retrieval" as const,
+          title: `Extra ${index}`,
+          retrievedAt: demoReport.generatedAt
+        }))
+      ]
+    });
+    expect(profile.axes.find((axis) => axis.id === "spectacle")?.value).toBe(baseline);
+  });
+
+  it("does not feed presentation or cost dimensions back into claim confidence", () => {
     const before = demoReport.claims.map((claim) => claim.confidence);
     const profile = computeGameProfile({
       ...demoReport,
@@ -118,6 +173,52 @@ describe("deterministic game profile", () => {
       demoReport.gameProfile.axes.find((axis) => axis.id === "activation")?.value ?? 0
     );
     expect(demoReport.claims.map((claim) => claim.confidence)).toEqual(before);
+  });
+
+  it("requires a unique title and prefers a less-used visual motif", () => {
+    const evidenceUrl = demoReport.sources[0].url;
+    const candidates = [
+      {
+        title: "來源鍛造心法",
+        oneLiner: "能把來源整理成方法，但仍需要逐項核對",
+        traits: ["來源可查", "方法清楚", "需要核對"] as [string, string, string],
+        motifId: "forge" as const,
+        evidenceUrls: [evidenceUrl]
+      },
+      {
+        title: "條件守門心法",
+        oneLiner: "能守住適用條件，但每次採用前都要檢查前提",
+        traits: ["條件先行", "保留取捨", "逐次檢查"] as [string, string, string],
+        motifId: "shield" as const,
+        evidenceUrls: [evidenceUrl]
+      },
+      {
+        title: "證據編排心法",
+        oneLiner: "能串起證據與結論，但來源不足時必須保留未知",
+        traits: ["證據分層", "結論可查", "保留未知"] as [string, string, string],
+        motifId: "lens" as const,
+        evidenceUrls: [evidenceUrl]
+      }
+    ];
+    const profile = computeGameProfile(demoReport, candidates, {
+      usedTitles: ["來源鍛造心法"],
+      motifUsage: { shield: 5, lens: 0 }
+    });
+
+    expect(profile.identity).toMatchObject({
+      title: "證據編排心法",
+      motifId: "lens",
+      source: "generated"
+    });
+    expect(profile.identity.evidenceUrls).toEqual([evidenceUrl]);
+  });
+
+  it("uses a traceable report-derived fallback instead of stock copy", () => {
+    const profile = computeGameProfile(demoReport, []);
+    expect(profile.identity.source).toBe("fallback");
+    expect(profile.identity.evidenceUrls.length).toBeGreaterThan(0);
+    expect(profile.identity.title).not.toMatch(/法相驚人|法相萬千/);
+    expect(new Set(profile.identity.traits).size).toBe(3);
   });
 });
 
@@ -457,7 +558,7 @@ describe("evidence-aware report assembly", () => {
       {
         text: "An uncited claim",
         status: "verified",
-        confidence: 99,
+        confidence: 100,
         evidenceUrls: ["https://third-party.example/story"],
         score: {
           directness: 30,
@@ -470,6 +571,29 @@ describe("evidence-aware report assembly", () => {
       }
     ],
     professionalDelta: [],
+    identityCandidates: [
+      {
+        title: "條件鍛造心法",
+        oneLiner: "能把觀察改寫成條件規則，但需要先取得可核對的來源",
+        traits: ["條件先行", "來源可查", "逐項驗證"],
+        motifId: "forge",
+        evidenceUrls: ["https://example.com"]
+      },
+      {
+        title: "觀察校準訣",
+        oneLiner: "能分開事實與推論，但在只有截圖時必須停止判斷",
+        traits: ["事實分層", "保留未知", "避免腦補"],
+        motifId: "lens",
+        evidenceUrls: ["https://example.com"]
+      },
+      {
+        title: "脈絡守門譜",
+        oneLiner: "能把適用情境說清楚，但代價是每次都要檢查前提",
+        traits: ["脈絡明確", "標出取捨", "可作基線"],
+        motifId: "shield",
+        evidenceUrls: ["https://example.com"]
+      }
+    ],
     adoption: [],
     caveats: []
   });
@@ -487,6 +611,15 @@ describe("evidence-aware report assembly", () => {
     adoptionIdeas: baseModel.adoption,
     caveats: baseModel.caveats
   };
+
+  it("rejects evidence confidence that differs from the component sum", () => {
+    expect(
+      modelResultSchema.safeParse({
+        ...baseModel,
+        claims: [{ ...baseModel.claims[0], confidence: 75 }]
+      }).success
+    ).toBe(false);
+  });
 
   it("downgrades verified claims without first-party evidence", () => {
     const report = assembleReport({

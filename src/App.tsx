@@ -29,8 +29,10 @@ function hasRenderableGameProfile(report: ReverseReport): boolean {
   return (
     Array.isArray(report.gameProfile?.axes) &&
     report.gameProfile.axes.length === 6 &&
-    typeof report.gameProfile.strongestAxisId === "string" &&
-    typeof report.gameProfile.weakestAxisId === "string"
+    report.gameProfile.rubricVersion === "game-profile-v2" &&
+    typeof report.gameProfile.identity?.title === "string" &&
+    typeof report.gameProfile.highlightAxisId === "string" &&
+    typeof report.gameProfile.riskAxisId === "string"
   );
 }
 

@@ -143,7 +143,7 @@ pnpm deploy
 
 第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。設定 `SKILL_REVERSE_URL` 後會追加 public health check。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
-舊報告升級前先執行 `pnpm backup:prod`，再執行 `pnpm db:backfill-game-profiles:remote -- --dry-run` 檢查計畫。正式回填使用 `pnpm db:backfill-game-profiles:remote`；腳本只在零失敗時寫入完成標記，重跑不會建立重複卡片，也不會替卡片開啟分享。
+`game-profile-v2` 回填預設只做 dry run：執行 `pnpm db:backfill-game-profiles:remote` 會按建立時間列出 payload 更新與卡片 upsert 數量，不會寫入正式資料。確認計畫後，使用 `pnpm db:backfill-game-profiles:apply`；這個命令會先執行正式備份，再以明確的 `--apply --backup-confirmed` 寫入報告 payload 與 `skill_cards.game_profile_json`。回填保留 report ID、分享 slug、公開狀態與收藏歸屬，失敗時不寫入完成標記，也不會替卡片開啟分享。
 
 ## API
 

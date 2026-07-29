@@ -9,13 +9,14 @@ import type {
   ReverseReport,
   SourceArtifact
 } from "../src/types";
+import type { IdentitySelectionContext } from "./game-identity";
 import {
   modelResultSchema,
   researchDraftSchema,
   type ModelResult,
   type ResearchDraft
 } from "./schema";
-import { computeGameProfile } from "./game-profile";
+import { computeGameProfile, confidenceFromScore } from "./game-profile";
 import { addJobCost, ProviderCallError, recordProviderCall } from "./provider-ledger";
 import { assertSafePublicUrl } from "./security";
 import type { AppEnv } from "./types";
@@ -85,6 +86,7 @@ const MODEL_SCHEMA = {
     "observations",
     "claims",
     "professionalDelta",
+    "identityCandidates",
     "adoption",
     "caveats"
   ],
@@ -200,6 +202,45 @@ const MODEL_SCHEMA = {
           },
           rationale: { type: "string" },
           evidenceUrls: { type: "array", items: { type: "string" } }
+        }
+      }
+    },
+    identityCandidates: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "oneLiner", "traits", "motifId", "evidenceUrls"],
+        properties: {
+          title: { type: "string", minLength: 4, maxLength: 10 },
+          oneLiner: { type: "string", minLength: 8, maxLength: 72 },
+          traits: {
+            type: "array",
+            minItems: 3,
+            maxItems: 3,
+            items: { type: "string", minLength: 2, maxLength: 8 }
+          },
+          motifId: {
+            type: "string",
+            enum: [
+              "compass",
+              "forge",
+              "prism",
+              "lattice",
+              "beacon",
+              "scroll",
+              "shield",
+              "lens"
+            ]
+          },
+          evidenceUrls: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            items: { type: "string" }
+          }
         }
       }
     },
@@ -763,7 +804,8 @@ function openRouterSynthesisPrompt(
   occupation: OccupationProfile,
   artifacts: CapturedArtifact[],
   research: ResearchDraft,
-  citations: string[]
+  citations: string[],
+  identityContext: IdentitySelectionContext
 ): string {
   const sourceExcerpts = artifacts
     .map(
@@ -793,7 +835,14 @@ Editorial requirements:
 10. Make the verdict a clear borrow / test / skip decision; do not imply that installing a skill is the default next step
 11. Keep creator motivation in author.context only when the evidence supports it, and distinguish observed design choices from inferred philosophy
 12. Rewrite adoption items as plain-language rules that work in any chat AI before the user considers a plugin, skill, or agent
-13. Return only JSON matching the required schema
+13. Set every claim confidence to the exact sum of directness + firstParty + corroboration + temporalFit + reproducibility + contradictionPenalty. Use evidence anchors: 0=no support, 25=weakly plausible, 50=one-source supported inference, 75=corroborated or reproducible, 90+=verified and reproducible
+14. Create exactly three distinct identityCandidates. Each needs a 4–10 Traditional-Chinese-character martial-arts title, one concrete strength-and-cost sentence, three evidence-traceable traits, one motifId, and 1–3 supplied evidence URLs
+15. Never use generic stock titles, including ${JSON.stringify([
+    "法相驚人",
+    "法相萬千",
+    ...(identityContext.usedTitles ?? [])
+  ])}. Prefer motifs with the lowest current count: ${JSON.stringify(identityContext.motifUsage ?? {})}
+16. Return only JSON matching the required schema
 
 PERPLEXITY RESEARCH DRAFT:
 ${JSON.stringify(research)}
@@ -812,7 +861,8 @@ export async function runOpenRouterSynthesis(
   artifacts: CapturedArtifact[],
   research: ResearchDraft,
   citations: string[],
-  jobId = "untracked"
+  jobId = "untracked",
+  identityContext: IdentitySelectionContext = {}
 ): Promise<{ result: ModelResult; estimatedCents: number }> {
   if (!env.OPENROUTER_API_KEY) {
     throw new ProviderCallError(
@@ -847,7 +897,8 @@ export async function runOpenRouterSynthesis(
               occupation,
               artifacts,
               research,
-              citations
+              citations,
+              identityContext
             )
           }
         ],
@@ -996,28 +1047,53 @@ export async function runOpenRouterSynthesis(
 }
 
 export function draftToModelResult(draft: ResearchDraft, targetUrl: string): ModelResult {
-  const confidence = { high: 82, medium: 66, low: 48 } as const;
   return modelResultSchema.parse({
     title: draft.frameworkHypothesis.name,
     verdict: draft.researchSummary,
     framework: draft.frameworkHypothesis,
     author: draft.authorContext,
     observations: draft.observations,
-    claims: draft.candidateClaims.map((claim) => ({
-      text: claim.text,
-      status: claim.evidenceUrls.includes(targetUrl) ? "supported_inference" : "plausible",
-      confidence: confidence[claim.confidence],
-      evidenceUrls: claim.evidenceUrls,
-      score: {
+    claims: draft.candidateClaims.map((claim) => {
+      const score = {
         directness: claim.confidence === "high" ? 24 : claim.confidence === "medium" ? 18 : 12,
         firstParty: claim.evidenceUrls.includes(targetUrl) ? 18 : 6,
         corroboration: Math.min(20, claim.evidenceUrls.length * 6),
         temporalFit: 8,
         reproducibility: 8,
         contradictionPenalty: 0
-      }
-    })),
+      };
+      return {
+        text: claim.text,
+        status: claim.evidenceUrls.includes(targetUrl) ? "supported_inference" : "plausible",
+        confidence: Object.values(score).reduce((sum, value) => sum + value, 0),
+        evidenceUrls: claim.evidenceUrls,
+        score
+      };
+    }),
     professionalDelta: draft.professionalSignals,
+    identityCandidates: [
+      {
+        title: "證據編排心法",
+        oneLiner: `${draft.frameworkHypothesis.summary.slice(0, 36)}，但需先核對使用條件`,
+        traits: ["來源可查", "步驟清楚", "保留條件"],
+        motifId: "lattice",
+        evidenceUrls: [targetUrl]
+      },
+      {
+        title: "框架驗真訣",
+        oneLiner: `${draft.researchSummary.slice(0, 36)}，代價是仍要逐項實測`,
+        traits: ["主張分級", "可作基線", "先行驗證"],
+        motifId: "lens",
+        evidenceUrls: [targetUrl]
+      },
+      {
+        title: "方法拆解譜",
+        oneLiner: `${draft.frameworkHypothesis.useWhen.slice(0, 36)}，不適用時應停止套用`,
+        traits: ["聚焦方法", "標出取捨", "方便借用"],
+        motifId: "scroll",
+        evidenceUrls: [targetUrl]
+      }
+    ],
     adoption: draft.adoptionIdeas,
     caveats: draft.caveats
   });
@@ -1042,8 +1118,21 @@ export function assembleReport(input: {
   posts: SocialPost[];
   citations: string[];
   degraded: string[];
+  identityContext?: IdentitySelectionContext;
+  useFallbackIdentity?: boolean;
 }): ReverseReport {
-  const { id, targetUrl, occupation, model, captured, posts, citations, degraded } = input;
+  const {
+    id,
+    targetUrl,
+    occupation,
+    model,
+    captured,
+    posts,
+    citations,
+    degraded,
+    identityContext = {},
+    useFallbackIdentity = false
+  } = input;
   const now = new Date().toISOString();
   const sources: SourceArtifact[] = captured.map((artifact) => ({
     id: artifact.id,
@@ -1073,7 +1162,8 @@ export function assembleReport(input: {
     ...citations,
     ...model.observations.flatMap((item) => item.sourceUrls),
     ...model.claims.flatMap((item) => item.evidenceUrls),
-    ...model.professionalDelta.flatMap((item) => item.evidenceUrls)
+    ...model.professionalDelta.flatMap((item) => item.evidenceUrls),
+    ...model.identityCandidates.flatMap((item) => item.evidenceUrls)
   ]);
   for (const url of modelUrls) {
     if (knownByUrl.has(url)) continue;
@@ -1108,18 +1198,7 @@ export function assembleReport(input: {
       status = "supported_inference";
     }
     if (!evidenceIds.length && status !== "unknown_contradicted") status = "plausible";
-    const confidence = Math.max(
-      0,
-      Math.min(
-        100,
-        item.score.directness +
-          item.score.firstParty +
-          item.score.corroboration +
-          item.score.temporalFit +
-          item.score.reproducibility +
-          item.score.contradictionPenalty
-      )
-    );
+    const confidence = confidenceFromScore(item.score);
     return {
       id: `claim-${index + 1}`,
       text: item.text,
@@ -1206,6 +1285,10 @@ export function assembleReport(input: {
   };
   return {
     ...report,
-    gameProfile: computeGameProfile(report)
+    gameProfile: computeGameProfile(
+      report,
+      useFallbackIdentity ? [] : model.identityCandidates,
+      identityContext
+    )
   };
 }

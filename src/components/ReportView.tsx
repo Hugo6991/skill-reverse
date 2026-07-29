@@ -25,7 +25,7 @@ import {
   buildChatPrompt,
   type AskAiProviderId
 } from "../chatPrompt";
-import { gameArchetypeCopy, gameAxisCopy, gameRoastCopy } from "../game-copy";
+import { gameAxisCopy } from "../game-copy";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
@@ -134,10 +134,10 @@ export function ReportView({
       if (!response.ok || !body.shareUrl) {
         throw new Error(body.error?.message ?? "公開連結開啟失敗");
       }
-      const strongest = report.gameProfile.axes.find(
-        (axis) => axis.id === report.gameProfile.strongestAxisId
+      const highlight = report.gameProfile.axes.find(
+        (axis) => axis.id === report.gameProfile.highlightAxisId
       );
-      const text = `我挖到一套「${gameArchetypeCopy[report.gameProfile.archetypeId]}」型 Skill\n${gameAxisCopy[report.gameProfile.strongestAxisId].label} ${strongest?.value ?? "未知"}——${gameRoastCopy[report.gameProfile.roastId]}`;
+      const text = `我挖到一套「${report.gameProfile.identity.title}」\n${report.gameProfile.identity.oneLiner}\n${gameAxisCopy[report.gameProfile.highlightAxisId].label} ${highlight?.value ?? "未知"}`;
       if (navigator.share) {
         await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
         setShareNote("畫像已分享");

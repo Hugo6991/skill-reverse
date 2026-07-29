@@ -5081,6 +5081,215 @@ footer {
   font-weight: 650;
 }
 
+/* Content-specific game-profile-v2 identities */
+
+[data-axis="money"] {
+  --identity-accent: hsl(38 72% 39%);
+  --identity-surface: hsl(44 74% 97%);
+  --identity-soft: hsl(42 72% 91%);
+}
+
+[data-axis="spectacle"] {
+  --identity-accent: hsl(269 58% 46%);
+  --identity-surface: hsl(270 64% 98%);
+  --identity-soft: hsl(270 58% 92%);
+}
+
+[data-axis="potency"] {
+  --identity-accent: hsl(157 51% 32%);
+  --identity-surface: hsl(153 50% 97%);
+  --identity-soft: hsl(153 48% 91%);
+}
+
+[data-axis="activation"] {
+  --identity-accent: hsl(8 61% 43%);
+  --identity-surface: hsl(8 65% 98%);
+  --identity-soft: hsl(8 62% 92%);
+}
+
+[data-axis="renown"] {
+  --identity-accent: hsl(218 61% 46%);
+  --identity-surface: hsl(216 66% 98%);
+  --identity-soft: hsl(216 62% 92%);
+}
+
+[data-axis="ascension"] {
+  --identity-accent: hsl(190 63% 34%);
+  --identity-surface: hsl(187 57% 97%);
+  --identity-soft: hsl(187 54% 91%);
+}
+
+[data-accent="money"] { --identity-secondary: hsl(38 72% 39%); }
+[data-accent="spectacle"] { --identity-secondary: hsl(269 58% 46%); }
+[data-accent="potency"] { --identity-secondary: hsl(157 51% 32%); }
+[data-accent="activation"] { --identity-secondary: hsl(8 61% 43%); }
+[data-accent="renown"] { --identity-secondary: hsl(218 61% 46%); }
+[data-accent="ascension"] { --identity-secondary: hsl(190 63% 34%); }
+
+.motif-compass {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Ccircle cx='36' cy='36' r='17' fill='none' stroke='%237b8199' stroke-opacity='.08'/%3E%3Cpath d='m31 41 4-11 6-5-4 11z' fill='%237b8199' fill-opacity='.08'/%3E%3C/svg%3E");
+}
+
+.motif-forge {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cpath d='M19 25h34M24 36h24M29 47h14' fill='none' stroke='%237b8199' stroke-opacity='.09' stroke-width='2'/%3E%3C/svg%3E");
+}
+
+.motif-prism {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cpath d='m36 17 19 34H17zM36 17v34' fill='none' stroke='%237b8199' stroke-opacity='.08'/%3E%3C/svg%3E");
+}
+
+.motif-lattice {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cpath d='M18 18h36v36H18zM18 36h36M36 18v36' fill='none' stroke='%237b8199' stroke-opacity='.075'/%3E%3C/svg%3E");
+}
+
+.motif-beacon {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Ccircle cx='36' cy='36' r='4' fill='%237b8199' fill-opacity='.09'/%3E%3Cpath d='M25 25a16 16 0 0 0 0 22M47 25a16 16 0 0 1 0 22' fill='none' stroke='%237b8199' stroke-opacity='.08'/%3E%3C/svg%3E");
+}
+
+.motif-scroll {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cpath d='M22 20h28M22 30h23M22 40h28M22 50h18' fill='none' stroke='%237b8199' stroke-opacity='.075'/%3E%3C/svg%3E");
+}
+
+.motif-shield {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Cpath d='m36 17 18 7v13c0 10-7 16-18 20-11-4-18-10-18-20V24z' fill='none' stroke='%237b8199' stroke-opacity='.08'/%3E%3C/svg%3E");
+}
+
+.motif-lens {
+  --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Ccircle cx='32' cy='32' r='13' fill='none' stroke='%237b8199' stroke-opacity='.08'/%3E%3Cpath d='m42 42 12 12' stroke='%237b8199' stroke-opacity='.08'/%3E%3C/svg%3E");
+}
+
+.destiny-sky,
+.manual-card-main,
+.share-poster,
+.public-destiny-card {
+  background-color: var(--identity-surface, hsl(252 52% 98%));
+  background-image: var(--motif-pattern);
+  background-size: 72px 72px;
+}
+
+.identity-mark {
+  width: 52px;
+  height: 52px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--identity-accent, hsl(252 48% 45%));
+  background: var(--identity-soft, hsl(252 58% 93%));
+  border: 1px solid color-mix(in srgb, var(--identity-secondary, hsl(252 48% 45%)) 42%, transparent);
+  border-radius: 14px;
+}
+
+.identity-traits,
+.manual-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.identity-traits span,
+.manual-traits > span {
+  padding: 5px 9px;
+  color: var(--identity-accent, hsl(252 42% 39%));
+  background: var(--identity-soft, hsl(252 58% 93%));
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.identity-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.identity-evidence a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--identity-accent, hsl(252 48% 45%));
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.destiny-seal,
+.destiny-axis-detail > div strong,
+.destiny-scored-signal small {
+  color: var(--identity-accent, hsl(252 48% 45%));
+}
+
+.destiny-seal {
+  border-color: color-mix(in srgb, var(--identity-accent, hsl(252 48% 45%)) 32%, white);
+}
+
+.manual-card {
+  background: var(--identity-surface, hsl(252 45% 98%));
+}
+
+.manual-card-main {
+  min-height: 470px;
+  align-items: flex-start;
+}
+
+.manual-card-main > .identity-mark {
+  width: 46px;
+  height: 46px;
+  align-self: center;
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.manual-identity-title {
+  align-self: center;
+  margin-bottom: var(--space-5);
+  color: var(--identity-accent, hsl(252 50% 36%));
+  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-size: 19px;
+  font-weight: 750;
+}
+
+.manual-traits {
+  margin-bottom: var(--space-2);
+}
+
+.manual-card-main .game-radar-compact {
+  height: 82px;
+  margin: 0 0 var(--space-2);
+}
+
+.manual-card-main:focus-visible,
+.manual-card-actions button:focus-visible,
+.public-destiny-card button:focus-visible,
+.destiny-actions button:focus-visible,
+.game-axis-list button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--identity-accent, hsl(252 48% 45%)) 42%, white);
+  outline-offset: 3px;
+}
+
+.public-card-title > .identity-mark {
+  margin-bottom: var(--space-3);
+}
+
+.public-card-title strong {
+  color: var(--identity-accent, hsl(252 50% 35%));
+  border-color: color-mix(in srgb, var(--identity-accent, hsl(252 50% 35%)) 28%, white);
+}
+
+.public-destiny-card > .identity-traits,
+.share-poster > .identity-traits {
+  justify-content: center;
+}
+
+.share-poster > blockquote {
+  margin: 34px auto 0;
+  font-size: 30px;
+}
+
+.share-poster > .identity-traits {
+  margin-top: 20px;
+}
+
+.share-poster .game-radar {
+  height: 420px;
+}
+
 .public-card-cta {
   display: flex;
   align-items: center;

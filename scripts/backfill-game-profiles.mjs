@@ -19,7 +19,13 @@ function runWrangler(args, { capture = false } = {}) {
 }
 
 async function main() {
-  const dryRun = process.argv.includes("--dry-run");
+  const apply = process.argv.includes("--apply");
+  const backupConfirmed = process.argv.includes("--backup-confirmed");
+  if (apply && !backupConfirmed) {
+    console.error("✕ Refusing remote writes without --backup-confirmed");
+    console.error("  Run pnpm backup:prod first, then repeat with --apply --backup-confirmed");
+    process.exit(1);
+  }
   const [
     { computeGameProfile },
     { historyPresentation },
@@ -31,7 +37,7 @@ async function main() {
     import("../worker/publication.ts"),
     import("../worker/backfill-plan.ts")
   ]);
-  console.log(`\n→ ${dryRun ? "Planning" : "Running"} game-profile-v1.1 backfill`);
+  console.log(`\n→ ${apply ? "Running" : "Planning"} game-profile-v2 backfill`);
   const payload = parseWranglerJson(
     runWrangler(
       [
@@ -72,15 +78,25 @@ async function main() {
   console.log(
     `  ${rows.length} published reports · ${plan.reportUpdates.length} payload updates · ${plan.cardUpserts.length} card upserts`
   );
+  console.log(
+    `  duplicate titles ${(plan.metrics.duplicateTitleRate * 100).toFixed(1)}% · unknown axes ${(plan.metrics.unknownAxisRate * 100).toFixed(1)}%`
+  );
+  console.log(`  motifs ${JSON.stringify(plan.metrics.motifDistribution)}`);
+  console.log(`  axis averages ${JSON.stringify(plan.metrics.axisAverages)}`);
   if (plan.failures.length) {
     plan.failures.forEach((failure) =>
       console.error(`✕ ${failure.reportId}: ${failure.message}`)
     );
     process.exit(1);
   }
-  if (dryRun) {
+  if (!apply) {
     console.log("✓ Dry run completed without remote writes");
+    console.log("  To apply after a backup: --apply --backup-confirmed");
     return;
+  }
+  if (plan.metrics.concentrated) {
+    console.error("✕ Distribution guard stopped the backfill; inspect titles and motifs first");
+    process.exit(1);
   }
 
   const updateByReport = new Map(
@@ -114,9 +130,9 @@ async function main() {
     "--remote",
     "--command",
     `INSERT OR REPLACE INTO app_meta (key, value, updated_at)
-     VALUES ('game_profile_backfill_v1_1', 'complete', '${now.replaceAll("'", "''")}')`
+     VALUES ('game_profile_backfill_v2', 'complete', '${now.replaceAll("'", "''")}')`
   ]);
-  console.log("✓ Game-profile backfill completed");
+  console.log("✓ Game-profile-v2 backfill completed");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

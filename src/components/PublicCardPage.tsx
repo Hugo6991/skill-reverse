@@ -1,13 +1,12 @@
 import { ArrowRight, LoaderCircle, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  gameArchetypeCopy,
   gameAxisCopy,
-  gameBadgeCopy,
-  gameRoastCopy
+  gameBadgeCopy
 } from "../game-copy";
 import type { PublicSkillCard } from "../types";
 import { GameRadar } from "./GameRadar";
+import { GameIdentityMark } from "./GameIdentityMark";
 
 export function PublicCardPage({
   slug,
@@ -35,7 +34,7 @@ export function PublicCardPage({
 
   async function shareAgain() {
     if (!card) return;
-    const text = `我挖到一套「${gameArchetypeCopy[card.gameProfile.archetypeId]}」型 Skill\n${gameRoastCopy[card.gameProfile.roastId]}`;
+    const text = `我挖到一套「${card.gameProfile.identity.title}」\n${card.gameProfile.identity.oneLiner}`;
     if (navigator.share) {
       await navigator.share({ title: card.displayName, text, url: window.location.href });
       return;
@@ -66,7 +65,11 @@ export function PublicCardPage({
 
   return (
     <main className="public-card-page">
-      <article className="public-destiny-card">
+      <article
+        className={`public-destiny-card motif-${card.gameProfile.identity.motifId}`}
+        data-axis={card.gameProfile.highlightAxisId}
+        data-accent={card.gameProfile.accentAxisId}
+      >
         <header>
           <span>秘籍鑑定</span>
           <button type="button" onClick={() => void shareAgain()}>
@@ -75,11 +78,19 @@ export function PublicCardPage({
           </button>
         </header>
         <div className="public-card-title">
+          <GameIdentityMark motifId={card.gameProfile.identity.motifId} size={32} />
           <span>{card.occupationTitle}</span>
+          <strong>{card.gameProfile.identity.title}</strong>
           <h1>{card.displayName}</h1>
-          <strong>{gameArchetypeCopy[card.gameProfile.archetypeId]}</strong>
         </div>
-        <GameRadar axes={card.gameProfile.axes} />
+        <blockquote>{card.gameProfile.identity.oneLiner}</blockquote>
+        <div className="identity-traits">
+          {card.gameProfile.identity.traits.map((trait) => <span key={trait}>{trait}</span>)}
+        </div>
+        <GameRadar
+          axes={card.gameProfile.axes}
+          accentAxisId={card.gameProfile.highlightAxisId}
+        />
         <div className="public-axis-grid">
           {card.gameProfile.axes.map((axis) => (
             <div key={axis.id}>
@@ -88,7 +99,6 @@ export function PublicCardPage({
             </div>
           ))}
         </div>
-        <blockquote>{gameRoastCopy[card.gameProfile.roastId]}</blockquote>
         <div className="public-badges">
           {card.gameProfile.badges.map((badge) => (
             <span key={badge}>{gameBadgeCopy[badge]}</span>

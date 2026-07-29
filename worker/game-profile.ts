@@ -1,16 +1,19 @@
 import type {
   Claim,
-  GameArchetypeId,
   GameAxis,
   GameAxisId,
   GameAxisSignal,
   GameBadgeId,
+  GameIdentityCandidate,
   GameProfile,
-  GameRoastId,
   ProfessionalDelta,
   RepositoryMetrics,
   ReverseReport
 } from "../src/types";
+import {
+  selectGameIdentity,
+  type IdentitySelectionContext
+} from "./game-identity";
 
 type ProfileInput = Pick<
   ReverseReport,
@@ -42,14 +45,19 @@ function evidenceIds(claims: Claim[], deltas: ProfessionalDelta[]): string[] {
   ]);
 }
 
+export function confidenceFromScore(score: Claim["score"]): number {
+  return clamp(
+    score.directness +
+      score.firstParty +
+      score.corroboration +
+      score.temporalFit +
+      score.reproducibility +
+      score.contradictionPenalty
+  );
+}
+
 function claimStrength(claim: Claim): number {
-  const statusFactor = {
-    verified: 1,
-    supported_inference: 0.76,
-    plausible: 0.48,
-    unknown_contradicted: 0.1
-  }[claim.status];
-  return claim.confidence * statusFactor;
+  return confidenceFromScore(claim.score);
 }
 
 function axis(
@@ -60,10 +68,11 @@ function axis(
   signalIds: string[],
   signalDetails?: GameAxisSignal[]
 ): GameAxis {
+  const normalizedCoverage = roundToFive(coverage);
   return {
     id,
-    value: value === undefined ? undefined : roundToFive(value),
-    coverage: roundToFive(coverage),
+    value: value === undefined || normalizedCoverage < 40 ? undefined : roundToFive(value),
+    coverage: normalizedCoverage,
     evidenceIds: unique(axisEvidence),
     signalIds,
     ...(signalDetails?.length ? { signalDetails } : {})
@@ -198,7 +207,7 @@ function renownProfile(input: ProfileInput): {
   }
 
   const coverage = details.reduce((sum, detail) => sum + detail.maxPoints, 0);
-  const value = coverage >= 30
+  const value = coverage >= 40
     ? details.reduce((sum, detail) => sum + detail.points, 0)
     : undefined;
   return {
@@ -213,75 +222,42 @@ function renownProfile(input: ProfileInput): {
   };
 }
 
-function resolveArchetype(values: Map<GameAxisId, number>): GameArchetypeId {
-  const score = (id: GameAxisId) => values.get(id);
-  if ((score("money") ?? 0) >= 70 && (score("potency") ?? 0) >= 70) {
-    return "wealth_with_proof";
-  }
-  if ((score("spectacle") ?? 0) >= 75 && (score("potency") ?? 100) <= 50) {
-    return "all_aura";
-  }
-  if ((score("renown") ?? 0) >= 75) return "famous_sect";
-  if ((score("potency") ?? 0) >= 75 && (score("spectacle") ?? 100) <= 50) {
-    return "quiet_power";
-  }
-  if ((score("activation") ?? 0) >= 70 && (score("ascension") ?? 0) >= 70) {
-    return "hard_ascension";
-  }
-  if ((score("ascension") ?? 0) >= 75 && (score("renown") ?? 100) <= 45) {
-    return "hidden_manual";
-  }
-  if ((score("activation") ?? 100) <= 35 && (score("potency") ?? 0) >= 65) {
-    return "instant_magic";
-  }
-  const fallbackOrder: GameAxisId[] = [
-    "potency",
-    "money",
-    "ascension",
-    "spectacle",
-    "activation",
-    "renown"
-  ];
-  return fallbackOrder
-    .filter((id) => values.has(id))
-    .sort((a, b) => (values.get(b) ?? 0) - (values.get(a) ?? 0))[0] ?? "potency";
+function positiveAxisIds(axes: GameAxis[]): GameAxisId[] {
+  return axes
+    .filter((item) => item.id !== "activation" && item.value !== undefined)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+    .map((item) => item.id);
 }
 
-function resolveRoast(values: Map<GameAxisId, number>): GameRoastId {
-  const score = (id: GameAxisId) => values.get(id);
-  if ((score("spectacle") ?? 0) >= 75 && (score("potency") ?? 100) <= 50) {
-    return "all_aura";
-  }
-  if ((score("renown") ?? 0) >= 75 && (score("potency") ?? 100) <= 50) {
-    return "famous_but_unproven";
-  }
-  if ((score("activation") ?? 0) >= 70 && (score("money") ?? 100) <= 45) {
-    return "expensive_unknown_return";
-  }
-  if ((score("money") ?? 0) >= 70 && (score("activation") ?? 0) >= 70) {
-    return "valuable_hard_start";
-  }
-  if ((score("renown") ?? 100) <= 45 && (score("potency") ?? 0) >= 70) {
-    return "quiet_power";
-  }
-  if ((score("ascension") ?? 0) >= 75 && (score("activation") ?? 100) <= 40) {
-    return "portable_manual";
-  }
-  return "balanced";
+function spectacleSignals(input: ProfileInput): {
+  value: number;
+  signalIds: string[];
+} {
+  const text = [
+    input.framework.name,
+    input.framework.summary,
+    input.framework.useWhen,
+    input.framework.avoidWhen,
+    ...input.framework.steps.flatMap((step) => [step.title, step.instruction])
+  ].join(" ");
+  const signals = [
+    ["documented_presentation", /文檔|文件|說明|手冊|documentation|docs|readme/i, 20],
+    ["visual_craft", /視覺|介面|排版|樣式|設計|動畫|visual|interface|layout|style|design|animation|ui|ux/i, 25],
+    ["distinct_naming", /命名|語彙|名稱|naming|taxonomy|vocabulary/i, 15],
+    ["interaction_design", /互動|體驗|導覽|interaction|experience|navigation/i, 20]
+  ] as const;
+  const matched = signals.filter(([, expression]) => expression.test(text));
+  return {
+    value: 20 + matched.reduce((sum, [, , points]) => sum + points, 0),
+    signalIds: matched.map(([id]) => id)
+  };
 }
 
-function orderedAxisIds(axes: GameAxis[], direction: "strongest" | "weakest"): GameAxisId {
-  const eligible = axes.filter((item) => item.value !== undefined && item.coverage >= 30);
-  const fallback: GameAxisId = "potency";
-  if (!eligible.length) return fallback;
-  return eligible.sort((a, b) =>
-    direction === "strongest"
-      ? (b.value ?? 0) - (a.value ?? 0)
-      : (a.value ?? 0) - (b.value ?? 0)
-  )[0].id;
-}
-
-export function computeGameProfile(input: ProfileInput): GameProfile {
+export function computeGameProfile(
+  input: ProfileInput,
+  identityCandidates: GameIdentityCandidate[] = [],
+  identityContext: IdentitySelectionContext = {}
+): GameProfile {
   const claims = input.claims;
   const deltas = input.professionalDelta;
   const sourceIds = input.sources.map((source) => source.id);
@@ -323,15 +299,13 @@ export function computeGameProfile(input: ProfileInput): GameProfile {
     (deltas.length ? 35 : 0) + (claims.length ? 35 : 0) + (input.adoption.length ? 20 : 0)
   );
 
-  const spectacle = input.sources.length
-    ? 22 +
-      Math.min(28, input.framework.steps.length * 6) +
-      Math.min(20, input.sources.length * 5) +
-      Math.min(20, input.framework.summary.length / 12)
-    : undefined;
+  const spectacleProfile = spectacleSignals(input);
+  const spectacle = input.sources.length ? spectacleProfile.value : undefined;
   const spectacleCoverage = Math.min(
     100,
-    (input.sources.length ? 55 : 0) + Math.min(35, input.framework.steps.length * 7)
+    (input.sources.length ? 40 : 0) +
+      Math.min(30, input.sources.length * 8) +
+      Math.min(30, spectacleProfile.signalIds.length * 10)
   );
 
   const dependencyCount = dependencyMentions(input);
@@ -370,9 +344,7 @@ export function computeGameProfile(input: ProfileInput): GameProfile {
       "reproducibility"
     ]),
     axis("spectacle", spectacle, spectacleCoverage, sourceIds, [
-      "framework_shape",
-      "source_surface",
-      "presentation_density"
+      ...spectacleProfile.signalIds
     ]),
     axis("potency", potency, potencyCoverage, claims.flatMap((claim) => claim.evidenceIds), [
       "claim_strength",
@@ -414,14 +386,24 @@ export function computeGameProfile(input: ProfileInput): GameProfile {
   if (renown.recentlyMaintained) badges.push("well_maintained");
 
   const owner = githubCoordinates(input.targetUrl)?.owner;
+  const positive = positiveAxisIds(axes);
+  const highlightAxisId = positive[0] ?? "potency";
+  const accentAxisId = positive[1] ?? highlightAxisId;
+  const activationAxis = axes.find((item) => item.id === "activation");
+  const riskAxisId =
+    activationAxis?.value !== undefined
+      ? "activation"
+      : [...axes]
+          .filter((item) => item.value !== undefined)
+          .sort((a, b) => (a.value ?? 0) - (b.value ?? 0))[0]?.id ?? "activation";
   return {
-    rubricVersion: "game-profile-v1.1",
+    rubricVersion: "game-profile-v2",
     axes,
-    archetypeId: resolveArchetype(values),
-    roastId: resolveRoast(values),
+    identity: selectGameIdentity(input, identityCandidates, identityContext),
     badges: badges.slice(0, 3),
-    strongestAxisId: orderedAxisIds(axes, "strongest"),
-    weakestAxisId: orderedAxisIds(axes, "weakest"),
+    highlightAxisId,
+    accentAxisId,
+    riskAxisId,
     author: owner
       ? {
           avatarUrl: `https://github.com/${encodeURIComponent(owner)}.png?size=160`,

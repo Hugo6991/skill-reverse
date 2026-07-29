@@ -6,17 +6,21 @@ import {
   ResponsiveContainer
 } from "recharts";
 import { gameAxisCopy } from "../game-copy";
+import { gameAxisTheme } from "../game-theme";
 import type { GameAxis, GameAxisId } from "../types";
 
 export function GameRadar({
   axes,
   compact = false,
+  accentAxisId = "potency",
   ariaLabel = "六維畫像"
 }: {
   axes: GameAxis[];
   compact?: boolean;
+  accentAxisId?: GameAxisId;
   ariaLabel?: string;
 }) {
+  const theme = gameAxisTheme[accentAxisId];
   const data = axes.map((axis) => ({
     axis: gameAxisCopy[axis.id].label,
     value: axis.value ?? 0,
@@ -40,8 +44,8 @@ export function GameRadar({
           )}
           <Radar
             dataKey="value"
-            stroke="hsl(254 70% 54%)"
-            fill="hsl(254 73% 59%)"
+            stroke={theme.stroke}
+            fill={theme.fill}
             fillOpacity={0.22}
             strokeWidth={compact ? 1.5 : 2.5}
             isAnimationActive={false}

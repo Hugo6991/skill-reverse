@@ -1,4 +1,6 @@
-import type { GameProfile, ReverseReport } from "../src/types";
+import type { GameMotifId, GameProfile, ReverseReport } from "../src/types";
+import { GAME_MOTIF_IDS, type IdentitySelectionContext } from "./game-identity";
+import { confidenceFromScore } from "./game-profile";
 
 export interface PublishedReportRow {
   report_id: string;
@@ -26,7 +28,11 @@ export interface BackfillItem {
 
 interface BackfillDependencies {
   now: string;
-  computeGameProfile: (report: ReverseReport) => GameProfile;
+  computeGameProfile: (
+    report: ReverseReport,
+    candidates?: [],
+    context?: IdentitySelectionContext
+  ) => GameProfile;
   historyPresentation: (
     targetUrl: string,
     payloadJson: string
@@ -42,7 +48,8 @@ function hasCurrentProfile(value: unknown): value is GameProfile {
   if (!value || typeof value !== "object") return false;
   const profile = value as Partial<GameProfile>;
   return (
-    /^game-profile-v1(?:\.\d+)?$/.test(profile.rubricVersion ?? "") &&
+    profile.rubricVersion === "game-profile-v2" &&
+    typeof profile.identity?.title === "string" &&
     Array.isArray(profile.axes) &&
     profile.axes.length === 6
   );
@@ -54,19 +61,39 @@ export function planGameProfileBackfill(
 ) {
   const prepared: BackfillItem[] = [];
   const failures: Array<{ reportId: string; message: string }> = [];
+  const contextByActor = new Map<string, IdentitySelectionContext>();
 
   for (const row of rows) {
     try {
-      const stored = JSON.parse(row.payload_json) as ReverseReport;
+      const original = JSON.parse(row.payload_json) as ReverseReport;
+      const stored = {
+        ...original,
+        claims: original.claims.map((claim) => ({
+          ...claim,
+          confidence: confidenceFromScore(claim.score)
+        }))
+      };
+      const context = contextByActor.get(row.actor_hash) ?? {
+        usedTitles: [],
+        motifUsage: Object.fromEntries(
+          GAME_MOTIF_IDS.map((motif) => [motif, 0])
+        ) as Record<GameMotifId, number>
+      };
       const profile = hasCurrentProfile(stored.gameProfile)
         ? stored.gameProfile
-        : computeGameProfile(stored);
+        : computeGameProfile(stored, [], context);
       if (!hasCurrentProfile(profile)) {
         throw new Error("computed profile is incomplete");
       }
-      const report = hasCurrentProfile(stored.gameProfile)
-        ? stored
-        : { ...stored, gameProfile: profile };
+      context.usedTitles?.push(profile.identity.title);
+      context.motifUsage![profile.identity.motifId] =
+        (context.motifUsage![profile.identity.motifId] ?? 0) + 1;
+      contextByActor.set(row.actor_hash, context);
+      const needsReportUpdate =
+        !hasCurrentProfile(stored.gameProfile) ||
+        JSON.stringify(original.claims) !== JSON.stringify(stored.claims) ||
+        JSON.stringify(stored.gameProfile) !== JSON.stringify(profile);
+      const report = needsReportUpdate ? { ...stored, gameProfile: profile } : stored;
       prepared.push({
         row,
         report,
@@ -76,7 +103,7 @@ export function planGameProfileBackfill(
           row.target_url,
           JSON.stringify(report)
         ).displayName,
-        needsReportUpdate: !hasCurrentProfile(stored.gameProfile)
+        needsReportUpdate
       });
     } catch (error) {
       failures.push({
@@ -101,8 +128,45 @@ export function planGameProfileBackfill(
   const expiresAt = new Date(
     new Date(now).getTime() + 365 * 86_400_000
   ).toISOString();
+  const titleKeys = prepared.map(
+    (item) => `${item.row.actor_hash}\u0000${item.profile.identity.title}`
+  );
+  const duplicateTitles = titleKeys.length - new Set(titleKeys).size;
+  const motifDistribution = Object.fromEntries(
+    GAME_MOTIF_IDS.map((motif) => [
+      motif,
+      prepared.filter((item) => item.profile.identity.motifId === motif).length
+    ])
+  ) as Record<GameMotifId, number>;
+  const unknownAxes = prepared.reduce(
+    (sum, item) => sum + item.profile.axes.filter((axis) => axis.value === undefined).length,
+    0
+  );
+  const largestMotifShare = prepared.length
+    ? Math.max(...Object.values(motifDistribution)) / prepared.length
+    : 0;
+  const axisAverages = Object.fromEntries(
+    ["money", "spectacle", "potency", "activation", "renown", "ascension"].map((axisId) => {
+      const values = prepared
+        .map((item) => item.profile.axes.find((axis) => axis.id === axisId)?.value)
+        .filter((value): value is number => value !== undefined);
+      return [
+        axisId,
+        values.length
+          ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
+          : null
+      ];
+    })
+  );
+  const metrics = {
+    duplicateTitleRate: prepared.length ? duplicateTitles / prepared.length : 0,
+    motifDistribution,
+    unknownAxisRate: prepared.length ? unknownAxes / (prepared.length * 6) : 0,
+    axisAverages,
+    concentrated: duplicateTitles > 0 || (prepared.length >= 6 && largestMotifShare > 0.5)
+  };
 
-  return { reportUpdates, cardUpserts, failures, expiresAt };
+  return { reportUpdates, cardUpserts, failures, expiresAt, metrics };
 }
 
 export function reportUpdateSql(item: BackfillItem) {

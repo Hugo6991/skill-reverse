@@ -4,22 +4,20 @@ import {
   ImageDown,
   ScrollText,
   Share2,
-  Sparkles,
   UserRound
 } from "lucide-react";
 import { forwardRef, useMemo, useState } from "react";
 import {
   attributionCopy,
-  gameArchetypeCopy,
   gameAxisCopy,
   gameBadgeCopy,
-  gameRoastCopy,
   gameSignalLabel,
   gameSignalCopy
 } from "../game-copy";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { GameAxisId, ReverseReport } from "../types";
 import { GameAxisList, GameRadar } from "./GameRadar";
+import { GameIdentityMark } from "./GameIdentityMark";
 
 export const GameProfileHero = forwardRef<
   HTMLElement,
@@ -32,7 +30,7 @@ export const GameProfileHero = forwardRef<
 >(function GameProfileHero({ report, onShare, onDownload, shareBusy }, ref) {
   const profile = report.gameProfile;
   const [selectedAxisId, setSelectedAxisId] = useState<GameAxisId>(
-    profile.strongestAxisId
+    profile.highlightAxisId
   );
   const [avatarFailed, setAvatarFailed] = useState(false);
   const selectedAxis = useMemo(
@@ -44,7 +42,13 @@ export const GameProfileHero = forwardRef<
   const claimById = new Map(report.claims.map((claim) => [claim.id, claim]));
 
   return (
-    <section className="destiny-card" ref={ref} aria-labelledby="destiny-title">
+    <section
+      className={`destiny-card motif-${profile.identity.motifId}`}
+      data-axis={profile.highlightAxisId}
+      data-accent={profile.accentAxisId}
+      ref={ref}
+      aria-labelledby="destiny-title"
+    >
       <div className="destiny-sky" aria-hidden="true" />
       <header className="destiny-card-header">
         <div>
@@ -96,10 +100,10 @@ export const GameProfileHero = forwardRef<
 
         <div className="destiny-chart">
           <div className="destiny-seal">
-            <Sparkles size={15} aria-hidden="true" />
-            <strong>{gameArchetypeCopy[profile.archetypeId]}</strong>
+            <GameIdentityMark motifId={profile.identity.motifId} size={20} label={false} />
+            <strong>{profile.identity.title}</strong>
           </div>
-          <GameRadar axes={profile.axes} />
+          <GameRadar axes={profile.axes} accentAxisId={profile.highlightAxisId} />
           <GameAxisList
             axes={profile.axes}
             selected={selectedAxisId}
@@ -108,17 +112,20 @@ export const GameProfileHero = forwardRef<
         </div>
 
         <aside className="destiny-reading">
-          <blockquote>{gameRoastCopy[profile.roastId]}</blockquote>
+          <blockquote>{profile.identity.oneLiner}</blockquote>
           <dl>
             <div>
-              <dt>最強天賦</dt>
-              <dd>{gameAxisCopy[profile.strongestAxisId].label}</dd>
+              <dt>方法亮點</dt>
+              <dd>{gameAxisCopy[profile.highlightAxisId].label}</dd>
             </div>
             <div>
-              <dt>最大罩門</dt>
-              <dd>{gameAxisCopy[profile.weakestAxisId].label}</dd>
+              <dt>採用風險</dt>
+              <dd>{gameAxisCopy[profile.riskAxisId].label}</dd>
             </div>
           </dl>
+          <div className="identity-traits" aria-label="身份特質">
+            {profile.identity.traits.map((trait) => <span key={trait}>{trait}</span>)}
+          </div>
           <div className="destiny-badges" aria-label="事實徽章">
             {profile.badges.length > 0 ? (
               profile.badges.map((badge) => (
@@ -133,6 +140,14 @@ export const GameProfileHero = forwardRef<
                 待補線索
               </span>
             )}
+          </div>
+          <div className="identity-evidence" data-export-hide="true">
+            {profile.identity.evidenceUrls.slice(0, 2).map((url, index) => (
+              <a href={url} target="_blank" rel="noreferrer" key={url}>
+                命名依據 {index + 1}
+                <ArrowUpRight size={12} aria-hidden="true" />
+              </a>
+            ))}
           </div>
         </aside>
       </div>
