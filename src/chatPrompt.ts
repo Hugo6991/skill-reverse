@@ -1,7 +1,59 @@
 import { withoutTerminalFullStop } from "./text";
 import type { ReverseReport } from "./types";
 
-type ChatTrialReport = Pick<ReverseReport, "framework">;
+type ChatTrialReport = Pick<ReverseReport, "framework" | "targetUrl">;
+
+export type AskAiProviderId = "claude" | "chatgpt" | "gemini" | "perplexity";
+
+export interface AskAiLink {
+  id: AskAiProviderId;
+  label: string;
+  href: string;
+}
+
+export function buildAskAiPrompt(
+  report: ChatTrialReport,
+  userContext = ""
+): string {
+  const context = userContext.trim();
+  const target = context ? `我的情境：${context}` : "我目前要處理的問題";
+
+  return `請參考這個案例，把「${withoutTerminalFullStop(
+    report.framework.name
+  )}」套用到${target}，先讀取可用脈絡並直接交付一版可執行結果；案例重點：${withoutTerminalFullStop(
+    report.framework.summary
+  )}；來源：${report.targetUrl}`;
+}
+
+export function buildAskAiLinks(
+  report: ChatTrialReport,
+  userContext = ""
+): AskAiLink[] {
+  const query = encodeURIComponent(buildAskAiPrompt(report, userContext));
+
+  return [
+    {
+      id: "claude",
+      label: "Ask Claude",
+      href: `https://claude.ai/new?q=${query}`
+    },
+    {
+      id: "chatgpt",
+      label: "Ask ChatGPT",
+      href: `https://chatgpt.com/?q=${query}`
+    },
+    {
+      id: "gemini",
+      label: "Ask Gemini",
+      href: `https://google.com/search?q=${query}&udm=50`
+    },
+    {
+      id: "perplexity",
+      label: "Ask Perplexity",
+      href: `https://perplexity.ai/search?q=${query}`
+    }
+  ];
+}
 
 export function buildChatPrompt(report: ChatTrialReport): string {
   const rules = report.framework.steps

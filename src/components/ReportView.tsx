@@ -17,8 +17,14 @@ import {
   TriangleAlert
 } from "lucide-react";
 import { toPng } from "html-to-image";
-import { useRef, useState } from "react";
-import { buildChatPrompt } from "../chatPrompt";
+import { useRef, useState, type ComponentType } from "react";
+import { BsOpenai } from "react-icons/bs";
+import { SiAnthropic, SiGooglegemini, SiPerplexity } from "react-icons/si";
+import {
+  buildAskAiLinks,
+  buildChatPrompt,
+  type AskAiProviderId
+} from "../chatPrompt";
 import { gameArchetypeCopy, gameAxisCopy, gameRoastCopy } from "../game-copy";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
@@ -39,6 +45,16 @@ const deltaLabels: Record<DeltaManifestation, string> = {
   missing_but_expected: "Missing but expected",
   not_observable: "Not observable",
   contradicted: "Contradicted"
+};
+
+const askAiIcons: Record<
+  AskAiProviderId,
+  ComponentType<{ size?: number; "aria-hidden"?: boolean }>
+> = {
+  claude: SiAnthropic,
+  chatgpt: BsOpenai,
+  gemini: SiGooglegemini,
+  perplexity: SiPerplexity
 };
 
 const failureGuides: Record<
@@ -72,10 +88,12 @@ export function ReportView({
 }) {
   const [tab, setTab] = useState<"framework" | "baseline" | "evidence">("framework");
   const [copied, setCopied] = useState(false);
+  const [trialContext, setTrialContext] = useState("");
   const [shareBusy, setShareBusy] = useState(false);
   const [shareNote, setShareNote] = useState("");
   const posterRef = useRef<HTMLElement>(null);
   const chatPrompt = buildChatPrompt(report);
+  const askAiLinks = buildAskAiLinks(report, trialContext);
 
   async function copyChatPrompt() {
     await navigator.clipboard.writeText(chatPrompt);
@@ -248,6 +266,38 @@ export function ReportView({
                 這段提示會要求 AI 先使用可取得的對話、記憶與既有產出，直接交付完整 v1；
                 只有會改變方向的阻塞問題才能放在結果後，最多三題
               </p>
+              <label className="chat-context-field">
+                <span>
+                  你的情境
+                  <small>選填</small>
+                </span>
+                <textarea
+                  value={trialContext}
+                  onChange={(event) => setTrialContext(event.target.value)}
+                  placeholder="請填在這裡"
+                  maxLength={600}
+                  rows={3}
+                />
+              </label>
+              <div className="ask-ai-group">
+                <span>帶著本頁案例直接問</span>
+                <div className="ask-ai-links">
+                  {askAiLinks.map((link) => {
+                    const Icon = askAiIcons[link.id];
+                    return (
+                      <a
+                        key={link.id}
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Icon size={17} aria-hidden={true} />
+                        {link.label}
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
               <pre>{chatPrompt}</pre>
               <button className="secondary-button copy-prompt-button" type="button" onClick={copyChatPrompt}>
                 {copied ? <Check size={16} aria-hidden="true" /> : <Clipboard size={16} aria-hidden="true" />}

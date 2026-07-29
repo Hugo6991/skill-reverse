@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildChatPrompt } from "../src/chatPrompt";
+import {
+  buildAskAiLinks,
+  buildAskAiPrompt,
+  buildChatPrompt
+} from "../src/chatPrompt";
 import type { ReverseReport } from "../src/types";
 
-const report: Pick<ReverseReport, "framework"> = {
+const report: Pick<ReverseReport, "framework" | "targetUrl"> = {
+  targetUrl: "https://example.com/manual?ref=case",
   framework: {
     name: "先讀脈絡，再做判斷。",
     summary: "從已有資訊還原問題",
@@ -61,5 +66,42 @@ describe("chat trial prompt", () => {
     expect(prompt).toContain("「先讀脈絡，再做判斷」");
     expect(prompt).toContain("1. 先從已有證據推斷目前目標");
     expect(prompt).toContain("2. 用合理假設完成第一版");
+  });
+});
+
+describe("Ask AI deep links", () => {
+  it("keeps the launch prompt concise and grounded in the page case", () => {
+    const prompt = buildAskAiPrompt(report);
+
+    expect(prompt).toContain("請參考這個案例");
+    expect(prompt).toContain("先讀脈絡，再做判斷");
+    expect(prompt).toContain("從已有資訊還原問題");
+    expect(prompt).toContain(report.targetUrl);
+    expect(prompt).not.toContain("請嚴格依照以下順序回答");
+  });
+
+  it("adds the optional user context only to the concise prompt", () => {
+    const concise = buildAskAiPrompt(report, "我要整理新產品的訪談資料");
+    const full = buildChatPrompt(report);
+
+    expect(concise).toContain("我的情境：我要整理新產品的訪談資料");
+    expect(full).not.toContain("我要整理新產品的訪談資料");
+  });
+
+  it("builds the four encoded provider URLs", () => {
+    const prompt = buildAskAiPrompt(report, "比較兩個方案");
+    const links = buildAskAiLinks(report, "比較兩個方案");
+
+    expect(links.map((link) => link.id)).toEqual([
+      "claude",
+      "chatgpt",
+      "gemini",
+      "perplexity"
+    ]);
+    for (const link of links) {
+      const url = new URL(link.href);
+      expect(url.searchParams.get("q")).toBe(prompt);
+    }
+    expect(new URL(links[2].href).searchParams.get("udm")).toBe("50");
   });
 });
