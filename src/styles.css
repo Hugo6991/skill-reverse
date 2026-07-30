@@ -2,14 +2,16 @@
 
 :root {
   color-scheme: light;
-  font-family:
+  --font-ui:
     ui-sans-serif,
     -apple-system,
     BlinkMacSystemFont,
     "SF Pro Text",
-    "Segoe UI",
+    "PingFang TC",
     "Noto Sans TC",
+    "Segoe UI",
     sans-serif;
+  font-family: var(--font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
@@ -77,8 +79,13 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea,
+code,
+pre {
   font: inherit;
+  font-family: var(--font-ui);
 }
 
 button,
@@ -382,7 +389,7 @@ a {
   color: var(--text-tertiary);
   background: var(--fill);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -447,7 +454,7 @@ a {
   background: var(--surface-subtle);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -796,7 +803,7 @@ input:focus {
 
 .layer-list article > span {
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -836,7 +843,7 @@ input:focus {
 
 .progress-percent {
   color: var(--accent);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 600;
 }
@@ -881,7 +888,7 @@ input:focus {
   place-items: center;
   background: var(--fill);
   border-radius: 50%;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 10px;
 }
 
@@ -1312,7 +1319,7 @@ footer {
 
 .framework-index {
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -1502,7 +1509,9 @@ footer {
   color: var(--text-secondary);
   background: hsl(0 0% 100% / 0.76);
   border-radius: var(--radius-md);
-  font: 12px/1.65 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.65;
   white-space: pre-wrap;
 }
 
@@ -1712,7 +1721,7 @@ footer {
 .claim-state strong {
   margin-left: auto;
   color: var(--text-secondary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
 }
 
 .claim-list p {
@@ -1960,7 +1969,7 @@ footer {
 
 .source-number {
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -2664,7 +2673,7 @@ footer {
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -2800,7 +2809,7 @@ footer {
   top: var(--space-6);
   right: var(--space-6);
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -4262,7 +4271,7 @@ footer {
 }
 
 .game-axis-list button strong {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -4273,7 +4282,7 @@ footer {
 .destiny-reading blockquote {
   margin: 0;
   color: hsl(252 35% 29%);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 23px;
   line-height: 1.45;
   font-weight: 620;
@@ -4353,7 +4362,7 @@ footer {
 
 .destiny-axis-detail > div strong {
   color: hsl(252 52% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 22px;
 }
 
@@ -4395,7 +4404,7 @@ footer {
 
 .destiny-scored-signal small {
   color: hsl(252 52% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 9px;
   font-weight: 700;
 }
@@ -4678,7 +4687,7 @@ footer {
   background: hsl(0 0% 100% / 0.78);
   border: 1px solid hsl(252 30% 80%);
   border-radius: 999px;
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 700;
 }
@@ -4866,12 +4875,7 @@ footer {
   background:
     radial-gradient(circle at 50% 43%, hsl(260 74% 89%), transparent 31rem),
     hsl(252 58% 98%);
-  font-family:
-    ui-sans-serif,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Noto Sans TC",
-    sans-serif;
+  font-family: var(--font-ui);
 }
 
 .share-poster > header {
@@ -4933,7 +4937,7 @@ footer {
 }
 
 .share-poster-title > div:not(.method-type-lockup) strong {
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 27px;
 }
 
@@ -4967,7 +4971,7 @@ footer {
 
 .share-poster-axes strong {
   color: hsl(252 48% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 24px;
 }
 
@@ -4975,7 +4979,7 @@ footer {
   max-width: 840px;
   margin: 54px auto 0;
   color: hsl(252 38% 26%);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 38px;
   line-height: 1.42;
   font-weight: 650;
@@ -5081,7 +5085,7 @@ footer {
   background: hsl(0 0% 100% / 0.7);
   border: 1px solid hsl(252 28% 80%);
   border-radius: 999px;
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 16px;
 }
 
@@ -5114,14 +5118,14 @@ footer {
 
 .public-axis-grid strong {
   color: hsl(252 48% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 13px;
 }
 
 .public-destiny-card blockquote {
   margin: var(--space-8) auto;
   color: hsl(252 36% 28%);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 24px;
   line-height: 1.45;
   font-weight: 650;
@@ -5339,7 +5343,7 @@ footer {
 }
 
 .destiny-chart > .method-type-lockup > strong {
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 18px;
 }
 
@@ -5456,7 +5460,7 @@ footer {
 .persona-evidence article > strong {
   grid-row: 1 / span 2;
   color: var(--identity-accent, hsl(252 48% 45%));
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 16px;
 }
 
@@ -5547,7 +5551,7 @@ footer {
   align-self: center;
   margin-bottom: var(--space-5);
   color: var(--identity-accent, hsl(252 50% 36%));
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 23px;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -5647,7 +5651,7 @@ footer {
 
 .share-poster-title > .method-type-lockup > strong {
   color: var(--identity-accent);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 24px;
 }
 
