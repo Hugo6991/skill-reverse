@@ -28,6 +28,8 @@
     "db:backfill-game-profiles:apply": "pnpm run backup:prod && node scripts/backfill-game-profiles.mjs --apply --backup-confirmed",
     "db:repair-game-identities:remote": "node scripts/repair-game-identities.mjs --remote",
     "db:repair-game-identities:apply": "pnpm run backup:prod && node scripts/repair-game-identities.mjs --remote --apply --backup-confirmed",
+    "db:repair-method-personas:remote": "node scripts/repair-game-identities.mjs --remote",
+    "db:repair-method-personas:apply": "pnpm run backup:prod && node scripts/repair-game-identities.mjs --remote --apply --backup-confirmed",
     "db:backfill-reports:remote": "node scripts/backfill-report-localizations.mjs --remote --apply",
     "deploy": "node scripts/deploy.mjs",
     "preview:upload": "node scripts/preview-upload.mjs",

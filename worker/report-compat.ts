@@ -6,8 +6,8 @@ import type {
   StoredReverseReport
 } from "../src/types";
 import {
-  GAME_IDENTITY_NAMING_VERSION,
-  hasCurrentIdentityNaming,
+  hasCurrentIdentity,
+  localizedEnglishIdentity,
   repairGameIdentity,
   type IdentitySelectionContext
 } from "./game-identity";
@@ -34,8 +34,6 @@ function hasBaseGameProfile(value: unknown): value is GameProfile {
     value.rubricVersion === "game-profile-v2" &&
     isRecord(value.identity) &&
     typeof value.identity.title === "string" &&
-    typeof value.identity.oneLiner === "string" &&
-    Array.isArray(value.identity.traits) &&
     typeof value.identity.motifId === "string" &&
     typeof value.highlightAxisId === "string" &&
     typeof value.riskAxisId === "string" &&
@@ -82,31 +80,22 @@ export function upgradeStoredReport(
       }))
     } as Omit<ReverseReport, "gameProfile">;
     if (hasBaseGameProfile(value.gameProfile)) {
-      if (locale === "en") {
-        const identity = value.gameProfile.identity as GameIdentity;
-        return {
-          ...normalized,
-          gameProfile: {
-            ...value.gameProfile,
-            identity: {
-              ...identity,
-              namingVersion: GAME_IDENTITY_NAMING_VERSION
-            }
-          }
-        };
-      }
-      if (hasCurrentIdentityNaming(value.gameProfile.identity)) {
+      if (hasCurrentIdentity(value.gameProfile.identity)) {
         return { ...normalized, gameProfile: value.gameProfile };
       }
+      const repaired = repairGameIdentity(
+        normalized,
+        value.gameProfile.identity as Partial<GameIdentity>,
+        identityContext
+      );
       return {
         ...normalized,
         gameProfile: {
           ...value.gameProfile,
-          identity: repairGameIdentity(
-            normalized,
-            value.gameProfile.identity,
-            identityContext
-          )
+          identity:
+            locale === "en"
+              ? localizedEnglishIdentity(repaired)
+              : repaired
         }
       };
     }

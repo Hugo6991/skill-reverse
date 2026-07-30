@@ -1,6 +1,7 @@
 import type { ReverseReport } from "../src/types";
 import { createBilingualReportBundle } from "../src/bilingual";
 import { computeGameProfile } from "./game-profile";
+import { localizedEnglishIdentity } from "./game-identity";
 import { pilotOccupation } from "./occupations";
 
 const generatedAt = "2026-07-28T00:00:00.000Z";
@@ -233,12 +234,10 @@ export const demoReportEn: ReverseReport = {
   },
   gameProfile: {
     ...demoReport.gameProfile,
-    identity: {
-      ...demoReport.gameProfile.identity,
-      title: "The Validation Smith",
-      oneLiner: "Turns repeated conversational corrections into a method that earns its packaging",
-      traits: ["evidence-led", "iteration-minded", "packaging-disciplined"]
-    }
+    identity: localizedEnglishIdentity(
+      demoReport.gameProfile.identity,
+      "The Validation Smith"
+    )
   },
   occupation: demoOccupationEn,
   professionalDelta: demoReport.professionalDelta.map((delta, index) => ({

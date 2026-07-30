@@ -22,8 +22,10 @@ type ProfileInput = Pick<
   | "author"
   | "professionalDelta"
   | "claims"
+  | "observations"
   | "sources"
   | "adoption"
+  | "caveats"
 >;
 
 function clamp(value: number): number {

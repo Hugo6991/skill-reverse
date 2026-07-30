@@ -134,17 +134,59 @@ export type GameMotifId =
   | "shield"
   | "lens";
 
+export type MethodTypeId =
+  | "navigator"
+  | "investigator"
+  | "sentinel"
+  | "calibrator"
+  | "smith"
+  | "choreographer"
+  | "translator"
+  | "architect"
+  | "undetermined";
+
+export type MethodBeatKind = "opening" | "criterion" | "shadow";
+
+export interface MethodTitleRationale {
+  segment: string;
+  explanation: string;
+  evidenceRefs: string[];
+}
+
+export interface MethodBeat {
+  kind: MethodBeatKind;
+  text: string;
+  evidenceRefs: string[];
+}
+
+export interface MethodSignal {
+  typeId: Exclude<MethodTypeId, "undetermined">;
+  score: number;
+  coverage: number;
+  evidenceRefs: string[];
+}
+
 export interface GameIdentityCandidate {
   title: string;
-  oneLiner: string;
-  traits: [string, string, string];
+  primaryMethodTypeId: MethodTypeId;
+  secondaryMethodTypeId?: Exclude<MethodTypeId, "undetermined">;
+  titleRationale: [MethodTitleRationale, MethodTitleRationale];
+  signatureMove: string;
+  strength: string;
+  shadow: string;
   evidenceUrls: string[];
 }
 
 export interface GameIdentity extends GameIdentityCandidate {
-  namingVersion: "four-beat-v1";
+  identityVersion: "method-persona-v1";
+  beats: [MethodBeat, MethodBeat, MethodBeat];
+  methodSignals: MethodSignal[];
   motifId: GameMotifId;
   source: "generated" | "fallback";
+  /** Historical v2 copy is retained only while old stored reports are upgraded. */
+  namingVersion?: "four-beat-v1";
+  oneLiner?: string;
+  traits?: [string, string, string];
 }
 
 /** Historical v1 values are read only so stored reports can be upgraded safely. */

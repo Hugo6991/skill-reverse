@@ -33,7 +33,15 @@ function gameProfileFingerprint(profile: GameProfile): string {
       signalDetails: axis.signalDetails
     })),
     identity: {
-      namingVersion: profile.identity.namingVersion,
+      identityVersion: profile.identity.identityVersion,
+      primaryMethodTypeId: profile.identity.primaryMethodTypeId,
+      secondaryMethodTypeId: profile.identity.secondaryMethodTypeId,
+      titleRationaleRefs: profile.identity.titleRationale?.map((item) => item.evidenceRefs) ?? [],
+      beats: profile.identity.beats?.map((item) => ({
+        kind: item.kind,
+        evidenceRefs: item.evidenceRefs
+      })) ?? [],
+      methodSignals: profile.identity.methodSignals ?? [],
       motifId: profile.identity.motifId,
       evidenceUrls: profile.identity.evidenceUrls,
       source: profile.identity.source
