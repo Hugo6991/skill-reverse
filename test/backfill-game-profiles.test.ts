@@ -84,7 +84,7 @@ describe("game profile backfill", () => {
     expect(plan.cardUpserts[0].row.report_id).toBe("report-2");
   });
 
-  it("gives six chronological legacy cards distinct titles and at least three motifs", () => {
+  it("gives six chronological legacy cards distinct titles without forcing type distribution", () => {
     const { gameProfile: _gameProfile, ...legacyReport } = demoReport;
     const rows = Array.from({ length: 6 }, (_, index) =>
       row(
@@ -108,12 +108,12 @@ describe("game profile backfill", () => {
     );
     const plan = planGameProfileBackfill(rows, dependencies);
     const titles = plan.reportUpdates.map((item) => item.profile.identity.title);
-    const oneLiners = plan.reportUpdates.map((item) => item.profile.identity.oneLiner);
+    const signatures = plan.reportUpdates.map((item) => item.profile.identity.signatureMove);
     const motifs = plan.reportUpdates.map((item) => item.profile.identity.motifId);
 
     expect(new Set(titles).size).toBe(6);
-    expect(new Set(oneLiners).size).toBe(6);
-    expect(new Set(motifs).size).toBeGreaterThanOrEqual(3);
+    expect(signatures.every(Boolean)).toBe(true);
+    expect(new Set(motifs).size).toBeGreaterThanOrEqual(1);
     expect(titles.join("")).not.toMatch(/法相驚人|法相萬千/);
     expect(plan.metrics).toMatchObject({
       duplicateTitleRate: 0,

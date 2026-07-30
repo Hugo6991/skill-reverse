@@ -29,7 +29,7 @@ import { computeGameProfile } from "../worker/game-profile";
 import { ReportUpgradeError, upgradeStoredReport } from "../worker/report-compat";
 import {
   englishIdentityTitle,
-  GAME_IDENTITY_NAMING_VERSION,
+  GAME_IDENTITY_VERSION,
   isFourBeatTitle
 } from "../worker/game-identity";
 
@@ -185,65 +185,85 @@ describe("deterministic game profile", () => {
     expect(demoReport.claims.map((claim) => claim.confidence)).toEqual(before);
   });
 
-  it("chooses a unique four-beat title before assigning a less-used visual motif", () => {
+  it("chooses a unique evidence-backed title while keeping the method type stable", () => {
     const evidenceUrl = demoReport.sources[0].url;
+    const fallback = computeGameProfile(demoReport).identity;
+    const candidate = (title: string) => ({
+      title,
+      primaryMethodTypeId: fallback.primaryMethodTypeId,
+      secondaryMethodTypeId: fallback.secondaryMethodTypeId,
+      titleRationale: [
+        {
+          segment: Array.from(title).slice(0, 2).join(""),
+          explanation: "前半對應方法面對的情境",
+          evidenceRefs: ["framework.summary"]
+        },
+        {
+          segment: Array.from(title).slice(2).join(""),
+          explanation: "後半對應方法反覆採取的行動",
+          evidenceRefs: ["framework.step.1"]
+        }
+      ] as [
+        { segment: string; explanation: string; evidenceRefs: string[] },
+        { segment: string; explanation: string; evidenceRefs: string[] }
+      ],
+      signatureMove: "它先找出反覆問題，再用真實案例驗證。",
+      strength: "把主觀判斷轉成可以反覆核對的流程。",
+      shadow: "第一次碰到問題時，這套流程可能太早定型。",
+      evidenceUrls: [evidenceUrl]
+    });
     const candidates = [
-      {
-        title: "來源鍛造",
-        oneLiner: "能把來源整理成方法，但仍需要逐項核對",
-        traits: ["來源可查", "方法清楚", "需要核對"] as [string, string, string],
-        evidenceUrls: [evidenceUrl]
-      },
-      {
-        title: "條件守門",
-        oneLiner: "能守住適用條件，但每次採用前都要檢查前提",
-        traits: ["條件先行", "保留取捨", "逐次檢查"] as [string, string, string],
-        evidenceUrls: [evidenceUrl]
-      },
-      {
-        title: "證據編排",
-        oneLiner: "能串起證據與結論，但來源不足時必須保留未知",
-        traits: ["證據分層", "結論可查", "保留未知"] as [string, string, string],
-        evidenceUrls: [evidenceUrl]
-      }
+      candidate("偏差定錨"),
+      candidate("骨架生長"),
+      candidate("步步成陣")
     ];
     const profile = computeGameProfile(demoReport, candidates, {
-      usedTitles: ["來源鍛造"],
+      usedTitles: ["偏差定錨"],
       motifUsage: { shield: 5, lens: 0 }
     });
 
     expect(profile.identity).toMatchObject({
-      title: "條件守門",
-      namingVersion: GAME_IDENTITY_NAMING_VERSION,
+      title: "骨架生長",
+      identityVersion: GAME_IDENTITY_VERSION,
       source: "generated"
     });
-    expect(profile.identity.motifId).not.toBe("shield");
+    expect(profile.identity.primaryMethodTypeId).toBe(fallback.primaryMethodTypeId);
     expect(profile.identity.evidenceUrls).toEqual([evidenceUrl]);
   });
 
   it("rejects clipped AI titles instead of slicing them into fragments", () => {
     const evidenceUrl = demoReport.sources[0].url;
+    const fallback = computeGameProfile(demoReport).identity;
+    const invalidCandidate = (title: string) => ({
+      title,
+      primaryMethodTypeId: fallback.primaryMethodTypeId,
+      secondaryMethodTypeId: fallback.secondaryMethodTypeId,
+      titleRationale: [
+        {
+          segment: "錯誤",
+          explanation: "無法對應標題",
+          evidenceRefs: ["framework.summary"]
+        },
+        {
+          segment: "依據",
+          explanation: "無法對應標題",
+          evidenceRefs: ["framework.step.1"]
+        }
+      ] as [
+        { segment: string; explanation: string; evidenceRefs: string[] },
+        { segment: string; explanation: string; evidenceRefs: string[] }
+      ],
+      signatureMove: "它先整理來源，再決定下一步。",
+      strength: "讓方法保持可追溯與可核對。",
+      shadow: "資料不足時必須保留未知。",
+      evidenceUrls: [evidenceUrl]
+    });
     const profile = computeGameProfile(
       demoReport,
       [
-        {
-          title: "以可編輯威脅模型為中心",
-          oneLiner: "能先建立可調整的威脅模型，但仍要驗證每個風險假設",
-          traits: ["條件先行", "風險可查", "逐項驗證"],
-          evidenceUrls: [evidenceUrl]
-        },
-        {
-          title: "Evidence Grid",
-          oneLiner: "能排列證據，但需要逐項驗證來源",
-          traits: ["來源可查", "條件先行", "保留取捨"],
-          evidenceUrls: [evidenceUrl]
-        },
-        {
-          title: "法相驚人",
-          oneLiner: "能快速分類，但無法描述這份報告的具體方法",
-          traits: ["來源可查", "條件先行", "保留取捨"],
-          evidenceUrls: [evidenceUrl]
-        }
+        invalidCandidate("以可編輯威脅模型為中心"),
+        invalidCandidate("Evidence Grid"),
+        invalidCandidate("法相驚人")
       ]
     );
 
@@ -252,20 +272,37 @@ describe("deterministic game profile", () => {
     expect(profile.identity.title).not.toBe("以可編輯");
   });
 
-  it("repairs duplicate candidate traits without rejecting the candidate", () => {
+  it("rejects unsupported title rationale without rejecting the whole report", () => {
     const evidenceUrl = demoReport.sources[0].url;
+    const fallback = computeGameProfile(demoReport).identity;
     const profile = computeGameProfile(demoReport, [
       {
-        title: "證據鍛造",
-        oneLiner: "能把來源整理成可核對主張，但資料不足時必須保留未知",
-        traits: ["來源可查", "來源可查", "來源可查"],
+        title: "偏差定錨",
+        primaryMethodTypeId: fallback.primaryMethodTypeId,
+        secondaryMethodTypeId: fallback.secondaryMethodTypeId,
+        titleRationale: [
+          {
+            segment: "偏差",
+            explanation: "對應方法面對的問題",
+            evidenceRefs: ["invented-reference"]
+          },
+          {
+            segment: "定錨",
+            explanation: "對應反覆採取的行動",
+            evidenceRefs: ["framework.summary"]
+          }
+        ],
+        signatureMove: "它先找出基準，再逐項修正偏差。",
+        strength: "讓每次調整都能回到同一標準。",
+        shadow: "缺少基準時容易失去校準方向。",
         evidenceUrls: [evidenceUrl]
       }
     ]);
 
-    expect(profile.identity.source).toBe("generated");
-    expect(profile.identity.title).toBe("證據鍛造");
-    expect(new Set(profile.identity.traits).size).toBe(3);
+    expect(profile.identity.source).toBe("fallback");
+    expect(profile.identity.titleRationale.flatMap((item) => item.evidenceRefs)).not.toContain(
+      "invented-reference"
+    );
   });
 
   it("names the threat-model and visual-article regressions with complete four-beat words", () => {
@@ -282,12 +319,30 @@ describe("deterministic game profile", () => {
       framework: {
         ...demoReport.framework,
         name: "文章內容圖文化分段輸出",
-        summary: "把文章拆成適合視覺呈現的段落並安排圖片"
+        summary: "把長文核心轉換成適合視覺呈現的圖文段落與投影片",
+        useWhen: "需要把技術文章轉譯給圖文平台受眾時。",
+        avoidWhen: "必須保留完整技術語境與所有細節時。",
+        steps: [
+          {
+            title: "抽取長文核心",
+            instruction: "先找出受眾真正需要帶走的訊息。",
+            failureType: "shape"
+          },
+          {
+            title: "安排圖文節奏",
+            instruction: "再依媒介與閱讀節奏完成分段轉換。",
+            failureType: "conditional"
+          }
+        ]
       }
     });
 
-    expect(threat.identity.title).toBe("威脅沙盤");
-    expect(visual.identity.title).toBe("圖文編排");
+    expect(threat.identity.primaryMethodTypeId).toBe("sentinel");
+    expect(["investigator", "navigator"]).toContain(threat.identity.secondaryMethodTypeId);
+    expect(threat.identity.title).toBe("危局推演");
+    expect(visual.identity.primaryMethodTypeId).toBe("translator");
+    expect(visual.identity.secondaryMethodTypeId).toBe("choreographer");
+    expect(visual.identity.title).toBe("長文變奏");
   });
 
   it("uses a traceable report-derived fallback instead of stock copy", () => {
@@ -295,7 +350,8 @@ describe("deterministic game profile", () => {
     expect(profile.identity.source).toBe("fallback");
     expect(profile.identity.evidenceUrls.length).toBeGreaterThan(0);
     expect(profile.identity.title).not.toMatch(/法相驚人|法相萬千/);
-    expect(new Set(profile.identity.traits).size).toBe(3);
+    expect(profile.identity.beats).toHaveLength(3);
+    expect(profile.identity.methodSignals.every((signal) => signal.evidenceRefs.length > 0 || signal.score === 0)).toBe(true);
   });
 
   it("keeps fallback titles in Chinese when the framework name is English", () => {
@@ -734,6 +790,30 @@ describe("deployment lock", () => {
 });
 
 describe("evidence-aware report assembly", () => {
+  const personaCandidate = (title: string) => ({
+    title,
+    primaryMethodTypeId: "undetermined" as const,
+    secondaryMethodTypeId: null,
+    titleRationale: [
+      {
+        segment: Array.from(title).slice(0, 2).join(""),
+        explanation: "前半描述目前可見的情境",
+        evidenceRefs: ["framework.summary"]
+      },
+      {
+        segment: Array.from(title).slice(2).join(""),
+        explanation: "後半描述目前可見的行動",
+        evidenceRefs: ["framework.avoidWhen"]
+      }
+    ] as [
+      { segment: string; explanation: string; evidenceRefs: string[] },
+      { segment: string; explanation: string; evidenceRefs: string[] }
+    ],
+    signatureMove: "它先保留方法輪廓，再等更多證據完成分類。",
+    strength: "避免把有限來源包裝成確定的人格結論。",
+    shadow: "需要更多可觀察步驟才能形成穩定類型。",
+    evidenceUrls: ["https://example.com"]
+  });
   const baseModel = modelResultSchema.parse({
     title: "A report",
     verdict: "Useful with limits",
@@ -771,24 +851,9 @@ describe("evidence-aware report assembly", () => {
     ],
     professionalDelta: [],
     identityCandidates: [
-      {
-        title: "條件鍛造",
-        oneLiner: "能把觀察改寫成條件規則，但需要先取得可核對的來源",
-        traits: ["條件先行", "來源可查", "逐項驗證"],
-        evidenceUrls: ["https://example.com"]
-      },
-      {
-        title: "觀察校準",
-        oneLiner: "能分開事實與推論，但在只有截圖時必須停止判斷",
-        traits: ["事實分層", "保留未知", "避免腦補"],
-        evidenceUrls: ["https://example.com"]
-      },
-      {
-        title: "脈絡守門",
-        oneLiner: "能把適用情境說清楚，但代價是每次都要檢查前提",
-        traits: ["脈絡明確", "標出取捨", "可作基線"],
-        evidenceUrls: ["https://example.com"]
-      }
+      personaCandidate("線索未成"),
+      personaCandidate("輪廓待顯"),
+      personaCandidate("脈絡未明")
     ],
     adoption: [],
     caveats: []
@@ -874,8 +939,7 @@ describe("evidence-aware report assembly", () => {
         index === 0
           ? {
               ...candidate,
-              title: "以可編輯威脅模型為中心",
-              traits: ["來源可查", "來源可查", "來源可查"]
+              title: "以可編輯威脅模型為中心"
             }
           : candidate
       ),
@@ -916,11 +980,7 @@ describe("evidence-aware report assembly", () => {
 
     expect(result.result.title).toBe("OpenAI reviewed report");
     expect(result.result.claims[0].confidence).toBe(100);
-    expect(result.result.identityCandidates[0].traits).toEqual([
-      "來源可查",
-      "來源可查",
-      "來源可查"
-    ]);
+    expect(result.result.identityCandidates[0].titleRationale).toHaveLength(2);
     expect(result.result.identityCandidates[0].title).toBe(
       "以可編輯威脅模型為中心"
     );
@@ -1031,11 +1091,11 @@ describe("evidence-aware report assembly", () => {
 
 describe("bilingual report translation", () => {
   it("keeps natural English names and repairs invalid translated titles locally", () => {
-    expect(englishIdentityTitle("威脅沙盤", "Threat Sandbox")).toBe(
-      "Threat Sandbox"
+    expect(englishIdentityTitle("危局推演", "Simulate the Danger")).toBe(
+      "Simulate the Danger"
     );
-    expect(englishIdentityTitle("威脅沙盤", "威脅沙盤")).toBe(
-      "Threat Sandbox"
+    expect(englishIdentityTitle("危局推演", "危局推演")).toBe(
+      "Simulate the Danger"
     );
     const translation = {
       title: demoReport.title,
@@ -1052,13 +1112,19 @@ describe("bilingual report translation", () => {
         context: demoReport.author.context
       },
       gameIdentity: {
-        title: "流程守門",
-        oneLiner: "Strength with a concrete cost",
-        traits: ["traceable", "conditional", "practical"] as [
-          string,
-          string,
-          string
-        ]
+        title: "Workflow Guard",
+        signatureMove: "It sets the baseline before packaging the method.",
+        strength: "Repeated corrections become a testable workflow.",
+        shadow: "A first-time problem may be structured too early.",
+        titleRationale: [
+          "The first beat describes the situation.",
+          "The second beat describes the repeated action."
+        ] as [string, string],
+        beats: [
+          "Find the recurring problem",
+          "Validate it with real cases",
+          "Do not package a first-time problem"
+        ] as [string, string, string]
       },
       occupation: {
         title: demoReport.occupation.title,

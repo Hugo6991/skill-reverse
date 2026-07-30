@@ -2,14 +2,16 @@
 
 :root {
   color-scheme: light;
-  font-family:
+  --font-ui:
     ui-sans-serif,
     -apple-system,
     BlinkMacSystemFont,
     "SF Pro Text",
-    "Segoe UI",
+    "PingFang TC",
     "Noto Sans TC",
+    "Segoe UI",
     sans-serif;
+  font-family: var(--font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
@@ -77,8 +79,13 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea,
+code,
+pre {
   font: inherit;
+  font-family: var(--font-ui);
 }
 
 button,
@@ -382,7 +389,7 @@ a {
   color: var(--text-tertiary);
   background: var(--fill);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -447,7 +454,7 @@ a {
   background: var(--surface-subtle);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -796,7 +803,7 @@ input:focus {
 
 .layer-list article > span {
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -836,7 +843,7 @@ input:focus {
 
 .progress-percent {
   color: var(--accent);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 600;
 }
@@ -881,7 +888,7 @@ input:focus {
   place-items: center;
   background: var(--fill);
   border-radius: 50%;
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 10px;
 }
 
@@ -1312,7 +1319,7 @@ footer {
 
 .framework-index {
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -1502,7 +1509,9 @@ footer {
   color: var(--text-secondary);
   background: hsl(0 0% 100% / 0.76);
   border-radius: var(--radius-md);
-  font: 12px/1.65 ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.65;
   white-space: pre-wrap;
 }
 
@@ -1712,7 +1721,7 @@ footer {
 .claim-state strong {
   margin-left: auto;
   color: var(--text-secondary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
 }
 
 .claim-list p {
@@ -1960,7 +1969,7 @@ footer {
 
 .source-number {
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -2664,7 +2673,7 @@ footer {
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -2800,7 +2809,7 @@ footer {
   top: var(--space-6);
   right: var(--space-6);
   color: var(--text-tertiary);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -4262,7 +4271,7 @@ footer {
 }
 
 .game-axis-list button strong {
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -4273,7 +4282,7 @@ footer {
 .destiny-reading blockquote {
   margin: 0;
   color: hsl(252 35% 29%);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 23px;
   line-height: 1.45;
   font-weight: 620;
@@ -4353,7 +4362,7 @@ footer {
 
 .destiny-axis-detail > div strong {
   color: hsl(252 52% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 22px;
 }
 
@@ -4395,7 +4404,7 @@ footer {
 
 .destiny-scored-signal small {
   color: hsl(252 52% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 9px;
   font-weight: 700;
 }
@@ -4678,7 +4687,7 @@ footer {
   background: hsl(0 0% 100% / 0.78);
   border: 1px solid hsl(252 30% 80%);
   border-radius: 999px;
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 700;
 }
@@ -4866,12 +4875,7 @@ footer {
   background:
     radial-gradient(circle at 50% 43%, hsl(260 74% 89%), transparent 31rem),
     hsl(252 58% 98%);
-  font-family:
-    ui-sans-serif,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Noto Sans TC",
-    sans-serif;
+  font-family: var(--font-ui);
 }
 
 .share-poster > header {
@@ -4919,7 +4923,7 @@ footer {
   text-wrap: balance;
 }
 
-.share-poster-title > div {
+.share-poster-title > div:not(.method-type-lockup) {
   min-height: 54px;
   display: inline-flex;
   align-items: center;
@@ -4932,8 +4936,8 @@ footer {
   font-size: 16px;
 }
 
-.share-poster-title strong {
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+.share-poster-title > div:not(.method-type-lockup) strong {
+  font-family: var(--font-ui);
   font-size: 27px;
 }
 
@@ -4967,7 +4971,7 @@ footer {
 
 .share-poster-axes strong {
   color: hsl(252 48% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 24px;
 }
 
@@ -4975,7 +4979,7 @@ footer {
   max-width: 840px;
   margin: 54px auto 0;
   color: hsl(252 38% 26%);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 38px;
   line-height: 1.42;
   font-weight: 650;
@@ -5075,13 +5079,13 @@ footer {
   text-wrap: balance;
 }
 
-.public-card-title strong {
+.public-card-title > strong {
   padding: 6px 13px;
   color: hsl(252 50% 35%);
   background: hsl(0 0% 100% / 0.7);
   border: 1px solid hsl(252 28% 80%);
   border-radius: 999px;
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 16px;
 }
 
@@ -5114,14 +5118,14 @@ footer {
 
 .public-axis-grid strong {
   color: hsl(252 48% 38%);
-  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-ui);
   font-size: 13px;
 }
 
 .public-destiny-card blockquote {
   margin: var(--space-8) auto;
   color: hsl(252 36% 28%);
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
+  font-family: var(--font-ui);
   font-size: 24px;
   line-height: 1.45;
   font-weight: 650;
@@ -5190,6 +5194,69 @@ footer {
 [data-accent="renown"] { --identity-secondary: hsl(218 61% 46%); }
 [data-accent="ascension"] { --identity-secondary: hsl(190 63% 34%); }
 
+[data-method-type="navigator"] {
+  --identity-accent: hsl(217 58% 42%);
+  --identity-secondary: hsl(190 58% 38%);
+  --identity-surface: hsl(214 70% 98%);
+  --identity-soft: hsl(214 58% 92%);
+}
+
+[data-method-type="investigator"] {
+  --identity-accent: hsl(262 48% 43%);
+  --identity-secondary: hsl(226 48% 48%);
+  --identity-surface: hsl(260 54% 98%);
+  --identity-soft: hsl(260 48% 93%);
+}
+
+[data-method-type="sentinel"] {
+  --identity-accent: hsl(9 56% 41%);
+  --identity-secondary: hsl(34 62% 40%);
+  --identity-surface: hsl(14 65% 98%);
+  --identity-soft: hsl(14 58% 92%);
+}
+
+[data-method-type="calibrator"] {
+  --identity-accent: hsl(179 55% 31%);
+  --identity-secondary: hsl(211 51% 44%);
+  --identity-surface: hsl(180 50% 97%);
+  --identity-soft: hsl(180 44% 90%);
+}
+
+[data-method-type="smith"] {
+  --identity-accent: hsl(30 64% 36%);
+  --identity-secondary: hsl(8 54% 43%);
+  --identity-surface: hsl(36 72% 97%);
+  --identity-soft: hsl(35 62% 89%);
+}
+
+[data-method-type="choreographer"] {
+  --identity-accent: hsl(326 45% 40%);
+  --identity-secondary: hsl(269 45% 44%);
+  --identity-surface: hsl(326 55% 98%);
+  --identity-soft: hsl(326 46% 92%);
+}
+
+[data-method-type="translator"] {
+  --identity-accent: hsl(151 51% 31%);
+  --identity-secondary: hsl(191 53% 36%);
+  --identity-surface: hsl(151 51% 97%);
+  --identity-soft: hsl(151 44% 90%);
+}
+
+[data-method-type="architect"] {
+  --identity-accent: hsl(231 45% 40%);
+  --identity-secondary: hsl(205 48% 40%);
+  --identity-surface: hsl(230 55% 98%);
+  --identity-soft: hsl(230 48% 92%);
+}
+
+[data-method-type="undetermined"] {
+  --identity-accent: hsl(220 10% 42%);
+  --identity-secondary: hsl(220 8% 50%);
+  --identity-surface: hsl(220 18% 98%);
+  --identity-soft: hsl(220 14% 92%);
+}
+
 .motif-compass {
   --motif-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72' viewBox='0 0 72 72'%3E%3Ccircle cx='36' cy='36' r='17' fill='none' stroke='%237b8199' stroke-opacity='.08'/%3E%3Cpath d='m31 41 4-11 6-5-4 11z' fill='%237b8199' fill-opacity='.08'/%3E%3C/svg%3E");
 }
@@ -5249,6 +5316,180 @@ footer {
   gap: var(--space-2);
 }
 
+.method-type-lockup {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  color: var(--identity-accent, hsl(252 48% 45%));
+}
+
+.method-type-lockup > span {
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.method-type-lockup > strong {
+  font-size: 13px;
+  font-weight: 780;
+  letter-spacing: 0.02em;
+}
+
+.destiny-chart > .method-type-lockup {
+  justify-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.destiny-chart > .method-type-lockup > strong {
+  font-family: var(--font-ui);
+  font-size: 18px;
+}
+
+.destiny-seal {
+  min-height: 52px;
+  margin-bottom: -20px;
+  padding-inline: var(--space-5);
+}
+
+.destiny-seal strong {
+  font-size: 23px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.persona-section-label,
+.persona-tension span,
+.public-persona-tension span,
+.share-poster-tension span {
+  color: var(--identity-accent, hsl(252 48% 45%));
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.destiny-reading {
+  gap: var(--space-4);
+}
+
+.persona-tension {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.persona-tension > div {
+  padding: var(--space-3);
+  background: hsl(0 0% 100% / 0.56);
+  border: 1px solid color-mix(in srgb, var(--identity-accent) 16%, white);
+  border-radius: var(--radius-md);
+}
+
+.persona-tension p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.persona-beats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.persona-beats > div {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--identity-soft) 58%, white);
+  border-top: 2px solid color-mix(in srgb, var(--identity-accent) 46%, transparent);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.persona-beats span {
+  color: var(--identity-accent, hsl(252 48% 45%));
+  font-size: 9px;
+  font-weight: 760;
+}
+
+.persona-beats strong {
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 650;
+}
+
+.persona-beats-compact {
+  width: 100%;
+}
+
+.persona-beats-compact > div {
+  padding: 8px;
+}
+
+.persona-evidence {
+  color: var(--text-secondary);
+  border-top: 1px solid color-mix(in srgb, var(--identity-accent) 18%, transparent);
+}
+
+.persona-evidence summary {
+  width: fit-content;
+  padding-top: var(--space-3);
+  color: var(--identity-accent, hsl(252 48% 45%));
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.persona-evidence > div {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.persona-evidence article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 2px var(--space-2);
+}
+
+.persona-evidence article > strong {
+  grid-row: 1 / span 2;
+  color: var(--identity-accent, hsl(252 48% 45%));
+  font-family: var(--font-ui);
+  font-size: 16px;
+}
+
+.persona-evidence p,
+.persona-evidence ul {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.persona-evidence ul {
+  padding-left: 16px;
+  color: var(--text-tertiary);
+}
+
+.persona-evidence nav {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.persona-evidence nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--identity-accent, hsl(252 48% 45%));
+  font-size: 10px;
+  font-weight: 650;
+}
+
 .identity-traits span,
 .manual-traits > span {
   padding: 5px 9px;
@@ -5289,7 +5530,7 @@ footer {
 }
 
 .manual-card-main {
-  min-height: 470px;
+  min-height: 540px;
   align-items: flex-start;
 }
 
@@ -5300,13 +5541,21 @@ footer {
   margin: var(--space-4) 0 var(--space-2);
 }
 
+.manual-card-main > .method-type-lockup {
+  align-self: center;
+  justify-items: center;
+  margin-bottom: var(--space-1);
+}
+
 .manual-identity-title {
   align-self: center;
   margin-bottom: var(--space-5);
   color: var(--identity-accent, hsl(252 50% 36%));
-  font-family: ui-serif, "Songti TC", "Noto Serif TC", serif;
-  font-size: 19px;
+  font-family: var(--font-ui);
+  font-size: 23px;
   font-weight: 750;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .manual-traits {
@@ -5314,7 +5563,7 @@ footer {
 }
 
 .manual-card-main .game-radar-compact {
-  height: 82px;
+  height: 68px;
   margin: 0 0 var(--space-2);
 }
 
@@ -5331,9 +5580,48 @@ footer {
   margin-bottom: var(--space-3);
 }
 
-.public-card-title strong {
+.public-card-title > strong {
   color: var(--identity-accent, hsl(252 50% 35%));
   border-color: color-mix(in srgb, var(--identity-accent, hsl(252 50% 35%)) 28%, white);
+  white-space: nowrap;
+}
+
+.public-card-title > .method-type-lockup {
+  justify-items: center;
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.public-card-title > .method-type-lockup > strong {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.public-persona-tension,
+.share-poster-tension {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.public-persona-tension p,
+.share-poster-tension p {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--text-secondary);
+  background: hsl(0 0% 100% / 0.58);
+  border: 1px solid color-mix(in srgb, var(--identity-accent) 17%, white);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.public-destiny-card > .persona-beats {
+  margin: var(--space-5) 0;
 }
 
 .public-destiny-card > .identity-traits,
@@ -5342,16 +5630,52 @@ footer {
 }
 
 .share-poster > blockquote {
-  margin: 34px auto 0;
-  font-size: 30px;
+  margin: 28px auto 0;
+  font-size: 29px;
 }
 
-.share-poster > .identity-traits {
-  margin-top: 20px;
+.share-poster-title > .method-type-lockup {
+  min-height: auto;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin: 18px 0 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.share-poster-title > .method-type-lockup > span {
+  font-size: 12px;
+}
+
+.share-poster-title > .method-type-lockup > strong {
+  color: var(--identity-accent);
+  font-family: var(--font-ui);
+  font-size: 24px;
+}
+
+.share-poster-tension {
+  width: 820px;
+  margin: 22px auto 0;
+}
+
+.share-poster-tension p {
+  padding: 16px 20px;
+  font-size: 16px;
+}
+
+.share-poster > .persona-beats {
+  width: 820px;
+  margin: 18px auto 0;
+}
+
+.share-poster > .persona-beats strong {
+  font-size: 14px;
 }
 
 .share-poster .game-radar {
-  height: 420px;
+  height: 330px;
 }
 
 .public-card-cta {
@@ -5388,7 +5712,16 @@ footer {
   }
 
   .public-destiny-card .game-radar {
-    height: 300px;
+    height: 260px;
+  }
+
+  .persona-beats,
+  .public-persona-tension {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .persona-beats-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .public-axis-grid {

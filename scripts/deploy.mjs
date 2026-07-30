@@ -46,6 +46,7 @@ if (branch !== PRODUCTION_BRANCH && !localOverride) {
 
 console.log(`\n→ Production release ${branch}@${commit}`);
 run("pnpm", ["copycheck"]);
+run("pnpm", ["fontcheck"]);
 run("pnpm", ["typecheck"]);
 run("pnpm", ["test"]);
 run("pnpm", ["build"]);

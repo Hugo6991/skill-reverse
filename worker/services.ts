@@ -92,6 +92,18 @@ export type OutputProfile = "full" | "compact";
 
 const creatorKinds = ["person", "organization", "team", "unknown"] as const;
 const failureTypes = ["discipline", "shape", "omission", "conditional"] as const;
+const methodTypes = [
+  "navigator",
+  "investigator",
+  "sentinel",
+  "calibrator",
+  "smith",
+  "choreographer",
+  "translator",
+  "architect",
+  "undetermined"
+] as const;
+const concreteMethodTypes = methodTypes.filter((type) => type !== "undetermined");
 const manifestations = [
   "evidenced",
   "author_specific_extension",
@@ -238,7 +250,16 @@ function modelSchema(profile: OutputProfile) {
         items: {
           type: "object",
           additionalProperties: false,
-          required: ["title", "oneLiner", "traits", "evidenceUrls"],
+          required: [
+            "title",
+            "primaryMethodTypeId",
+            "secondaryMethodTypeId",
+            "titleRationale",
+            "signatureMove",
+            "strength",
+            "shadow",
+            "evidenceUrls"
+          ],
           properties: {
             title: {
               type: "string",
@@ -246,13 +267,34 @@ function modelSchema(profile: OutputProfile) {
               maxLength: 4,
               pattern: "^[\\u3400-\\u9FFF]{4}$"
             },
-            oneLiner: { type: "string", minLength: 8, maxLength: 72 },
-            traits: {
-              type: "array",
-              minItems: 3,
-              maxItems: 3,
-              items: { type: "string", minLength: 2, maxLength: 8 }
+            primaryMethodTypeId: { type: "string", enum: methodTypes },
+            secondaryMethodTypeId: {
+              type: ["string", "null"],
+              enum: [...concreteMethodTypes, null]
             },
+            titleRationale: {
+              type: "array",
+              minItems: 2,
+              maxItems: 2,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["segment", "explanation", "evidenceRefs"],
+                properties: {
+                  segment: { type: "string", minLength: 2, maxLength: 2 },
+                  explanation: boundedString(160),
+                  evidenceRefs: {
+                    type: "array",
+                    minItems: 1,
+                    maxItems: 4,
+                    items: boundedString(80)
+                  }
+                }
+              }
+            },
+            signatureMove: { type: "string", minLength: 8, maxLength: 72 },
+            strength: { type: "string", minLength: 8, maxLength: 72 },
+            shadow: { type: "string", minLength: 8, maxLength: 72 },
             evidenceUrls: {
               type: "array",
               minItems: 1,
@@ -323,11 +365,26 @@ const REPORT_TRANSLATION_SCHEMA = {
     gameIdentity: {
       type: "object",
       additionalProperties: false,
-      required: ["title", "oneLiner", "traits"],
+      required: [
+        "title",
+        "signatureMove",
+        "strength",
+        "shadow",
+        "titleRationale",
+        "beats"
+      ],
       properties: {
         title: { type: "string" },
-        oneLiner: { type: "string" },
-        traits: {
+        signatureMove: { type: "string" },
+        strength: { type: "string" },
+        shadow: { type: "string" },
+        titleRationale: {
+          type: "array",
+          minItems: 2,
+          maxItems: 2,
+          items: { type: "string" }
+        },
+        beats: {
           type: "array",
           minItems: 3,
           maxItems: 3,
@@ -1137,14 +1194,17 @@ Editorial requirements:
 11. Keep creator motivation in author.context only when the evidence supports it, and distinguish observed design choices from inferred philosophy
 12. Rewrite adoption items as plain-language rules that work in any chat AI before the user considers a plugin, skill, or agent
 13. Set every claim confidence to the exact sum of directness + firstParty + corroboration + temporalFit + reproducibility + contradictionPenalty. Use evidence anchors: 0=no support, 25=weakly plausible, 50=one-source supported inference, 75=corroborated or reproducible, 90+=verified and reproducible
-14. Create exactly three distinct identityCandidates. Each title must be exactly four Traditional-Chinese characters and read as two meaningful two-character beats. Use a clear functional metaphor, not a clipped sentence or a generic category. Good examples: 威脅沙盤、證據鍛造、介面驗真、圖文編排. Bad examples: 以可編輯威脅模型為中、文章內容、安全分析框架、法相驚人. Never shorten the framework name to make a title. Each candidate also needs one concrete strength-and-cost sentence, three evidence-traceable traits, and 1–3 supplied evidence URLs
-15. Never use generic stock titles or previously used titles, including ${JSON.stringify([
+14. Create exactly three distinct identityCandidates for the Skill's observable method persona, never the user or author's psychology. Choose a primaryMethodTypeId and optional secondaryMethodTypeId from: navigator=探路者（分類、找路、排序）, investigator=鑑證者（來源、主張、證據）, sentinel=守門人（條件、風險、批准點）, calibrator=校準師（基準、比較、修正）, smith=鍛造師（素材變成品）, choreographer=編舞家（階段、角色、順序）, translator=轉譯者（格式、媒介、受眾）, architect=構築師（結構、元件、系統）, undetermined=證據不足. Do not balance the type distribution
+15. Each Chinese title must be exactly four Traditional-Chinese characters with a 2+2 rhythm. The first pair names a concrete situation or tension; the second pair names an action or change. Prefer vivid but intelligible titles such as 迷霧領航、長文變奏、危局推演. Reject functional category labels such as 來源溯真、介面驗真、圖文編排、證據鍛造, clipped framework text, jargon, and unsupported drama
+16. For each two-character title segment, provide a titleRationale with an explanation and valid evidenceRefs. Allowed refs are framework.name, framework.summary, framework.useWhen, framework.avoidWhen, framework.step.N, claim-N, observation-N, caveat-N, and adoption-N. The two segment values must exactly equal the title's first and last two characters
+17. Give each candidate separate signatureMove, strength, and shadow sentences. The shadow must be grounded in framework.avoidWhen or a caveat. Do not concatenate or truncate the framework summary, and do not use generic personality praise
+18. Never use generic stock titles or previously used titles, including ${JSON.stringify([
     "法相驚人",
     "法相萬千",
     ...(identityContext.usedTitles ?? [])
   ])}. Order candidates by naming quality and content relevance; the system assigns visual motifs separately
-16. Preserve creator kind, name, and handle exactly from FIRST-PARTY CREATOR IDENTITY; never replace an organization with an individual contributor
-17. Return only JSON matching the required schema
+19. Preserve creator kind, name, and handle exactly from FIRST-PARTY CREATOR IDENTITY; never replace an organization with an individual contributor
+20. Return only JSON matching the required schema
 
 PERPLEXITY RESEARCH DRAFT:
 ${JSON.stringify(research)}
@@ -1436,8 +1496,17 @@ export function applyReportTranslation(
           report.gameProfile.identity.title,
           translation.gameIdentity.title
         ),
-        oneLiner: translation.gameIdentity.oneLiner,
-        traits: translation.gameIdentity.traits
+        signatureMove: translation.gameIdentity.signatureMove,
+        strength: translation.gameIdentity.strength,
+        shadow: translation.gameIdentity.shadow,
+        titleRationale: report.gameProfile.identity.titleRationale.map((item, index) => ({
+          ...item,
+          explanation: translation.gameIdentity.titleRationale[index]
+        })) as typeof report.gameProfile.identity.titleRationale,
+        beats: report.gameProfile.identity.beats.map((item, index) => ({
+          ...item,
+          text: translation.gameIdentity.beats[index]
+        })) as typeof report.gameProfile.identity.beats
       }
     },
     occupation: {
@@ -1702,21 +1771,66 @@ export function draftToModelResult(draft: ResearchDraft, targetUrl: string): Mod
     professionalDelta: draft.professionalSignals,
     identityCandidates: [
       {
-        title: "證據編排",
-        oneLiner: `${draft.frameworkHypothesis.summary.slice(0, 36)}，但需先核對使用條件`,
-        traits: ["來源可查", "步驟清楚", "保留條件"],
+        title: "線索未成",
+        primaryMethodTypeId: "undetermined",
+        secondaryMethodTypeId: null,
+        titleRationale: [
+          {
+            segment: "線索",
+            explanation: "目前只有初步研究線索",
+            evidenceRefs: ["framework.summary"]
+          },
+          {
+            segment: "未成",
+            explanation: "證據不足以固定方法類型",
+            evidenceRefs: ["framework.useWhen"]
+          }
+        ],
+        signatureMove: "先保留方法輪廓，等證據完整後再分類。",
+        strength: "避免把初步線索包裝成確定的人格結論。",
+        shadow: "需要更多可觀察步驟才能形成穩定類型。",
         evidenceUrls: [targetUrl]
       },
       {
-        title: "框架驗真",
-        oneLiner: `${draft.researchSummary.slice(0, 36)}，代價是仍要逐項實測`,
-        traits: ["主張分級", "可作基線", "先行驗證"],
+        title: "輪廓待顯",
+        primaryMethodTypeId: "undetermined",
+        secondaryMethodTypeId: null,
+        titleRationale: [
+          {
+            segment: "輪廓",
+            explanation: "已有可觀察的框架假設",
+            evidenceRefs: ["framework.name"]
+          },
+          {
+            segment: "待顯",
+            explanation: "仍需更多來源確認行動模式",
+            evidenceRefs: ["framework.avoidWhen"]
+          }
+        ],
+        signatureMove: "先標出可見輪廓，不急著宣稱固定類型。",
+        strength: "讓不確定性留在報告裡而不是藏進文案。",
+        shadow: "分享時會比完整人格少一層辨識度。",
         evidenceUrls: [targetUrl]
       },
       {
-        title: "方法拆解",
-        oneLiner: `${draft.frameworkHypothesis.useWhen.slice(0, 36)}，不適用時應停止套用`,
-        traits: ["聚焦方法", "標出取捨", "方便借用"],
+        title: "脈絡未明",
+        primaryMethodTypeId: "undetermined",
+        secondaryMethodTypeId: null,
+        titleRationale: [
+          {
+            segment: "脈絡",
+            explanation: "命名必須回到方法形成脈絡",
+            evidenceRefs: ["framework.summary"]
+          },
+          {
+            segment: "未明",
+            explanation: "現有證據仍不足以斷言",
+            evidenceRefs: ["framework.avoidWhen"]
+          }
+        ],
+        signatureMove: "先整理方法脈絡，再決定是否值得命名。",
+        strength: "把可追溯性放在戲劇效果之前。",
+        shadow: "資料稀薄時只能提供暫時性結論。",
         evidenceUrls: [targetUrl]
       }
     ],
@@ -1913,7 +2027,12 @@ export function assembleReport(input: {
     ...report,
     gameProfile: computeGameProfile(
       report,
-      useFallbackIdentity ? [] : model.identityCandidates,
+      useFallbackIdentity
+        ? []
+        : model.identityCandidates.map((candidate) => ({
+            ...candidate,
+            secondaryMethodTypeId: candidate.secondaryMethodTypeId ?? undefined
+          })),
       identityContext
     )
   };

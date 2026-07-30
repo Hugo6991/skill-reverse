@@ -58,7 +58,7 @@ export const en = {
     retry: "Try again", emptyTitle: "Your collection is empty",
     emptyBody: "Reverse one skill and its latest profile will appear here",
     emptyAction: "Find a skill", cardsLabel: "Collected skills",
-    volume: "Volume {number}", traitsLabel: "Three identity traits",
+    volume: "Volume {number}", traitsLabel: "Three method-persona beats",
     radarLabel: "{name} six-axis profile", shared: "Profile shared",
     notShared: "Profile not shared", removeLabel: "Remove {name}",
     removeConfirm: "Remove {name} from this browser?\nThe public report will remain available",
@@ -69,7 +69,7 @@ export const en = {
   publicCard: {
     missing: "This profile is no longer available", own: "Reverse your own",
     loading: "Opening the profile", kicker: "Skill profile", shareAgain: "Share again",
-    shareText: "I found “{title}”\n{summary}", yourTurn: "Your turn",
+    shareText: "I found a {type} Skill: “{title}”\n{summary}", yourTurn: "Your turn",
     prompt: "Which skill did you find recently?", start: "Start a reverse"
   },
   game: {
@@ -78,9 +78,32 @@ export const en = {
     share: "Share profile", downloaded: "Profile downloaded", shared: "Profile shared",
     copied: "Share text and link copied", shareFailed: "Sharing failed",
     shareOpenFailed: "The public link could not be opened",
-    shareText: "I found “{title}”\n{summary}\n{axis} {value}",
+    shareText: "I found a {type} Skill: “{title}”\n{summary}\n{axis} {value}",
     viewIdentity: "View source identity", highlight: "Method highlight",
-    risk: "Adoption risk", traitsLabel: "Identity traits", badgesLabel: "Evidence badges",
+    risk: "Adoption risk", traitsLabel: "Method-persona beats",
+    methodPersona: "How this Skill works",
+    signatureMove: "Signature move",
+    strength: "What it does best",
+    shadow: "The cost of its strength",
+    whyThisName: "Why this name",
+    undetermined: "Not enough evidence",
+    methodTypes: {
+      navigator: "Navigator",
+      investigator: "Investigator",
+      sentinel: "Sentinel",
+      calibrator: "Calibrator",
+      smith: "Smith",
+      choreographer: "Choreographer",
+      translator: "Translator",
+      architect: "Architect",
+      undetermined: "Undetermined"
+    },
+    beatLabels: {
+      opening: "Opening move",
+      criterion: "Decision rule",
+      shadow: "Blind spot"
+    },
+    badgesLabel: "Evidence badges",
     noClues: "More evidence needed", evidence: "Naming evidence {number}",
     coverage: "Data coverage {value}%", unknown: "Unknown",
     moneyNote: "Estimates user value potential and does not promise financial returns",

@@ -25,10 +25,7 @@ import {
   searchOccupations
 } from "./occupations";
 import { createJobSchema, retryJobSchema, updateJobSourcesSchema } from "./schema";
-import {
-  GAME_IDENTITY_NAMING_VERSION,
-  hasCurrentIdentityNaming
-} from "./game-identity";
+import { hasCurrentIdentity } from "./game-identity";
 import { isRetryableJobError } from "./provider-ledger";
 import { ReportUpgradeError, upgradeStoredReport } from "./report-compat";
 import {
@@ -93,10 +90,7 @@ function currentGameProfile(
       ? resolveGameProfile(stored, locale)
       : stored
   ) as Partial<GameProfile>;
-  const identityIsCurrent =
-    locale === "zh-TW"
-      ? hasCurrentIdentityNaming(candidate.identity)
-      : candidate.identity?.namingVersion === GAME_IDENTITY_NAMING_VERSION;
+  const identityIsCurrent = hasCurrentIdentity(candidate.identity);
   if (
     candidate.rubricVersion === "game-profile-v2" &&
     candidate.identity &&
