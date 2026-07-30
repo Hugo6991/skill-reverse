@@ -1,6 +1,13 @@
 import { ArrowRight, Brain, MessageSquareText, ScanSearch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveReport } from "./bilingual";
+import {
+  analyticsDurationBucket,
+  initializeAnalytics,
+  routeKindFromPath,
+  setAnalyticsContext,
+  track
+} from "./analytics";
 import { useLocale } from "./LocaleContext";
 import { AdminPage } from "./components/AdminPage";
 import { CollectionPage } from "./components/CollectionPage";
@@ -108,6 +115,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [pageError, setPageError] = useState("");
   const pollTimer = useRef<number | undefined>(undefined);
+  const lastViewedStage = useRef("");
 
   const navigate = useCallback((path: string, replace = false) => {
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
@@ -127,11 +135,25 @@ export default function App() {
         const next = await api<JobStatus>(`/api/jobs/${encodeURIComponent(jobId)}`);
         setJob(next);
         if (next.status === "completed" && next.reportId) {
+          track("research_completed", {
+            occupation_code: next.occupationCode,
+            research_stage: "report",
+            duration_bucket: analyticsDurationBucket(next.startedAt, next.finishedAt),
+            queue_duration_bucket: analyticsDurationBucket(next.queuedAt, next.startedAt),
+            degraded_count: next.degraded.length
+          });
           setBusy(false);
           navigate(`/reports/${encodeURIComponent(next.reportId)}`, true);
           return;
         }
         if (next.status === "failed") {
+          track("research_failed", {
+            occupation_code: next.occupationCode,
+            research_stage: next.stage,
+            duration_bucket: analyticsDurationBucket(next.startedAt, next.finishedAt),
+            degraded_count: next.degraded.length,
+            error_code: next.error?.code
+          });
           setBusy(false);
           return;
         }
@@ -145,6 +167,7 @@ export default function App() {
   );
 
   useEffect(() => {
+    initializeAnalytics();
     api<PublicConfig>("/api/config").then(setConfig).catch(() => setConfig(fallbackConfig));
     const onPopState = () => {
       if (pollTimer.current) window.clearTimeout(pollTimer.current);
@@ -159,6 +182,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const routeKind = route.kind === "not_found" ? "not_found" : routeKindFromPath();
+    setAnalyticsContext({ locale, route_kind: routeKind });
+    track("page_view", { locale, route_kind: routeKind });
+  }, [locale, route]);
+
+  useEffect(() => {
+    if (!job || lastViewedStage.current === job.stage) return;
+    lastViewedStage.current = job.stage;
+    setAnalyticsContext({
+      occupation_code: job.occupationCode,
+      research_stage: job.stage
+    });
+    track("job_stage_viewed", {
+      occupation_code: job.occupationCode,
+      research_stage: job.stage,
+      degraded_count: job.degraded.length
+    });
+  }, [job]);
+
+  useEffect(() => {
     setReportPayload(undefined);
     setJob(undefined);
     setPageError("");
@@ -170,6 +213,17 @@ export default function App() {
             throw new Error(copy.common.reportNeedsUpdate);
           }
           setReportPayload(next);
+          const report = resolveReport(next, locale);
+          setAnalyticsContext({
+            occupation_code: report.occupation.code,
+            report_type: report.id === "demo" ? "demo" : "published"
+          });
+          track("report_viewed", {
+            occupation_code: report.occupation.code,
+            report_type: report.id === "demo" ? "demo" : "published",
+            source_count: report.sources.length,
+            degraded_count: report.degraded.length
+          });
           setBusy(false);
         })
         .catch((caught) => {
@@ -198,6 +252,14 @@ export default function App() {
         body: JSON.stringify(input)
       });
       sessionStorage.setItem(`skill-reverse:${result.jobId}`, result.capabilityToken);
+      setAnalyticsContext({
+        occupation_code: input.occupationCode,
+        research_stage: "validate"
+      });
+      track("research_started", {
+        occupation_code: input.occupationCode,
+        research_stage: "validate"
+      });
       if (result.reportId) {
         navigate(`/reports/${encodeURIComponent(result.reportId)}`);
         return;
@@ -225,6 +287,12 @@ export default function App() {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ urls, finalize })
+    });
+    track(urls.length > 0 ? "sources_submitted" : "sources_skipped", {
+      source_count: urls.length,
+      source_submission_type: urls.length > 0 ? "submitted" : "skipped",
+      research_stage: job?.stage,
+      occupation_code: job?.occupationCode
     });
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
     await pollJob(route.id);

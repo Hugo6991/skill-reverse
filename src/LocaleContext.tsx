@@ -3,6 +3,7 @@ import {
 } from "react";
 import type { Locale } from "./types";
 import { en, isLocale, zhTW, type TranslationSchema } from "./locales";
+import { track } from "./analytics";
 
 const STORAGE_KEY = "skill-reverse:locale";
 const dictionaries: Record<Locale, TranslationSchema> = { "zh-TW": zhTW, en };
@@ -38,12 +39,14 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   );
 
   const setLocale = useCallback((next: Locale) => {
+    const previous = locale;
     setLocaleState(next);
     window.localStorage.setItem(STORAGE_KEY, next);
     const url = new URL(window.location.href);
     url.searchParams.set("lang", next);
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-  }, []);
+    if (previous !== next) track("language_changed", { locale: next });
+  }, [locale]);
 
   useEffect(() => {
     document.documentElement.lang = locale;

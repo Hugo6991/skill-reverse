@@ -9,5 +9,8 @@ dist/
 !.env.example
 coverage/
 .backups/
+.analytics-backups/
+.analytics-secrets/
+analytics/export/
 *.log
 .DS_Store

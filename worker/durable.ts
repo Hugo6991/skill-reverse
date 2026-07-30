@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { AppEnv } from "./types";
+import { durationBucket, trackWorkerEvent } from "./analytics";
 
 interface ActorState {
   activeJobId?: string;
@@ -196,6 +197,7 @@ interface SchedulableJobRow {
   created_at: string;
   queued_at: string | null;
   started_at: string | null;
+  retry_count: number;
   status: string;
 }
 
@@ -239,7 +241,7 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
     return this.env.DB.prepare(
       `SELECT id, actor_hash, target_url, support_urls_json, occupation_code,
               capability_hash, workflow_id, reserved_cents, created_at, queued_at,
-              started_at, status
+              started_at, retry_count, status
        FROM jobs WHERE id = ?1`
     )
       .bind(jobId)
@@ -331,6 +333,13 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
         this.env.ACTOR_GATE.getByName(row.actor_hash).release(row.id),
         this.env.DAILY_BUDGET.getByName(row.created_at.slice(0, 10)).release(row.id)
       ]);
+      await trackWorkerEvent(this.env, "research_failed", {
+        jobId: row.id,
+        eventId: `${row.id}:research_failed:queue_payload_invalid`,
+        occupationCode: row.occupation_code,
+        researchStage: "validate",
+        errorCode: "queue_payload_invalid"
+      });
       return null;
     }
 
@@ -384,6 +393,13 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
     )
       .bind(workflowId, startedAt, row.id)
       .run();
+    await trackWorkerEvent(this.env, "research_running", {
+      jobId: row.id,
+      eventId: `${row.id}:research_running:${row.retry_count}`,
+      occupationCode: row.occupation_code,
+      researchStage: "capture",
+      queueDurationBucket: durationBucket(row.queued_at ?? row.created_at, startedAt)
+    });
     return { ...job, workflowId, startedAt };
   }
 
@@ -412,6 +428,11 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
               row.actual_cents
             )
           ]);
+          await trackWorkerEvent(this.env, "research_failed", {
+            jobId,
+            eventId: `${jobId}:research_failed:workflow_completion_lost`,
+            errorCode: "workflow_completion_lost"
+          });
         }
         continue;
       }

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "site": {
+    "name": "Skill Reverse",
+    "productionUrl": "https://skill-reverse.vibeencode.dev",
+    "hostnames": [
+      "skill-reverse.vibeencode.dev"
+    ],
+    "timezone": "America/Los_Angeles",
+    "currency": "USD",
+    "locales": [
+      "zh-TW",
+      "en"
+    ],
+    "excludedPaths": [
+      "/admin",
+      "/api"
+    ]
+  },
+  "google": {
+    "cloudProjectId": "",
+    "gtmAccountId": "",
+    "gtmContainerId": "",
+    "gtmPublicId": "GTM-MS7BKGDZ",
+    "gaAccountId": "",
+    "gaPropertyId": "",
+    "gaWebStreamId": "15353970824",
+    "gaMeasurementId": "G-ZQZ4565SWV",
+    "searchConsoleSiteUrl": "sc-domain:vibeencode.dev"
+  },
+  "clarity": {
+    "projectId": "",
+    "maskingMode": "balanced",
+    "cookiesEnabled": true,
+    "botDetection": true
+  },
+  "mixpanel": {
+    "projectId": "",
+    "projectToken": "",
+    "region": "US",
+    "persistence": "localStorage",
+    "autocapture": false,
+    "sessionReplay": false
+  }
+}

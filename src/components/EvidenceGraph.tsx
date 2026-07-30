@@ -1,6 +1,7 @@
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import { useMemo } from "react";
 import { useLocale } from "../LocaleContext";
+import { track } from "../analytics";
 import { withoutTerminalFullStop } from "../text";
 import type { ReverseReport } from "../types";
 
@@ -56,7 +57,18 @@ export function EvidenceGraph({ report }: { report: ReverseReport }) {
 
   return (
     <div className="evidence-graph" aria-label={copy.report.graphAria}>
-      <ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.45} maxZoom={1.4}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        fitView
+        minZoom={0.45}
+        maxZoom={1.4}
+        onNodeClick={() =>
+          track("evidence_opened", {
+            report_type: report.id === "demo" ? "demo" : "published"
+          })
+        }
+      >
         <Background color="#b9b9af" gap={22} size={1} />
         <Controls showInteractive={false} />
       </ReactFlow>

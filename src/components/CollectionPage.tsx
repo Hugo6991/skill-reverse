@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useLocale } from "../LocaleContext";
+import { track } from "../analytics";
 import { formatCopy } from "../locales";
 import type {
   CollectionPage as CollectionResponse,
@@ -58,6 +59,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
   }, [copy.collection.loadFailed, locale]);
 
   useEffect(() => {
+    track("collection_viewed", { route_kind: "collection" });
     void refresh();
   }, [refresh]);
 
@@ -76,6 +78,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
       return;
     }
     setCards((current) => current.filter((candidate) => candidate.id !== card.id));
+    track("card_removed", { route_kind: "collection" });
   }
 
   return (
