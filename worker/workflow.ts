@@ -29,6 +29,7 @@ import { historyPresentation } from "./history";
 import { targetKey as normalizedTargetKey } from "./publication";
 import type { GameMotifId, GameProfile } from "../src/types";
 import { GAME_MOTIF_IDS, type IdentitySelectionContext } from "./game-identity";
+import { durationBucket, trackWorkerEvent } from "./analytics";
 
 export interface ResearchWorkflowParams {
   kind?: "research" | "health";
@@ -477,6 +478,11 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
       await step.do("persist report", async () => {
         const now = new Date();
         const publishedAt = now.toISOString();
+        const lifecycle = await this.env.DB.prepare(
+          "SELECT started_at FROM jobs WHERE id = ?1"
+        )
+          .bind(jobId)
+          .first<{ started_at: string | null }>();
         const permanentExpiry = "9999-12-31T23:59:59.999Z";
         const cardExpires = new Date(now.getTime() + 365 * 86_400_000).toISOString();
         const presentation = historyPresentation(targetUrl, JSON.stringify(report));
@@ -561,6 +567,29 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
           skillCardUpsert,
           publishJob
         ]);
+        await Promise.all([
+          trackWorkerEvent(this.env, "research_completed", {
+            jobId,
+            eventId: `${jobId}:research_completed`,
+            reportId: report.id,
+            occupationCode,
+            researchStage: "report",
+            reportType: "published",
+            sourceCount: captured.length,
+            durationBucket: durationBucket(lifecycle?.started_at, publishedAt),
+            degradedCount: degraded.length
+          }),
+          trackWorkerEvent(this.env, "report_published", {
+            jobId,
+            eventId: `${jobId}:report_published`,
+            reportId: report.id,
+            occupationCode,
+            researchStage: "report",
+            reportType: "published",
+            sourceCount: captured.length,
+            degradedCount: degraded.length
+          })
+        ]);
       });
 
       await step.do("settle gates", async () => {
@@ -581,6 +610,13 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         errorCode: details.code,
         errorMessage: details.internalMessage.slice(0, 500),
         finishedAt: new Date().toISOString()
+      });
+      await trackWorkerEvent(this.env, "research_failed", {
+        jobId,
+        eventId: `${jobId}:research_failed:${details.code}`,
+        occupationCode,
+        errorCode: details.code,
+        degradedCount: degraded.length
       });
       const actualCents = await getJobCost(this.env.DB, jobId);
       await Promise.allSettled([

@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "transportEvent": "product_event",
+  "description": "Skill Reverse 的唯一 tracking plan。前端事件只進入 dataLayer，研究生命週期由 Worker 直接送 Mixpanel。",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "required": true,
+      "description": "每次事件的 UUID，用於 GA4、Clarity、Mixpanel 與 Worker 去重。"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "事件發生時間（ISO 8601）。"
+    },
+    "locale": {
+      "type": "string",
+      "enum": [
+        "zh-TW",
+        "en"
+      ],
+      "description": "介面語言。"
+    },
+    "route_kind": {
+      "type": "string",
+      "description": "產品路由類型，不包含完整 URL 或 query。"
+    },
+    "occupation_code": {
+      "type": "string",
+      "description": "標準職業代碼。"
+    },
+    "research_stage": {
+      "type": "string",
+      "description": "研究流程階段。"
+    },
+    "report_type": {
+      "type": "string",
+      "description": "報告類型，例如 demo、private、published。"
+    },
+    "source_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "來源數量。"
+    },
+    "source_submission_type": {
+      "type": "string",
+      "enum": [
+        "submitted",
+        "skipped"
+      ],
+      "description": "來源收集的完成方式。"
+    },
+    "duration_bucket": {
+      "type": "string",
+      "description": "研究耗時的分桶值，不送原始精確時間。"
+    },
+    "queue_duration_bucket": {
+      "type": "string",
+      "description": "排隊耗時的分桶值。"
+    },
+    "degraded_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "降級資料源數量。"
+    },
+    "error_code": {
+      "type": "string",
+      "description": "正規化錯誤代碼，不包含 stack 或錯誤原文。"
+    },
+    "share_method": {
+      "type": "string",
+      "enum": [
+        "native",
+        "clipboard",
+        "download"
+      ],
+      "description": "分享方式。"
+    }
+  },
+  "events": [
+    {
+      "name": "page_view",
+      "source": "browser",
+      "description": "顯示一個產品路由。"
+    },
+    {
+      "name": "target_url_entered",
+      "source": "browser",
+      "description": "使用者完成輸入研究目標 URL；不送 URL 值。"
+    },
+    {
+      "name": "occupation_selected",
+      "source": "browser",
+      "description": "使用者選擇職業。"
+    },
+    {
+      "name": "research_started",
+      "source": "browser",
+      "keyEvent": true,
+      "description": "研究要求成功建立。"
+    },
+    {
+      "name": "source_collection_viewed",
+      "source": "browser",
+      "description": "顯示來源收集介面。"
+    },
+    {
+      "name": "sources_submitted",
+      "source": "browser",
+      "description": "使用者送出來源。"
+    },
+    {
+      "name": "sources_skipped",
+      "source": "browser",
+      "description": "使用者略過來源收集。"
+    },
+    {
+      "name": "job_stage_viewed",
+      "source": "browser",
+      "description": "使用者看到新的研究階段。"
+    },
+    {
+      "name": "research_queued",
+      "source": "worker",
+      "description": "Worker 已接受研究工作。"
+    },
+    {
+      "name": "research_running",
+      "source": "worker",
+      "description": "Worker 開始執行研究。"
+    },
+    {
+      "name": "research_completed",
+      "source": "worker",
+      "keyEvent": true,
+      "description": "Worker 完成研究。"
+    },
+    {
+      "name": "research_failed",
+      "source": "worker",
+      "description": "Worker 研究失敗。"
+    },
+    {
+      "name": "research_retried",
+      "source": "worker",
+      "description": "研究已重新排程。"
+    },
+    {
+      "name": "report_published",
+      "source": "worker",
+      "description": "報告被標示為公開。"
+    },
+    {
+      "name": "report_viewed",
+      "source": "browser",
+      "keyEvent": true,
+      "description": "完成載入報告。"
+    },
+    {
+      "name": "report_section_expanded",
+      "source": "browser",
+      "description": "使用者展開或切換報告段落。"
+    },
+    {
+      "name": "evidence_opened",
+      "source": "browser",
+      "description": "使用者開啟證據項目。"
+    },
+    {
+      "name": "source_link_opened",
+      "source": "browser",
+      "description": "使用者開啟外部來源；不送完整 URL。"
+    },
+    {
+      "name": "share_created",
+      "source": "browser",
+      "description": "分享卡或分享連結已建立。"
+    },
+    {
+      "name": "share_completed",
+      "source": "browser",
+      "keyEvent": true,
+      "description": "使用者完成分享。"
+    },
+    {
+      "name": "collection_viewed",
+      "source": "browser",
+      "description": "顯示收藏頁。"
+    },
+    {
+      "name": "card_removed",
+      "source": "browser",
+      "description": "使用者移除收藏卡。"
+    },
+    {
+      "name": "language_changed",
+      "source": "browser",
+      "description": "使用者切換語言。"
+    }
+  ],
+  "forbiddenProperties": [
+    "token",
+    "api_key",
+    "capability",
+    "actor_hash",
+    "form_content",
+    "report_body",
+    "error_stack",
+    "url",
+    "query"
+  ],
+  "vendorMapping": {
+    "ga4": {
+      "events": "browser",
+      "purpose": "網站互動、流量、session 與 key events。"
+    },
+    "clarity": {
+      "events": "browser",
+      "tags": [
+        "locale",
+        "route_kind",
+        "occupation_code",
+        "research_stage"
+      ],
+      "upgradeEvents": [
+        "research_started",
+        "research_failed",
+        "research_completed",
+        "share_completed"
+      ]
+    },
+    "mixpanel": {
+      "events": "all",
+      "deduplicateWith": "event_id",
+      "purpose": "完整產品事件與 Worker 研究狀態。"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { ArrowRight, FileSearch2, Globe2, Link2, LoaderCircle, LockKeyhole, Search } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "../LocaleContext";
+import { track } from "../analytics";
 import type {
   HistoryItem,
   HistoryPage as HistoryResponse,
@@ -125,6 +126,7 @@ export function ResearchForm({
       return;
     }
     setUrlReady(true);
+    track("target_url_entered");
   }
 
   async function submit(event: FormEvent) {
@@ -173,6 +175,7 @@ export function ResearchForm({
           <Link2 size={20} aria-hidden="true" />
           <input
             id="target-url"
+            data-clarity-mask="true"
             type="url"
             inputMode="url"
             required
@@ -260,6 +263,7 @@ export function ResearchForm({
               <input
                 ref={occupationInput}
                 id="occupation-search"
+                data-clarity-mask="true"
                 value={occupationQuery}
                 onChange={(event) => setOccupationQuery(event.target.value)}
                 placeholder={copy.home.occupationPlaceholder}
@@ -273,7 +277,10 @@ export function ResearchForm({
                   aria-checked={occupation?.code === item.code}
                   className={occupation?.code === item.code ? "occupation selected" : "occupation"}
                   key={item.code}
-                  onClick={() => setOccupation(item)}
+                  onClick={() => {
+                    setOccupation(item);
+                    track("occupation_selected", { occupation_code: item.code });
+                  }}
                 >
                   <span className="radio-mark" aria-hidden="true" />
                   <span>

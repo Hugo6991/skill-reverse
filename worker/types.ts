@@ -83,12 +83,16 @@ export interface AppEnv {
   ANON_SESSION_SECRET?: string;
   SETUP_CAPABILITY?: string;
   SETUP_COMPLETE?: string;
+  MIXPANEL_TOKEN?: string;
+  MIXPANEL_REGION?: "US" | "EU" | "IN" | "India";
+  MIXPANEL_API_HOST?: string;
 }
 
 export type AppVariables = {
   actorId: string;
   actorHash: string;
   setActorCookie?: string;
+  cspNonce: string;
 };
 
 export type HonoEnv = {

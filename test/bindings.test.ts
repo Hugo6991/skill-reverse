@@ -16,6 +16,50 @@ beforeAll(async () => {
 });
 
 describe("Cloudflare bindings in workerd", () => {
+  it("serves indexable SEO shells and keeps private routes out of search", async () => {
+    const homepage = await SELF.fetch("https://example.com/?lang=zh-TW", {
+      headers: { accept: "text/html" }
+    });
+    const homepageHtml = await homepage.text();
+    expect(homepage.status).toBe(200);
+    expect(homepage.headers.get("x-robots-tag")).toBe("index, follow");
+    expect(homepage.headers.get("content-security-policy")).toContain("googletagmanager.com");
+    expect(homepageHtml).toContain('rel="canonical"');
+    expect(homepageHtml).toContain('hreflang="en"');
+    expect(homepageHtml).not.toContain("noindex");
+
+    const demo = await SELF.fetch("https://example.com/reports/demo?lang=en", {
+      headers: { accept: "text/html" }
+    });
+    expect(demo.status).toBe(200);
+    expect(await demo.text()).toContain("<article>");
+
+    const collection = await SELF.fetch("https://example.com/collection", {
+      headers: { accept: "text/html" }
+    });
+    expect(collection.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(await collection.text()).toContain("noindex,nofollow");
+
+    const missing = await SELF.fetch("https://example.com/does-not-exist", {
+      headers: { accept: "text/html" }
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("publishes robots and sitemap from the Worker", async () => {
+    const robots = await SELF.fetch("https://example.com/robots.txt");
+    expect(robots.status).toBe(200);
+    expect(await robots.text()).toContain("Sitemap: https://example.com/sitemap.xml");
+
+    const sitemap = await SELF.fetch("https://example.com/sitemap.xml");
+    expect(sitemap.status).toBe(200);
+    expect(sitemap.headers.get("content-type")).toContain("application/xml");
+    const xml = await sitemap.text();
+    expect(xml).toContain("/reports/demo");
+    expect(xml).not.toContain("/jobs/");
+  });
+
   it("queries the seeded O*NET catalog through D1", async () => {
     const results = await searchOccupations(bindings.DB, "web interface");
     expect(results[0]).toMatchObject({

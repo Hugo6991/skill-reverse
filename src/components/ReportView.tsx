@@ -26,6 +26,7 @@ import {
   type AskAiProviderId
 } from "../chatPrompt";
 import { useLocale } from "../LocaleContext";
+import { track } from "../analytics";
 import { formatCopy } from "../locales";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
@@ -124,6 +125,10 @@ export function ReportView({
     link.download = `${report.id === "demo" ? "skill-destiny-demo" : report.id}.png`;
     link.href = dataUrl;
     link.click();
+    track("share_completed", {
+      share_method: "download",
+      report_type: report.id === "demo" ? "demo" : "published"
+    });
     setShareNote(copy.game.downloaded);
   }
 
@@ -141,6 +146,9 @@ export function ReportView({
       if (!response.ok || !body.shareUrl) {
         throw new Error(body.error?.message ?? copy.game.shareOpenFailed);
       }
+      track("share_created", {
+        report_type: report.id === "demo" ? "demo" : "published"
+      });
       const highlight = report.gameProfile.axes.find(
         (axis) => axis.id === report.gameProfile.highlightAxisId
       );
@@ -152,9 +160,17 @@ export function ReportView({
       });
       if (navigator.share) {
         await navigator.share({ title: cleanDisplayTitle(report.title), text, url: body.shareUrl });
+        track("share_completed", {
+          share_method: "native",
+          report_type: report.id === "demo" ? "demo" : "published"
+        });
         setShareNote(copy.game.shared);
       } else {
         await navigator.clipboard.writeText(`${text}\n${body.shareUrl}`);
+        track("share_completed", {
+          share_method: "clipboard",
+          report_type: report.id === "demo" ? "demo" : "published"
+        });
         setShareNote(copy.game.copied);
       }
     } catch (caught) {
@@ -209,15 +225,24 @@ export function ReportView({
       )}
 
       <nav className="report-tabs" aria-label={copy.report.tabsAria}>
-        <button className={tab === "framework" ? "active" : ""} onClick={() => setTab("framework")}>
+        <button className={tab === "framework" ? "active" : ""} onClick={() => {
+          setTab("framework");
+          track("report_section_expanded", { report_type: report.id === "demo" ? "demo" : "published" });
+        }}>
           <Fingerprint size={17} aria-hidden="true" />
           {copy.report.frameworkTab}
         </button>
-        <button className={tab === "baseline" ? "active" : ""} onClick={() => setTab("baseline")}>
+        <button className={tab === "baseline" ? "active" : ""} onClick={() => {
+          setTab("baseline");
+          track("report_section_expanded", { report_type: report.id === "demo" ? "demo" : "published" });
+        }}>
           <BookOpen size={17} aria-hidden="true" />
           {copy.report.baselineTab}
         </button>
-        <button className={tab === "evidence" ? "active" : ""} onClick={() => setTab("evidence")}>
+        <button className={tab === "evidence" ? "active" : ""} onClick={() => {
+          setTab("evidence");
+          track("report_section_expanded", { report_type: report.id === "demo" ? "demo" : "published" });
+        }}>
           <Network size={17} aria-hidden="true" />
           {copy.report.evidenceTab}
         </button>
@@ -281,6 +306,7 @@ export function ReportView({
                   <small>{copy.report.optional}</small>
                 </span>
                 <textarea
+                  data-clarity-mask="true"
                   value={trialContext}
                   onChange={(event) => setTrialContext(event.target.value)}
                   placeholder={copy.report.contextPlaceholder}
@@ -383,7 +409,12 @@ export function ReportView({
             </section>
             <section className="source-context-card">
               <span className="eyebrow">{copy.report.sourceContext}</span>
-              <a href={report.targetUrl} target="_blank" rel="noreferrer">
+              <a
+                href={report.targetUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => track("source_link_opened", { report_type: report.id === "demo" ? "demo" : "published" })}
+              >
                 <span>{new URL(report.targetUrl).hostname}</span>
                 <ExternalLink size={15} aria-hidden="true" />
               </a>
@@ -402,7 +433,12 @@ export function ReportView({
             <div className="occupation-source">
               <span>{report.occupation.code}</span>
               <span>O*NET {report.occupation.version}</span>
-              <a href={report.occupation.sourceUri} target="_blank" rel="noreferrer">
+              <a
+                href={report.occupation.sourceUri}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => track("source_link_opened", { report_type: report.id === "demo" ? "demo" : "published" })}
+              >
                 {copy.common.source} <ExternalLink size={14} aria-hidden="true" />
               </a>
             </div>
@@ -461,6 +497,9 @@ export function ReportView({
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
+                  onClick={() => track("source_link_opened", {
+                    report_type: report.id === "demo" ? "demo" : "published"
+                  })}
                 >
                   <span className="source-number">{String(index + 1).padStart(2, "0")}</span>
                   <span>

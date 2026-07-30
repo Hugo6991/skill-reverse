@@ -23,6 +23,7 @@
 - 瀏覽器匿名藏經閣、365 天輕量卡片與主動開啟的公開分享卡
 - Cloudflare Access 站長管理頁、公開來源快照與 evidence screenshot
 - locked → doctor → 真實研究 smoke → public 的安全部署流程
+- GTM、GA4、Clarity、Mixpanel 與 Search Console 的 manifest-driven Analytics Stack as Code
 - 內建 Anthropic `skill-creator` example brief，不會呼叫付費服務
 
 ## 最快開始
@@ -36,6 +37,10 @@ pnpm dev
 ```
 
 開啟 `http://localhost:5173`。本地預設為 demo mode，使用 Cloudflare 官方 Turnstile 測試 keys，不會呼叫 Perplexity、TwitterAPI.io 或 Browser Run。
+
+## Analytics 與 SEO
+
+事件規格與非敏感平台 ID 分別版本化在 `analytics/events.json` 與 `analytics/stack.json`。先執行 `pnpm analytics:plan` 檢查本機 desired state；帳號資料未填時只會列出缺少項目，不會修改遠端。完整的第一次授權、`apply → publish → verify → export` 順序、GTM Preview 驗收與 SEO 索引邊界見 [ANALYTICS.md](./ANALYTICS.md)。
 
 ## Private production deployment
 

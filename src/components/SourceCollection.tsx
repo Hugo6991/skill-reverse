@@ -1,5 +1,6 @@
 import { ArrowRight, Link2, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { track } from "../analytics";
 import { useLocale } from "../LocaleContext";
 import type { JobStatus } from "../types";
 
@@ -15,6 +16,23 @@ export function SourceCollection({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const collection = job.sourceCollection;
+  const viewedJobId = useRef("");
+
+  useEffect(() => {
+    if (!collection?.open || viewedJobId.current === job.id) return;
+    viewedJobId.current = job.id;
+    track("source_collection_viewed", {
+      occupation_code: job.occupationCode,
+      research_stage: job.stage,
+      source_count: collection.submittedCount
+    });
+  }, [
+    collection?.open,
+    collection?.submittedCount,
+    job.id,
+    job.occupationCode,
+    job.stage
+  ]);
 
   if (!collection?.open) {
     if (collection?.submittedCount) {
@@ -71,6 +89,7 @@ export function SourceCollection({
                 <Link2 size={17} aria-hidden="true" />
                 <input
                   type="url"
+                  data-clarity-mask="true"
                   inputMode="url"
                   aria-label={`${copy.sources.supportingSource} ${index + 1}`}
                   value={url}

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "google": {
+    "gtmContainerId": "",
+    "gtmPublicId": "",
+    "gtmWorkspaceId": "",
+    "gaPropertyId": "",
+    "gaWebStreamId": "",
+    "gaMeasurementId": "",
+    "gaMeasurementProtocolSecretName": ""
+  },
+  "lastAppliedAt": "",
+  "lastPublishedVersionPath": ""
+}

@@ -29,6 +29,11 @@
     "db:repair-game-identities:remote": "node scripts/repair-game-identities.mjs --remote",
     "db:repair-game-identities:apply": "pnpm run backup:prod && node scripts/repair-game-identities.mjs --remote --apply --backup-confirmed",
     "db:backfill-reports:remote": "node scripts/backfill-report-localizations.mjs --remote --apply",
+    "analytics:plan": "node scripts/analytics.mjs plan",
+    "analytics:apply": "node scripts/analytics.mjs apply",
+    "analytics:publish": "node scripts/analytics.mjs publish",
+    "analytics:verify": "node scripts/analytics.mjs verify",
+    "analytics:export": "node scripts/analytics.mjs export",
     "deploy": "node scripts/deploy.mjs",
     "preview:upload": "node scripts/preview-upload.mjs",
     "release": "pnpm run backup:prod && pnpm run deploy"

@@ -47,10 +47,23 @@ import {
 } from "./security";
 import type { AppEnv, HonoEnv, JobRow, ResearchQueueMessage } from "./types";
 import { ResearchWorkflow } from "./workflow";
+import { trackWorkerEvent } from "./analytics";
+import {
+  historySeoPage,
+  homeSeoPage,
+  privateSeoPage,
+  renderSeoShell,
+  reportSeoPage,
+  robotsText,
+  sitemapXml,
+  type SeoPage
+} from "./seo";
 
 export { ActorGate, DailyBudget, ResearchScheduler, ResearchWorkflow };
 
 const app = new Hono<HonoEnv>();
+const SEO_SHELL_FALLBACK =
+  '<!doctype html><html lang="zh-Hant"><head><meta name="robots" content="index,follow" /><meta name="description" content="Skill Reverse" /><title>Skill Reverse</title><!--seo:head--></head><body><div id="root"></div></body></html>';
 
 function requestedLocale(value: string | undefined): Locale | null {
   if (value === undefined || value === "") return "zh-TW";
@@ -267,18 +280,29 @@ async function deleteJobAndArtifacts(env: AppEnv, jobId: string): Promise<void> 
   await env.DB.prepare("DELETE FROM jobs WHERE id = ?1").bind(jobId).run();
 }
 
+app.use("*", async (c, next) => {
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  c.set("cspNonce", nonce);
+  await next();
+  c.header(
+    "content-security-policy",
+    [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}' https://www.googletagmanager.com https://*.clarity.ms https://cdn.mxpnl.com https://challenges.cloudflare.com`,
+      "frame-src https://challenges.cloudflare.com https://www.googletagmanager.com",
+      "connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms wss://*.clarity.ms https://c.bing.com https://api.mixpanel.com https://api-eu.mixpanel.com https://api-in.mixpanel.com https://challenges.cloudflare.com",
+      "img-src 'self' data: https:",
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "base-uri 'self'"
+    ].join("; ")
+  );
+});
+
 app.use(
   "*",
   secureHeaders({
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://challenges.cloudflare.com"],
-      frameSrc: ["https://challenges.cloudflare.com"],
-      connectSrc: ["'self'", "https://challenges.cloudflare.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      fontSrc: ["'self'", "data:"]
-    },
     referrerPolicy: "strict-origin-when-cross-origin",
     xFrameOptions: "DENY",
     xContentTypeOptions: "nosniff",
@@ -453,6 +477,14 @@ app.post("/api/jobs", async (c) => {
       supportUrls: input.supportUrls,
       occupationCode: input.occupationCode
     });
+    c.executionCtx.waitUntil(
+      trackWorkerEvent(c.env, "research_queued", {
+        jobId: result.jobId,
+        eventId: `${result.jobId}:research_queued`,
+        occupationCode: input.occupationCode,
+        researchStage: "validate"
+      })
+    );
     const response = c.json(
       {
         jobId: result.jobId,
@@ -665,7 +697,7 @@ app.post("/api/jobs/:id/retry", async (c) => {
   const row = await c.env.DB.prepare(
     `SELECT id, actor_hash, status, stage, progress, workflow_id, reserved_cents,
             actual_cents, error_code, error_message, retry_count, expires_at, created_at,
-            finished_at, auto_retry_count, last_auto_retry_at
+            finished_at, auto_retry_count, last_auto_retry_at, occupation_code
      FROM jobs WHERE id = ?1`
   )
     .bind(c.req.param("id"))
@@ -688,6 +720,7 @@ app.post("/api/jobs/:id/retry", async (c) => {
         | "finished_at"
         | "auto_retry_count"
         | "last_auto_retry_at"
+        | "occupation_code"
       >
     >();
   if (!row || row.actor_hash !== actor.actorHash) {
@@ -834,6 +867,15 @@ app.post("/api/jobs/:id/retry", async (c) => {
 
   try {
     await c.env.RESEARCH_QUEUE.send({ jobId: row.id } satisfies ResearchQueueMessage);
+    c.executionCtx.waitUntil(
+      trackWorkerEvent(c.env, "research_retried", {
+        jobId: row.id,
+        eventId: `${row.id}:research_retried:${row.retry_count + 1}`,
+        occupationCode: row.occupation_code,
+        researchStage: "source_verification",
+        errorCode: row.error_code ?? undefined
+      })
+    );
   } catch (error) {
     await c.env.DB.prepare(
       `UPDATE jobs
@@ -1725,6 +1767,16 @@ app.patch("/api/admin/reports/:id", async (c) => {
       404
     );
   }
+  if (action === "restore") {
+    c.executionCtx.waitUntil(
+      trackWorkerEvent(c.env, "report_published", {
+        jobId: c.req.param("id"),
+        reportId: c.req.param("id"),
+        eventId: `${c.req.param("id")}:report_published:${now}`,
+        reportType: "published"
+      })
+    );
+  }
   return c.json({
     reportId: c.req.param("id"),
     publicationStatus: action === "hide" ? "hidden" : "published"
@@ -1874,20 +1926,121 @@ async function serveAdminShell(c: Context<HonoEnv>) {
     );
   }
   if (!c.env.ASSETS) return c.text("Not found", 404);
-  return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
+  const response = await c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
+  const next = new Response(response.body, response);
+  next.headers.set("x-robots-tag", "noindex, nofollow");
+  return next;
 }
 
 app.get("/admin", serveAdminShell);
 app.get("/admin/*", serveAdminShell);
 app.get("/favicon.ico", (c) => c.body(null, 204));
-app.all("*", async (c) => {
-  if (!c.env.ASSETS) return c.text("Not found", 404);
-  const response = await c.env.ASSETS.fetch(c.req.raw);
-  if (response.status !== 404 || c.req.method !== "GET") return response;
+app.get("/robots.txt", (c) => {
+  const origin = new URL(c.env.PUBLIC_APP_URL || c.req.url).origin;
+  return c.text(robotsText(origin), 200, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "public, max-age=3600"
+  });
+});
+app.get("/sitemap.xml", async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT report_id
+     FROM jobs
+     WHERE status = 'completed'
+       AND publication_status = 'published'
+       AND report_id IS NOT NULL
+     ORDER BY published_at DESC
+     LIMIT 10000`
+  ).all<{ report_id: string }>();
+  const origin = new URL(c.env.PUBLIC_APP_URL || c.req.url).origin;
+  return c.body(
+    sitemapXml(origin, rows.results.map((row) => row.report_id)),
+    200,
+    {
+      "content-type": "application/xml; charset=utf-8",
+      "cache-control": "public, max-age=900"
+    }
+  );
+});
+async function serveAppShell(c: Context<HonoEnv>) {
+  const response = c.env.ASSETS
+    ? await c.env.ASSETS.fetch(c.req.raw)
+    : new Response("Not found", { status: 404 });
+  if (c.req.method !== "GET") return response;
   const accept = c.req.header("accept") ?? "";
   if (!accept.includes("text/html")) return response;
-  return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
-});
+  const pathname = c.req.path;
+  const locale = requestedLocale(c.req.query("lang")) ?? "zh-TW";
+  let page: SeoPage | undefined;
+  let status: 200 | 404 = 200;
+  if (pathname === "/") {
+    page = homeSeoPage(locale);
+  } else if (pathname === "/history") {
+    page = historySeoPage(locale);
+  } else if (pathname === "/reports/demo") {
+    page = reportSeoPage(resolveReport(demoReportBundle, locale), locale);
+  } else if (pathname.startsWith("/reports/")) {
+    const reportId = decodeURIComponent(pathname.slice("/reports/".length));
+    const row = await c.env.DB.prepare(
+      `SELECT r.payload_json, j.published_at
+       FROM reports r
+       JOIN jobs j ON j.id = r.job_id
+       WHERE r.id = ?1
+         AND j.status = 'completed'
+         AND j.publication_status = 'published'`
+    )
+      .bind(reportId)
+      .first<{ payload_json: string; published_at: string | null }>();
+    if (row) {
+      try {
+        const stored = JSON.parse(row.payload_json) as unknown;
+        const report = isBilingualReportBundle(stored)
+          ? upgradeStoredReport(resolveReport(stored, locale), locale)
+          : upgradeStoredReport(stored, locale);
+        page = reportSeoPage(report, locale, row.published_at ?? undefined);
+      } catch {
+        status = 404;
+      }
+    } else {
+      status = 404;
+    }
+  } else if (
+    pathname === "/collection" ||
+    pathname.startsWith("/jobs/") ||
+    pathname.startsWith("/c/")
+  ) {
+    page = privateSeoPage(locale, pathname);
+  } else {
+    status = 404;
+  }
+  if (!page) {
+    return c.html(
+      "<!doctype html><html><head><meta name=\"robots\" content=\"noindex,nofollow\"><title>Not found</title></head><body><main><h1>404</h1><p>Page not found.</p></main></body></html>",
+      404,
+      { "x-robots-tag": "noindex, nofollow" }
+    );
+  }
+  const assetTemplateResponse = c.env.ASSETS
+    ? await c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw))
+    : new Response(SEO_SHELL_FALLBACK, {
+        headers: { "content-type": "text/html; charset=utf-8" }
+      });
+  const templateResponse =
+    assetTemplateResponse.ok
+      ? assetTemplateResponse
+      : new Response(SEO_SHELL_FALLBACK, {
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+  const template = await templateResponse.text();
+  const origin = new URL(c.env.PUBLIC_APP_URL || c.req.url).origin;
+  const html = renderSeoShell(template, page, origin, c.get("cspNonce"));
+  const headers = new Headers(templateResponse.headers);
+  headers.set("content-type", "text/html; charset=utf-8");
+  headers.set("x-robots-tag", page.index ? "index, follow" : "noindex, nofollow");
+  return new Response(html, { status, headers });
+}
+app.get("/", serveAppShell);
+app.all("*", serveAppShell);
 
 async function cleanupExpired(env: AppEnv): Promise<void> {
   const artifactCutoff = new Date(
@@ -1959,6 +2112,12 @@ async function failDeadLetterJob(env: AppEnv, jobId: string): Promise<void> {
     .bind(now, jobId)
     .run();
   if (!failed.meta.changes) return;
+  await trackWorkerEvent(env, "research_failed", {
+    jobId,
+    eventId: `${jobId}:research_failed:queue_delivery_failed`,
+    researchStage: "validate",
+    errorCode: "queue_delivery_failed"
+  });
   await Promise.all([
     env.ACTOR_GATE.getByName(row.actor_hash).release(jobId),
     env.DAILY_BUDGET.getByName(row.created_at.slice(0, 10)).release(jobId),
