@@ -2,6 +2,10 @@
 
 本文件描述正式站 `https://skill-reverse.vibeencode.dev` 的系統邊界、資料流、權限與維運方式。這是一個 Cloudflare 全棧應用，不需要另外串接 Supabase 才能擁有後端。
 
+若需要逐一追蹤 HTTP request、Queue／Durable Object／Workflow、D1 schema、R2
+object layout、Cloudflare bindings、狀態機、error taxonomy 與已知架構落差，請讀
+[完整系統架構與處理流程](./SYSTEM-ARCHITECTURE.md)。
+
 ## 一張圖看懂
 
 ```mermaid
