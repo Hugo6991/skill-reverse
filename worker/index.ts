@@ -1957,9 +1957,12 @@ app.get("/sitemap.xml", async (c) => {
   );
 });
 async function serveAppShell(c: Context<HonoEnv>) {
-  const response = c.env.ASSETS
+  const assetResponse = c.env.ASSETS
     ? await c.env.ASSETS.fetch(c.req.raw)
     : new Response("Not found", { status: 404 });
+  // Cloudflare's Assets binding can return immutable headers in production.
+  // Clone the response before global middleware appends CSP and security headers.
+  const response = new Response(assetResponse.body, assetResponse);
   if (c.req.method !== "GET") return response;
   const accept = c.req.header("accept") ?? "";
   if (!accept.includes("text/html")) return response;

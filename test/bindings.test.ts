@@ -60,6 +60,14 @@ describe("Cloudflare bindings in workerd", () => {
     expect(xml).not.toContain("/jobs/");
   });
 
+  it("serves asset responses through security-header middleware", async () => {
+    const asset = await SELF.fetch("https://example.com/assets/app.js", {
+      headers: { accept: "application/javascript" }
+    });
+    expect(asset.status).not.toBe(500);
+    expect(asset.headers.get("content-security-policy")).toContain("googletagmanager.com");
+  });
+
   it("queries the seeded O*NET catalog through D1", async () => {
     const results = await searchOccupations(bindings.DB, "web interface");
     expect(results[0]).toMatchObject({
