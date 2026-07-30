@@ -11,9 +11,10 @@ import type {
   ReverseReport
 } from "../src/types";
 import {
-  GAME_IDENTITY_NAMING_VERSION,
   GAME_MOTIF_IDS,
+  hasCurrentIdentity,
   isFourBeatTitle,
+  localizedEnglishIdentity,
   repairGameIdentity,
   type IdentitySelectionContext
 } from "./game-identity";
@@ -88,17 +89,12 @@ function titleOfReportPayload(payload: unknown): string | null {
 
 function repairReason(identity: unknown): IdentityRepairChange["reason"] {
   if (!isRecord(identity) || typeof identity.title !== "string") return "missing";
-  if (!isFourBeatTitle(identity.title)) return "invalid";
-  return identity.namingVersion === GAME_IDENTITY_NAMING_VERSION
-    ? "unchanged"
-    : "version";
+  if (hasCurrentIdentity(identity)) return "unchanged";
+  return isFourBeatTitle(identity.title) ? "version" : "invalid";
 }
 
-function stampEnglishIdentity(identity: GameIdentity): GameIdentity {
-  return {
-    ...identity,
-    namingVersion: GAME_IDENTITY_NAMING_VERSION
-  };
+function stampEnglishIdentity(identity: GameIdentity, source: GameIdentity): GameIdentity {
+  return localizedEnglishIdentity(source, identity.title);
 }
 
 function repairChineseReport(
@@ -106,13 +102,9 @@ function repairChineseReport(
   context: IdentitySelectionContext
 ): ReverseReport {
   const upgraded = upgradeStoredReport(value, "zh-TW", context);
-  const existing = upgraded.gameProfile.identity;
-  const identity = isFourBeatTitle(existing.title)
-    ? {
-        ...existing,
-        namingVersion: GAME_IDENTITY_NAMING_VERSION
-      }
-    : repairGameIdentity(upgraded, existing, context);
+  const identity = hasCurrentIdentity(upgraded.gameProfile.identity)
+    ? upgraded.gameProfile.identity
+    : repairGameIdentity(upgraded, upgraded.gameProfile.identity, context);
   return {
     ...upgraded,
     gameProfile: {
@@ -147,7 +139,10 @@ function repairReportPayload(
                   ...english,
                   gameProfile: {
                     ...english.gameProfile,
-                    identity: stampEnglishIdentity(english.gameProfile.identity)
+                    identity: stampEnglishIdentity(
+                      english.gameProfile.identity,
+                      repairedSource.gameProfile.identity
+                    )
                   }
                 }
               }
@@ -172,13 +167,7 @@ function localizedCardProfile(
 ): GameProfile {
   return {
     ...english,
-    identity: {
-      ...english.identity,
-      namingVersion: GAME_IDENTITY_NAMING_VERSION,
-      motifId: source.identity.motifId,
-      evidenceUrls: source.identity.evidenceUrls,
-      source: source.identity.source
-    }
+    identity: stampEnglishIdentity(english.identity, source.identity)
   };
 }
 
@@ -212,7 +201,12 @@ function duplicateCount(keys: string[]): number {
 export function planIdentityRepair(rows: IdentityRepairRow[]): IdentityRepairPlan {
   const failures: IdentityRepairPlan["failures"] = [];
   const changes: IdentityRepairChange[] = [];
-  const contextByActor = new Map<string, IdentitySelectionContext>();
+  const globalContext: IdentitySelectionContext = {
+    usedTitles: [],
+    motifUsage: Object.fromEntries(
+      GAME_MOTIF_IDS.map((motif) => [motif, 0])
+    ) as Record<GameMotifId, number>
+  };
   const beforeKeys: string[] = [];
   const afterKeys: string[] = [];
   let invalidBefore = 0;
@@ -234,15 +228,6 @@ export function planIdentityRepair(rows: IdentityRepairRow[]): IdentityRepairPla
         titleOfReportPayload(originalPayload) ??
         cardProfile?.identity?.title ??
         null;
-      if (!beforeTitle || !isFourBeatTitle(beforeTitle)) invalidBefore += 1;
-      if (beforeTitle) beforeKeys.push(`${row.actor_hash}\u0000${beforeTitle}`);
-
-      const context = contextByActor.get(row.actor_hash) ?? {
-        usedTitles: [],
-        motifUsage: Object.fromEntries(
-          GAME_MOTIF_IDS.map((motif) => [motif, 0])
-        ) as Record<GameMotifId, number>
-      };
       const sourceBefore = isBilingualReportBundle(originalPayload)
         ? originalPayload.locales["zh-TW"]
         : originalPayload;
@@ -250,10 +235,12 @@ export function planIdentityRepair(rows: IdentityRepairRow[]): IdentityRepairPla
         isRecord(sourceBefore) && isGameProfile(sourceBefore.gameProfile)
           ? sourceBefore.gameProfile.identity
           : cardProfile?.identity;
+      if (!hasCurrentIdentity(existingIdentity)) invalidBefore += 1;
+      if (beforeTitle) beforeKeys.push(beforeTitle);
       const reason = repairReason(existingIdentity);
       const repaired = repairReportPayload(
         originalPayload,
-        context,
+        globalContext,
         cardProfile
       );
       const profile = repaired.sourceReport.gameProfile;
@@ -264,12 +251,11 @@ export function planIdentityRepair(rows: IdentityRepairRow[]): IdentityRepairPla
         throw new Error("Repair changed stored card axes");
       }
       const afterTitle = profile.identity.title;
-      if (!isFourBeatTitle(afterTitle)) invalidAfter += 1;
-      afterKeys.push(`${row.actor_hash}\u0000${afterTitle}`);
-      context.usedTitles!.push(afterTitle);
-      context.motifUsage![profile.identity.motifId] =
-        (context.motifUsage![profile.identity.motifId] ?? 0) + 1;
-      contextByActor.set(row.actor_hash, context);
+      if (!hasCurrentIdentity(profile.identity)) invalidAfter += 1;
+      afterKeys.push(afterTitle);
+      globalContext.usedTitles!.push(afterTitle);
+      globalContext.motifUsage![profile.identity.motifId] =
+        (globalContext.motifUsage![profile.identity.motifId] ?? 0) + 1;
       motifDistribution[profile.identity.motifId] += 1;
       if (profile.identity.source === "fallback") fallbackCount += 1;
 

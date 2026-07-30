@@ -1,5 +1,9 @@
 import type { GameMotifId, GameProfile, ReverseReport } from "../src/types";
-import { GAME_MOTIF_IDS, type IdentitySelectionContext } from "./game-identity";
+import {
+  GAME_MOTIF_IDS,
+  hasCurrentIdentity,
+  type IdentitySelectionContext
+} from "./game-identity";
 import { confidenceFromScore } from "./game-profile";
 
 export interface PublishedReportRow {
@@ -49,7 +53,7 @@ function hasCurrentProfile(value: unknown): value is GameProfile {
   const profile = value as Partial<GameProfile>;
   return (
     profile.rubricVersion === "game-profile-v2" &&
-    typeof profile.identity?.title === "string" &&
+    hasCurrentIdentity(profile.identity) &&
     Array.isArray(profile.axes) &&
     profile.axes.length === 6
   );
@@ -142,9 +146,6 @@ export function planGameProfileBackfill(
     (sum, item) => sum + item.profile.axes.filter((axis) => axis.value === undefined).length,
     0
   );
-  const largestMotifShare = prepared.length
-    ? Math.max(...Object.values(motifDistribution)) / prepared.length
-    : 0;
   const axisAverages = Object.fromEntries(
     ["money", "spectacle", "potency", "activation", "renown", "ascension"].map((axisId) => {
       const values = prepared
@@ -163,7 +164,9 @@ export function planGameProfileBackfill(
     motifDistribution,
     unknownAxisRate: prepared.length ? unknownAxes / (prepared.length * 6) : 0,
     axisAverages,
-    concentrated: duplicateTitles > 0 || (prepared.length >= 6 && largestMotifShare > 0.5)
+    // Method types and their motifs may naturally concentrate; only identity-title
+    // collisions block rollout.
+    concentrated: duplicateTitles > 0
   };
 
   return { reportUpdates, cardUpserts, failures, expiresAt, metrics };

@@ -29,9 +29,15 @@ import { useLocale } from "../LocaleContext";
 import { track } from "../analytics";
 import { formatCopy } from "../locales";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
-import type { DeltaManifestation, EvidenceStatus, ReverseReport } from "../types";
+import type {
+  DeltaManifestation,
+  EvidenceStatus,
+  MethodTypeId,
+  ReverseReport
+} from "../types";
 import { EvidenceGraph } from "./EvidenceGraph";
 import { GameProfileHero } from "./GameProfileHero";
+import { methodTypeLabel } from "./MethodPersona";
 import { SharePoster } from "./SharePoster";
 
 const askAiIcons: Record<
@@ -154,7 +160,11 @@ export function ReportView({
       );
       const text = formatCopy(copy.game.shareText, {
         title: report.gameProfile.identity.title,
-        summary: report.gameProfile.identity.oneLiner,
+        type: methodTypeLabel(
+          report.gameProfile.identity,
+          copy.game.methodTypes as Record<MethodTypeId, string>
+        ),
+        summary: report.gameProfile.identity.signatureMove,
         axis: copy.game.axes[report.gameProfile.highlightAxisId].label,
         value: highlight?.value ?? copy.game.unknown
       });

@@ -5,6 +5,7 @@ import { formatCopy } from "../locales";
 import type { GameProfile } from "../types";
 import { GameRadar } from "./GameRadar";
 import { GameIdentityMark } from "./GameIdentityMark";
+import { MethodTypeLockup, PersonaBeats } from "./MethodPersona";
 
 export const SharePoster = forwardRef<
   HTMLElement,
@@ -20,6 +21,7 @@ export const SharePoster = forwardRef<
       className={`share-poster motif-${profile.identity.motifId}`}
       data-axis={profile.highlightAxisId}
       data-accent={profile.accentAxisId}
+      data-method-type={profile.identity.primaryMethodTypeId}
       ref={ref}
     >
       <header>
@@ -31,16 +33,19 @@ export const SharePoster = forwardRef<
       </header>
       <div className="share-poster-title">
         <span>{occupationTitle}</span>
+        <MethodTypeLockup identity={profile.identity} />
         <div>
           <GameIdentityMark motifId={profile.identity.motifId} size={28} label={false} />
           <strong>{profile.identity.title}</strong>
         </div>
         <h1>{displayName}</h1>
       </div>
-      <blockquote>{profile.identity.oneLiner}</blockquote>
-      <div className="identity-traits">
-        {profile.identity.traits.map((trait) => <span key={trait}>{trait}</span>)}
+      <blockquote>{profile.identity.signatureMove}</blockquote>
+      <div className="share-poster-tension">
+        <p><span>{copy.game.strength}</span>{profile.identity.strength}</p>
+        <p><span>{copy.game.shadow}</span>{profile.identity.shadow}</p>
       </div>
+      <PersonaBeats identity={profile.identity} compact />
       <GameRadar
         axes={profile.axes}
         accentAxisId={profile.highlightAxisId}

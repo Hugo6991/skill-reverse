@@ -9,6 +9,27 @@ const publicHttpsUrl = z
 const creatorKindSchema = z.enum(["person", "organization", "team", "unknown"]);
 const shortText = z.string().min(1).max(500);
 const evidenceUrls = z.array(z.string().url()).max(4);
+const methodTypeSchema = z.enum([
+  "navigator",
+  "investigator",
+  "sentinel",
+  "calibrator",
+  "smith",
+  "choreographer",
+  "translator",
+  "architect",
+  "undetermined"
+]);
+const concreteMethodTypeSchema = z.enum([
+  "navigator",
+  "investigator",
+  "sentinel",
+  "calibrator",
+  "smith",
+  "choreographer",
+  "translator",
+  "architect"
+]);
 
 export const createJobSchema = z.object({
   targetUrl: publicHttpsUrl,
@@ -95,12 +116,23 @@ export type ResearchDraft = z.infer<typeof researchDraftSchema>;
 const identityCandidateSchema = z.object({
   // Keep runtime parsing structural: semantic errors discard only this candidate later.
   title: z.string().min(1).max(80),
-  oneLiner: z.string().min(1).max(200),
-  traits: z.tuple([
-    z.string().min(1).max(100),
-    z.string().min(1).max(100),
-    z.string().min(1).max(100)
+  primaryMethodTypeId: methodTypeSchema,
+  secondaryMethodTypeId: concreteMethodTypeSchema.nullable(),
+  titleRationale: z.tuple([
+    z.object({
+      segment: z.string().min(1).max(20),
+      explanation: z.string().min(1).max(160),
+      evidenceRefs: z.array(z.string().min(1).max(80)).min(1).max(4)
+    }),
+    z.object({
+      segment: z.string().min(1).max(20),
+      explanation: z.string().min(1).max(160),
+      evidenceRefs: z.array(z.string().min(1).max(80)).min(1).max(4)
+    })
   ]),
+  signatureMove: z.string().min(1).max(200),
+  strength: z.string().min(1).max(200),
+  shadow: z.string().min(1).max(200),
   evidenceUrls: z.array(z.string().min(1).max(2_048)).max(6)
 });
 
@@ -205,8 +237,18 @@ export const reportTranslationSchema = z.object({
   }),
   gameIdentity: z.object({
     title: z.string().min(1),
-    oneLiner: z.string().min(1),
-    traits: z.tuple([z.string().min(1), z.string().min(1), z.string().min(1)])
+    signatureMove: z.string().min(1),
+    strength: z.string().min(1),
+    shadow: z.string().min(1),
+    titleRationale: z.tuple([
+      z.string().min(1),
+      z.string().min(1)
+    ]),
+    beats: z.tuple([
+      z.string().min(1),
+      z.string().min(1),
+      z.string().min(1)
+    ])
   }),
   occupation: z.object({
     title: z.string().min(1),

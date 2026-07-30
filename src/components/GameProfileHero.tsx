@@ -13,6 +13,11 @@ import { cleanDisplayTitle, withoutTerminalFullStop } from "../text";
 import type { GameAxisId, ReverseReport } from "../types";
 import { GameAxisList, GameRadar } from "./GameRadar";
 import { GameIdentityMark } from "./GameIdentityMark";
+import {
+  MethodTypeLockup,
+  PersonaBeats,
+  PersonaEvidence
+} from "./MethodPersona";
 
 export const GameProfileHero = forwardRef<
   HTMLElement,
@@ -36,6 +41,30 @@ export const GameProfileHero = forwardRef<
   const sourceById = new Map(report.sources.map((source) => [source.id, source]));
   const observationById = new Map(report.observations.map((item) => [item.id, item]));
   const claimById = new Map(report.claims.map((claim) => [claim.id, claim]));
+  const resolvePersonaRef = (id: string): string | undefined => {
+    if (id === "framework.name") return report.framework.name;
+    if (id === "framework.summary") return report.framework.summary;
+    if (id === "framework.useWhen") return report.framework.useWhen;
+    if (id === "framework.avoidWhen") return report.framework.avoidWhen;
+    const dot = String.fromCharCode(46);
+    const stepPrefix = ["framework", "step", ""].join(dot);
+    if (id.startsWith(stepPrefix)) {
+      const index = Number(id.split(dot).at(-1)) - 1;
+      const step = report.framework.steps[index];
+      return step ? `${step.title}：${step.instruction}` : undefined;
+    }
+    if (id.startsWith("caveat-")) {
+      return report.caveats[Number(id.replace("caveat-", "")) - 1];
+    }
+    if (id.startsWith("adoption-")) {
+      return report.adoption[Number(id.replace("adoption-", "")) - 1];
+    }
+    return (
+      claimById.get(id)?.text ??
+      observationById.get(id)?.text ??
+      sourceById.get(id)?.title
+    );
+  };
   const signalCopy = copy.game.signals as Record<string, string>;
   const signalLabel = (id: string, value?: number) => {
     const base = signalCopy[id] ?? id;
@@ -55,6 +84,7 @@ export const GameProfileHero = forwardRef<
       className={`destiny-card motif-${profile.identity.motifId}`}
       data-axis={profile.highlightAxisId}
       data-accent={profile.accentAxisId}
+      data-method-type={profile.identity.primaryMethodTypeId}
       ref={ref}
       aria-labelledby="destiny-title"
     >
@@ -108,6 +138,7 @@ export const GameProfileHero = forwardRef<
         </aside>
 
         <div className="destiny-chart">
+          <MethodTypeLockup identity={profile.identity} />
           <div className="destiny-seal">
             <GameIdentityMark motifId={profile.identity.motifId} size={20} label={false} />
             <strong>{profile.identity.title}</strong>
@@ -121,7 +152,18 @@ export const GameProfileHero = forwardRef<
         </div>
 
         <aside className="destiny-reading">
-          <blockquote>{profile.identity.oneLiner}</blockquote>
+          <span className="persona-section-label">{copy.game.signatureMove}</span>
+          <blockquote>{profile.identity.signatureMove}</blockquote>
+          <div className="persona-tension">
+            <div>
+              <span>{copy.game.strength}</span>
+              <p>{profile.identity.strength}</p>
+            </div>
+            <div>
+              <span>{copy.game.shadow}</span>
+              <p>{profile.identity.shadow}</p>
+            </div>
+          </div>
           <dl>
             <div>
               <dt>{copy.game.highlight}</dt>
@@ -132,9 +174,7 @@ export const GameProfileHero = forwardRef<
               <dd>{copy.game.axes[profile.riskAxisId].label}</dd>
             </div>
           </dl>
-          <div className="identity-traits" aria-label={copy.game.traitsLabel}>
-            {profile.identity.traits.map((trait) => <span key={trait}>{trait}</span>)}
-          </div>
+          <PersonaBeats identity={profile.identity} />
           <div className="destiny-badges" aria-label={copy.game.badgesLabel}>
             {profile.badges.length > 0 ? (
               profile.badges.map((badge) => (
@@ -150,14 +190,7 @@ export const GameProfileHero = forwardRef<
               </span>
             )}
           </div>
-          <div className="identity-evidence" data-export-hide="true">
-            {profile.identity.evidenceUrls.slice(0, 2).map((url, index) => (
-              <a href={url} target="_blank" rel="noreferrer" key={url}>
-                {formatCopy(copy.game.evidence, { number: index + 1 })}
-                <ArrowUpRight size={12} aria-hidden="true" />
-              </a>
-            ))}
-          </div>
+          <PersonaEvidence identity={profile.identity} resolveRef={resolvePersonaRef} />
         </aside>
       </div>
 

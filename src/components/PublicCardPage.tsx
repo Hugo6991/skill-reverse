@@ -2,9 +2,14 @@ import { ArrowRight, LoaderCircle, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocale } from "../LocaleContext";
 import { formatCopy } from "../locales";
-import type { PublicSkillCard } from "../types";
+import type { MethodTypeId, PublicSkillCard } from "../types";
 import { GameRadar } from "./GameRadar";
 import { GameIdentityMark } from "./GameIdentityMark";
+import {
+  MethodTypeLockup,
+  PersonaBeats,
+  methodTypeLabel
+} from "./MethodPersona";
 
 export function PublicCardPage({
   slug,
@@ -35,7 +40,11 @@ export function PublicCardPage({
     if (!card) return;
     const text = formatCopy(copy.publicCard.shareText, {
       title: card.gameProfile.identity.title,
-      summary: card.gameProfile.identity.oneLiner
+      type: methodTypeLabel(
+        card.gameProfile.identity,
+        copy.game.methodTypes as Record<MethodTypeId, string>
+      ),
+      summary: card.gameProfile.identity.signatureMove
     });
     if (navigator.share) {
       await navigator.share({ title: card.displayName, text, url: window.location.href });
@@ -71,6 +80,7 @@ export function PublicCardPage({
         className={`public-destiny-card motif-${card.gameProfile.identity.motifId}`}
         data-axis={card.gameProfile.highlightAxisId}
         data-accent={card.gameProfile.accentAxisId}
+        data-method-type={card.gameProfile.identity.primaryMethodTypeId}
       >
         <header>
           <span>{copy.publicCard.kicker}</span>
@@ -81,14 +91,23 @@ export function PublicCardPage({
         </header>
         <div className="public-card-title">
           <GameIdentityMark motifId={card.gameProfile.identity.motifId} size={32} />
+          <MethodTypeLockup identity={card.gameProfile.identity} />
           <span>{card.occupationTitle}</span>
           <strong>{card.gameProfile.identity.title}</strong>
           <h1>{card.displayName}</h1>
         </div>
-        <blockquote>{card.gameProfile.identity.oneLiner}</blockquote>
-        <div className="identity-traits">
-          {card.gameProfile.identity.traits.map((trait) => <span key={trait}>{trait}</span>)}
+        <blockquote>{card.gameProfile.identity.signatureMove}</blockquote>
+        <div className="public-persona-tension">
+          <p>
+            <span>{copy.game.strength}</span>
+            {card.gameProfile.identity.strength}
+          </p>
+          <p>
+            <span>{copy.game.shadow}</span>
+            {card.gameProfile.identity.shadow}
+          </p>
         </div>
+        <PersonaBeats identity={card.gameProfile.identity} />
         <GameRadar
           axes={card.gameProfile.axes}
           accentAxisId={card.gameProfile.highlightAxisId}

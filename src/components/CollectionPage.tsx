@@ -16,6 +16,7 @@ import type {
 } from "../types";
 import { GameRadar } from "./GameRadar";
 import { GameIdentityMark } from "./GameIdentityMark";
+import { MethodTypeLockup, PersonaBeats } from "./MethodPersona";
 
 async function loadCollection(locale: "zh-TW" | "en", errorMessage: string): Promise<CollectionResponse> {
   const response = await fetch(`/api/collection?lang=${encodeURIComponent(locale)}`);
@@ -122,6 +123,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                   className={`manual-card motif-${card.gameProfile.identity.motifId}`}
                   data-axis={card.gameProfile.highlightAxisId}
                   data-accent={card.gameProfile.accentAxisId}
+                  data-method-type={card.gameProfile.identity.primaryMethodTypeId}
                   key={card.id}
                 >
                   <button
@@ -141,17 +143,14 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                       })}
                     </span>
                     <GameIdentityMark motifId={card.gameProfile.identity.motifId} />
+                    <MethodTypeLockup identity={card.gameProfile.identity} label={false} />
                     <span className="manual-identity-title">
                       {card.gameProfile.identity.title}
                     </span>
                     <strong>{card.displayName}</strong>
                     <small>{card.occupationTitle}</small>
-                    <p>{card.gameProfile.identity.oneLiner}</p>
-                    <span className="manual-traits" aria-label={copy.collection.traitsLabel}>
-                      {card.gameProfile.identity.traits.map((trait) => (
-                        <span key={trait}>{trait}</span>
-                      ))}
-                    </span>
+                    <p>{card.gameProfile.identity.signatureMove}</p>
+                    <PersonaBeats identity={card.gameProfile.identity} compact />
                     <GameRadar
                       axes={card.gameProfile.axes}
                       compact

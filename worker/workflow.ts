@@ -315,11 +315,9 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         const result = await this.env.DB.prepare(
           `SELECT game_profile_json
            FROM skill_cards
-           WHERE actor_hash = ?1
            ORDER BY created_at ASC, id ASC
-           LIMIT 200`
+           LIMIT 500`
         )
-          .bind(actorHash)
           .all<{ game_profile_json: string }>();
         const context: IdentitySelectionContext = {
           usedTitles: [],
