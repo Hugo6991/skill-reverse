@@ -6,8 +6,8 @@
     "hostnames": [
       "skill-reverse.vibeencode.dev"
     ],
-    "timezone": "Asia/Taipei",
-    "currency": "TWD",
+    "timezone": "America/Los_Angeles",
+    "currency": "USD",
     "locales": [
       "zh-TW",
       "en"
@@ -21,11 +21,11 @@
     "cloudProjectId": "",
     "gtmAccountId": "",
     "gtmContainerId": "",
-    "gtmPublicId": "",
+    "gtmPublicId": "GTM-MS7BKGDZ",
     "gaAccountId": "",
     "gaPropertyId": "",
-    "gaWebStreamId": "",
-    "gaMeasurementId": "",
+    "gaWebStreamId": "15353970824",
+    "gaMeasurementId": "G-ZQZ4565SWV",
     "searchConsoleSiteUrl": "sc-domain:vibeencode.dev"
   },
   "clarity": {
