@@ -3,7 +3,7 @@ import { authorizeAdmin, resetAccessCertificateCacheForTest } from "../worker/ac
 import { demoReport } from "../worker/demo";
 import { publicConfig, resolveAppMode } from "../worker/index";
 import { pilotOccupation } from "../worker/occupations";
-import { modelResultSchema } from "../worker/schema";
+import { modelResultSchema, researchDraftSchema } from "../worker/schema";
 import { assertSafePublicUrl, verifyTurnstile } from "../worker/security";
 import { normalizeSourceUrl, selectCaptureSources } from "../worker/job-sources";
 import {
@@ -11,6 +11,7 @@ import {
   assembleReport,
   fetchSocialEvidence,
   inferCreatorIdentity,
+  draftToModelResult,
   runOpenRouterSynthesis,
   runOpenRouterTranslation,
   runPerplexityResearch
@@ -861,6 +862,19 @@ describe("evidence-aware report assembly", () => {
   const researchDraft = {
     researchSummary: baseModel.verdict,
     frameworkHypothesis: baseModel.framework,
+    frameworkSelection: {
+      selectedBecause:
+        "Repeated conditional rules make the selected framework more central than the alternatives.",
+      rejectedAlternatives: [
+        {
+          name: "Summarize visible features",
+          reason: "It describes the artifact but does not explain the reusable decision rule."
+        }
+      ],
+      falsifier:
+        "The selection is weakened if the same evidence supports only a fixed sequence with no conditional behavior.",
+      evidenceUrls: ["https://example.com"]
+    },
     authorContext: baseModel.author,
     observations: baseModel.observations,
     candidateClaims: baseModel.claims.map((claim) => ({
@@ -872,6 +886,37 @@ describe("evidence-aware report assembly", () => {
     adoptionIdeas: baseModel.adoption,
     caveats: baseModel.caveats
   };
+
+  it("requires a bounded internal framework selection record", () => {
+    expect(researchDraftSchema.safeParse(researchDraft).success).toBe(true);
+    expect(
+      researchDraftSchema.safeParse({
+        ...researchDraft,
+        frameworkSelection: undefined
+      }).success
+    ).toBe(false);
+    expect(
+      researchDraftSchema.safeParse({
+        ...researchDraft,
+        frameworkSelection: {
+          ...researchDraft.frameworkSelection,
+          rejectedAlternatives: [
+            ...researchDraft.frameworkSelection.rejectedAlternatives,
+            { name: "Second", reason: "Less central." },
+            { name: "Third", reason: "Also less central." }
+          ]
+        }
+      }).success
+    ).toBe(false);
+  });
+
+  it("keeps the public fallback report focused on exactly one selected framework", () => {
+    const fallback = draftToModelResult(researchDraft, "https://example.com");
+
+    expect(fallback.framework).toEqual(researchDraft.frameworkHypothesis);
+    expect(fallback.title).toBe(researchDraft.frameworkHypothesis.name);
+    expect("frameworkSelection" in fallback).toBe(false);
+  });
 
   it("accepts a correctable confidence mismatch for backend normalization", () => {
     expect(
@@ -1044,6 +1089,103 @@ describe("evidence-aware report assembly", () => {
     expect(body.max_tokens).toBe(6_000);
     expect(body.response_format.json_schema.name).toBe("reverse_research_draft_full");
     expect(body.response_format.json_schema.schema.properties.observations.maxItems).toBe(6);
+    expect(body.response_format.json_schema.schema.required).toContain("frameworkSelection");
+    expect(
+      body.response_format.json_schema.schema.properties.frameworkSelection.properties
+        .rejectedAlternatives.maxItems
+    ).toBe(2);
+  });
+
+  it("rejects framework selection evidence URLs that were not supplied or cited", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...researchDraft,
+                  frameworkSelection: {
+                    ...researchDraft.frameworkSelection,
+                    evidenceUrls: ["https://invented.example/evidence"]
+                  }
+                })
+              },
+              finish_reason: "stop"
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    await expect(
+      runPerplexityResearch(
+        { PERPLEXITY_API_KEY: "test-only" } as AppEnv,
+        "https://example.com",
+        pilotOccupation,
+        [
+          {
+            id: "source-1",
+            url: "https://example.com",
+            title: "Example",
+            markdown: "# Example",
+            excerpt: "Example",
+            r2Key: "jobs/test/source-1.md"
+          }
+        ],
+        []
+      )
+    ).rejects.toMatchObject({
+      code: "provider_schema_invalid",
+      retryable: true
+    });
+  });
+
+  it("accepts a provider citation as framework selection evidence", async () => {
+    const citationUrl = "https://citation.example/evidence";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  ...researchDraft,
+                  frameworkSelection: {
+                    ...researchDraft.frameworkSelection,
+                    evidenceUrls: [citationUrl]
+                  }
+                })
+              },
+              finish_reason: "stop"
+            }
+          ],
+          citations: [citationUrl]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+
+    const result = await runPerplexityResearch(
+      { PERPLEXITY_API_KEY: "test-only" } as AppEnv,
+      "https://example.com",
+      pilotOccupation,
+      [
+        {
+          id: "source-1",
+          url: "https://example.com",
+          title: "Example",
+          markdown: "# Example",
+          excerpt: "Example",
+          r2Key: "jobs/test/source-1.md"
+        }
+      ],
+      []
+    );
+
+    expect(result.result.frameworkSelection.evidenceUrls).toEqual([citationUrl]);
+    expect(result.citations).toEqual([citationUrl]);
   });
 
   it("uses a smaller output contract for a compact retry", async () => {
@@ -1084,7 +1226,13 @@ describe("evidence-aware report assembly", () => {
     expect(body.max_tokens).toBe(4_500);
     expect(body.response_format.json_schema.name).toBe("reverse_research_draft_compact");
     expect(body.response_format.json_schema.schema.properties.observations.maxItems).toBe(4);
+    expect(
+      body.response_format.json_schema.schema.properties.frameworkSelection.properties
+        .rejectedAlternatives.maxItems
+    ).toBe(2);
     expect(body.messages[1].content).toContain("OUTPUT PROFILE: compact");
+    expect(body.messages[1].content).toContain("frameworkSelection");
+    expect(body.messages[1].content).toContain("narrow bridges");
     expect(body.messages[1].content.length).toBeLessThan(10_000);
   });
 });

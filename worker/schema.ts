@@ -67,6 +67,20 @@ export const researchDraftSchema = z.object({
       .min(2)
       .max(5)
   }),
+  frameworkSelection: z.object({
+    selectedBecause: z.string().min(1).max(600),
+    rejectedAlternatives: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(100),
+          reason: z.string().min(1).max(400)
+        })
+      )
+      .min(1)
+      .max(2),
+    falsifier: z.string().min(1).max(400),
+    evidenceUrls: evidenceUrls.min(1)
+  }),
   authorContext: z.object({
     kind: creatorKindSchema.optional(),
     name: z.string().max(160),
