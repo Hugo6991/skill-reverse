@@ -61,16 +61,7 @@ run("pnpm", [
   `${branch}@${commit}`
 ]);
 
-if (process.env.SKILL_REVERSE_URL) {
-  const response = await fetch(new URL("/api/health", process.env.SKILL_REVERSE_URL));
-  if (!response.ok) {
-    console.error(`Post-deploy health returned ${response.status}`);
-    process.exit(1);
-  }
-  const health = await response.json();
-  console.log(`\n✓ Deployed health: ${health.status}`);
-} else {
-  console.log(
-    "\n✓ Deployed. Set SKILL_REVERSE_URL to enable automatic post-deploy health verification."
-  );
-}
+run("node", [
+  "scripts/release-smoke.mjs",
+  process.env.SKILL_REVERSE_URL || "https://skill-reverse.vibeencode.dev"
+]);

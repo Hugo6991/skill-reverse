@@ -144,12 +144,30 @@ pnpm check
 pnpm bootstrap:cloudflare:dry-run
 pnpm bootstrap:cloudflare
 pnpm doctor https://skill-reverse.vibeencode.dev
+pnpm qa:release
 pnpm backup:prod
 pnpm preview:upload
 pnpm deploy
 ```
 
-第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。設定 `SKILL_REVERSE_URL` 後會追加 public health check。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。production deploy 完成後會自動對正式網址執行 release smoke；可用 `SKILL_REVERSE_URL` 覆寫驗證網址。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+
+### Release QA gate
+
+所有 production 變更都走同一條 fail-closed 流程：
+
+1. 從最新 `main` 建 feature branch，只透過 PR 回到 `main`
+2. PR 必須通過 `pnpm check`：文案、字體、型別、完整測試、production build 與 Wrangler dry-run
+3. UI 變更先上傳 preview，完成桌面、390px 行動版、鍵盤操作、雙語與錯誤狀態檢查
+4. 合併前用 `git merge-tree` 或 GitHub mergeability 確認沒有衝突；過期或已被新版取代的 branch 不直接合併
+5. Cloudflare 只從 `main` 部署；deploy script 會重新執行完整檢查、migration、回填與 Worker deploy
+6. deploy 後自動執行 `pnpm qa:release`，驗證雙語首頁引用的每個 JS/CSS asset、缺檔 asset 必須 404、public health、雙語 archive API、robots 與 sitemap；任一步失敗即標記 release 失敗
+
+也可以隨時對指定環境執行：
+
+```bash
+node scripts/release-smoke.mjs https://example-preview.workers.dev
+```
 
 `game-profile-v2` 回填預設只做 dry run：執行 `pnpm db:backfill-game-profiles:remote` 會按建立時間列出 payload 更新與卡片 upsert 數量，不會寫入正式資料。確認計畫後，使用 `pnpm db:backfill-game-profiles:apply`；這個命令會先執行正式備份，再以明確的 `--apply --backup-confirmed` 寫入報告 payload 與 `skill_cards.game_profile_json`。回填保留 report ID、分享 slug、公開狀態與收藏歸屬，失敗時不寫入完成標記，也不會替卡片開啟分享。
 
