@@ -19,7 +19,7 @@ export const en = {
   },
   home: {
     eyebrow: "Read the thinking before installing",
-    title: "Take the thinking before collecting the skill",
+    title: "Take the thinking before installing the skill",
     description: "Paste a public skill, repository, or method. See which problem its creator solved and which rules transfer, try them in any chat AI, and package them only when the need repeats.",
     urlLabel: "Skill or framework URL",
     urlPlaceholder: "https://github.com/owner/repo/tree/main/skills/example",
