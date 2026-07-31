@@ -157,7 +157,7 @@ pnpm deploy
 所有 production 變更都走同一條 fail-closed 流程：
 
 1. 從最新 `main` 建 feature branch，只透過 PR 回到 `main`
-2. PR 必須通過 `pnpm check`：文案、字體、型別、完整測試、production build 與 Wrangler dry-run
+2. PR 必須通過 `pnpm check`：文案、字體、CSS token、型別、完整測試、production build 與 Wrangler dry-run
 3. UI 變更先上傳 preview，完成桌面、390px 行動版、鍵盤操作、雙語與錯誤狀態檢查
 4. 合併前用 `git merge-tree` 或 GitHub mergeability 確認沒有衝突；過期或已被新版取代的 branch 不直接合併
 5. Cloudflare 只從 `main` 部署；deploy script 會重新執行完整檢查、migration、回填與 Worker deploy

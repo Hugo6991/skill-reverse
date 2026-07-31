@@ -41,6 +41,7 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
   --space-12: 48px;
@@ -4674,6 +4675,8 @@ footer {
 }
 
 .manual-card {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
   background: hsl(252 45% 98%);
   border: 1px solid hsl(250 24% 84%);
@@ -4683,6 +4686,7 @@ footer {
 
 .manual-card-main {
   width: 100%;
+  height: 100%;
   min-height: 390px;
   display: flex;
   align-items: stretch;
@@ -4732,12 +4736,10 @@ footer {
 }
 
 .manual-card-main > strong {
-  overflow: hidden;
   font-size: 18px;
   line-height: 1.3;
   letter-spacing: -0.02em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .manual-card-main > small {
@@ -4755,7 +4757,7 @@ footer {
 }
 
 .manual-card-main > time {
-  margin-top: auto;
+  margin-top: var(--space-2);
   color: var(--text-tertiary);
   font-size: 10px;
 }
@@ -5387,14 +5389,28 @@ footer {
 }
 
 .destiny-seal {
+  position: relative;
+  z-index: 1;
   min-height: 52px;
-  margin-bottom: -20px;
-  padding-inline: var(--space-5);
+  gap: var(--space-3);
+  margin-bottom: calc(-1 * var(--space-3));
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-1);
+  box-sizing: border-box;
+}
+
+.destiny-seal > .identity-mark {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: 12px;
 }
 
 .destiny-seal strong {
+  min-width: 0;
   font-size: 23px;
+  line-height: 1.15;
   letter-spacing: 0.08em;
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -5587,23 +5603,37 @@ footer {
 }
 
 .manual-identity-title {
+  max-width: 100%;
   align-self: center;
   margin-bottom: var(--space-5);
   color: var(--identity-accent, hsl(252 50% 36%));
   font-family: var(--font-ui);
   font-size: 23px;
   font-weight: 750;
+  line-height: 1.2;
   letter-spacing: 0.08em;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .manual-traits {
   margin-bottom: var(--space-2);
 }
 
+.manual-card-radar {
+  width: 100%;
+  min-height: 144px;
+  display: grid;
+  place-items: center;
+  margin-top: auto;
+  padding-block: var(--space-2);
+}
+
 .manual-card-main .game-radar-compact {
-  height: 68px;
-  margin: 0 0 var(--space-2);
+  width: 160px;
+  max-width: 100%;
+  height: 128px;
+  margin: 0;
 }
 
 .manual-card-main:focus-visible,
@@ -5734,6 +5764,20 @@ footer {
   margin: var(--space-1) 0 0;
   font-size: 20px;
   letter-spacing: -0.02em;
+}
+
+@media (max-width: 700px) {
+  .destiny-seal {
+    max-width: 100%;
+    padding-right: var(--space-3);
+  }
+
+  .destiny-seal strong {
+    font-size: clamp(18px, 6vw, 23px);
+    line-height: 1.15;
+    text-wrap: balance;
+    white-space: normal;
+  }
 }
 
 @media (max-width: 620px) {
