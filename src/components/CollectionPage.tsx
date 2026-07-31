@@ -151,14 +151,16 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
                     <small>{card.occupationTitle}</small>
                     <p>{card.gameProfile.identity.signatureMove}</p>
                     <PersonaBeats identity={card.gameProfile.identity} compact />
-                    <GameRadar
-                      axes={card.gameProfile.axes}
-                      compact
-                      accentAxisId={card.gameProfile.highlightAxisId}
-                      ariaLabel={formatCopy(copy.collection.radarLabel, {
-                        name: card.displayName
-                      })}
-                    />
+                    <div className="manual-card-radar">
+                      <GameRadar
+                        axes={card.gameProfile.axes}
+                        compact
+                        accentAxisId={card.gameProfile.highlightAxisId}
+                        ariaLabel={formatCopy(copy.collection.radarLabel, {
+                          name: card.displayName
+                        })}
+                      />
+                    </div>
                     <time dateTime={card.updatedAt}>
                       {new Intl.DateTimeFormat(locale, {
                         year: "numeric",

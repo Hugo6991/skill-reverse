@@ -35,6 +35,7 @@ const previewAlias = branch
 console.log(`\n→ Preview upload ${branch}@${commit}`);
 run("pnpm", ["copycheck"]);
 run("pnpm", ["fontcheck"]);
+run("pnpm", ["tokencheck"]);
 run("pnpm", ["typecheck"]);
 run("pnpm", ["test"]);
 run("pnpm", ["build"]);
