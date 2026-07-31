@@ -1,27 +1,31 @@
 import {
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   Clock3,
   FileSearch2,
   Globe2,
   LoaderCircle
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "../LocaleContext";
+import { formatCopy } from "../locales";
 import type { Locale } from "../types";
 import type {
-  HistoryItem,
   HistoryPage as HistoryResponse,
   MyResearchItem,
   MyResearchPage
 } from "../types";
+
+const HISTORY_PAGE_SIZE = 20;
 
 async function loadHistory(
   locale: Locale,
   errorMessage: string,
   cursor?: string
 ): Promise<HistoryResponse> {
-  const search = new URLSearchParams({ limit: "20", lang: locale });
+  const search = new URLSearchParams({ limit: String(HISTORY_PAGE_SIZE), lang: locale });
   if (cursor) search.set("cursor", cursor);
   const response = await fetch(`/api/history?${search}`);
   const body = (await response.json().catch(() => ({}))) as HistoryResponse & {
@@ -57,21 +61,27 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
     translation: copy.job.translation,
     report: copy.job.report
   };
-  const [items, setItems] = useState<HistoryItem[]>([]);
+  const [historyPages, setHistoryPages] = useState<HistoryResponse[]>([]);
+  const [pageIndex, setPageIndex] = useState(0);
   const [myResearch, setMyResearch] = useState<MyResearchItem[]>([]);
   const [myResearchLoading, setMyResearchLoading] = useState(true);
-  const [nextCursor, setNextCursor] = useState<string>();
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageLoading, setPageLoading] = useState(false);
   const [error, setError] = useState("");
+  const publicHistoryHeading = useRef<HTMLHeadingElement>(null);
+  const currentPage = historyPages[pageIndex];
+  const items = currentPage?.items ?? [];
+  const activeResearch = myResearch.filter((item) => item.status !== "failed");
+  const failedResearch = myResearch.filter((item) => item.status === "failed");
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
+    setHistoryPages([]);
+    setPageIndex(0);
     try {
       const page = await loadHistory(locale, copy.history.loadError);
-      setItems(page.items);
-      setNextCursor(page.nextCursor);
+      setHistoryPages([page]);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : copy.history.loadError);
     } finally {
@@ -103,19 +113,101 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
     return () => window.clearInterval(timer);
   }, [myResearch, refreshMyResearch]);
 
-  async function loadNextPage() {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
+  function returnToPublicHistory() {
+    window.requestAnimationFrame(() => {
+      publicHistoryHeading.current?.focus({ preventScroll: true });
+      publicHistoryHeading.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "start"
+      });
+    });
+  }
+
+  async function showNextPage() {
+    if (pageLoading) return;
+    if (historyPages[pageIndex + 1]) {
+      setError("");
+      setPageIndex((current) => current + 1);
+      returnToPublicHistory();
+      return;
+    }
+    if (!currentPage?.nextCursor) return;
+    setPageLoading(true);
     setError("");
     try {
-      const page = await loadHistory(locale, copy.history.loadError, nextCursor);
-      setItems((current) => [...current, ...page.items]);
-      setNextCursor(page.nextCursor);
+      const page = await loadHistory(locale, copy.history.loadError, currentPage.nextCursor);
+      setHistoryPages((current) => [...current, page]);
+      setPageIndex((current) => current + 1);
+      returnToPublicHistory();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : copy.history.loadError);
     } finally {
-      setLoadingMore(false);
+      setPageLoading(false);
     }
+  }
+
+  function showPreviousPage() {
+    if (pageLoading || pageIndex === 0) return;
+    setError("");
+    setPageIndex((current) => current - 1);
+    returnToPublicHistory();
+  }
+
+  function renderResearchItem(item: MyResearchItem) {
+    const retrying = item.status === "running" && item.autoRetryCount > 0;
+    const statusLabel =
+      item.status === "queued"
+        ? item.queuePosition
+          ? `${copy.history.queued} · #${item.queuePosition}`
+          : copy.history.queued
+        : retrying
+          ? `${copy.history.retrying} ${item.autoRetryCount}/1`
+          : item.status === "running"
+            ? copy.history.running
+            : copy.history.failed;
+    const Icon =
+      item.status === "failed"
+        ? CircleAlert
+        : item.status === "queued"
+          ? Clock3
+          : LoaderCircle;
+    const timestamp = item.finishedAt ?? item.startedAt ?? item.queuedAt ?? item.updatedAt;
+
+    return (
+      <article className="history-row" key={item.jobId}>
+        <button
+          className="history-main"
+          type="button"
+          onClick={() => onNavigate(`/jobs/${encodeURIComponent(item.jobId)}`)}
+        >
+          <span className="history-icon">
+            <Icon
+              className={item.status === "running" ? "spin" : undefined}
+              size={17}
+              aria-hidden="true"
+            />
+          </span>
+          <span className="history-copy">
+            <strong>{new URL(item.targetUrl).hostname}</strong>
+            <small>
+              {item.occupationTitle} · {stageLabels[item.stage]}
+            </small>
+          </span>
+          <span className={`history-status status-${item.status}`}>{statusLabel}</span>
+          <time dateTime={timestamp}>
+            {new Intl.DateTimeFormat(locale, {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit"
+            }).format(new Date(timestamp))}
+          </time>
+          <ArrowRight className="history-arrow" size={16} aria-hidden="true" />
+        </button>
+      </article>
+    );
   }
 
   return (
@@ -130,7 +222,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
         </span>
       </header>
 
-      {(myResearchLoading || myResearch.length > 0) && (
+      {(myResearchLoading || activeResearch.length > 0) && (
         <section className="my-research-section" aria-labelledby="my-research-title">
           <div className="history-section-heading">
             <div>
@@ -146,62 +238,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
             </div>
           ) : (
             <div className="history-list">
-              {myResearch.map((item) => {
-                const retrying = item.status === "running" && item.autoRetryCount > 0;
-                const statusLabel =
-                  item.status === "queued"
-                    ? item.queuePosition
-                      ? `${copy.history.queued} · #${item.queuePosition}`
-                      : copy.history.queued
-                    : retrying
-                      ? `${copy.history.retrying} ${item.autoRetryCount}/1`
-                      : item.status === "running"
-                        ? copy.history.running
-                        : copy.history.failed;
-                const Icon =
-                  item.status === "failed"
-                    ? CircleAlert
-                    : item.status === "queued"
-                      ? Clock3
-                      : LoaderCircle;
-                const timestamp =
-                  item.finishedAt ?? item.startedAt ?? item.queuedAt ?? item.updatedAt;
-                return (
-                  <article className="history-row" key={item.jobId}>
-                    <button
-                      className="history-main"
-                      type="button"
-                      onClick={() => onNavigate(`/jobs/${encodeURIComponent(item.jobId)}`)}
-                    >
-                      <span className="history-icon">
-                        <Icon
-                          className={item.status === "running" ? "spin" : undefined}
-                          size={17}
-                          aria-hidden="true"
-                        />
-                      </span>
-                      <span className="history-copy">
-                        <strong>{new URL(item.targetUrl).hostname}</strong>
-                        <small>
-                          {item.occupationTitle} · {stageLabels[item.stage]}
-                        </small>
-                      </span>
-                      <span className={`history-status status-${item.status}`}>
-                        {statusLabel}
-                      </span>
-                      <time dateTime={timestamp}>
-                        {new Intl.DateTimeFormat(locale, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit"
-                        }).format(new Date(timestamp))}
-                      </time>
-                      <ArrowRight className="history-arrow" size={16} aria-hidden="true" />
-                    </button>
-                  </article>
-                );
-              })}
+              {activeResearch.map(renderResearchItem)}
             </div>
           )}
         </section>
@@ -242,7 +279,9 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
           <div className="history-section-heading public-history-heading">
             <div>
               <span className="eyebrow">{copy.history.sharedArchive}</span>
-              <h2>{copy.history.publishedReports}</h2>
+              <h2 ref={publicHistoryHeading} tabIndex={-1}>
+                {copy.history.publishedReports}
+              </h2>
             </div>
           </div>
           <div className="history-list">
@@ -291,18 +330,44 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
               </article>
             ))}
           </div>
-          {nextCursor && (
+          <nav className="history-pagination" aria-label={copy.history.paginationLabel}>
             <button
-              className="secondary-button history-load-more"
+              className="secondary-button"
               type="button"
-              onClick={() => void loadNextPage()}
-              disabled={loadingMore}
+              onClick={showPreviousPage}
+              disabled={pageIndex === 0 || pageLoading}
             >
-              {loadingMore && <LoaderCircle className="spin" size={17} aria-hidden="true" />}
-              {loadingMore ? copy.history.loadingMore : copy.history.loadMore}
+              <ChevronLeft size={17} aria-hidden="true" />
+              {copy.history.previousPage}
             </button>
-          )}
+            <span className="history-page-number" aria-live="polite">
+              {formatCopy(copy.history.pageNumber, { page: pageIndex + 1 })}
+            </span>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void showNextPage()}
+              disabled={!currentPage?.nextCursor || pageLoading}
+            >
+              {pageLoading && <LoaderCircle className="spin" size={17} aria-hidden="true" />}
+              {copy.history.nextPage}
+              {!pageLoading && <ChevronRight size={17} aria-hidden="true" />}
+            </button>
+          </nav>
         </>
+      )}
+
+      {failedResearch.length > 0 && (
+        <section className="failed-research-section" aria-labelledby="failed-research-title">
+          <div className="history-section-heading">
+            <div>
+              <span className="eyebrow">{copy.history.thisBrowser}</span>
+              <h2 id="failed-research-title">{copy.history.failedResearch}</h2>
+            </div>
+            <span>{copy.history.failedResearchDescription}</span>
+          </div>
+          <div className="history-list">{failedResearch.map(renderResearchItem)}</div>
+        </section>
       )}
     </main>
   );
