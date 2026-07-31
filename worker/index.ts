@@ -1963,6 +1963,13 @@ async function serveAppShell(c: Context<HonoEnv>) {
   // Cloudflare's Assets binding can return immutable headers in production.
   // Clone the response before global middleware appends CSP and security headers.
   const response = new Response(assetResponse.body, assetResponse);
+  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+  if (c.req.path.startsWith("/assets/") && contentType.includes("text/html")) {
+    return c.text("Not found", 404, {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store"
+    });
+  }
   if (c.req.method !== "GET") return response;
   const accept = c.req.header("accept") ?? "";
   if (!accept.includes("text/html")) return response;

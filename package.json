@@ -39,6 +39,7 @@
     "analytics:export": "node scripts/analytics.mjs export",
     "deploy": "node scripts/deploy.mjs",
     "preview:upload": "node scripts/preview-upload.mjs",
+    "qa:release": "node scripts/release-smoke.mjs",
     "release": "pnpm run backup:prod && pnpm run deploy"
   },
   "dependencies": {

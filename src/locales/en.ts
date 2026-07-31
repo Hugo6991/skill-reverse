@@ -19,7 +19,7 @@ export const en = {
   },
   home: {
     eyebrow: "Read the thinking before installing",
-    title: "Take the thinking before collecting the skill",
+    title: "Take the thinking before installing the skill",
     description: "Paste a public skill, repository, or method. See which problem its creator solved and which rules transfer, try them in any chat AI, and package them only when the need repeats.",
     urlLabel: "Skill or framework URL",
     urlPlaceholder: "https://github.com/owner/repo/tree/main/skills/example",
@@ -162,12 +162,17 @@ export const en = {
     emptyTitle: "The public archive is ready",
     emptyBody: "Complete the first research run and its report will appear here.",
     emptyAction: "Start a reverse", loadError: "The public archive could not be loaded",
-    retry: "Try again", loadMore: "Load older reports", loadingMore: "Loading older reports…",
+    retry: "Try again",
+    paginationLabel: "Published report pages", previousPage: "Previous", nextPage: "Next",
+    pageNumber: "Page {page}",
     thisBrowser: "This browser", yourQueue: "Your research queue",
     queueUpdates: "Updates automatically while work is queued or running",
     checkingJobs: "Checking your research jobs…", sharedArchive: "Shared archive",
     publishedReports: "Published reports", extracted: "Extracted", queued: "Queued",
-    running: "Running", retrying: "Retrying", failed: "Failed", published: "Published",
+    running: "Running", retrying: "Retrying", failed: "Failed",
+    failedResearch: "Failed research",
+    failedResearchDescription: "Open a record to review the error or try again",
+    published: "Published",
     jobsUnavailable: "Your research jobs are unavailable"
   },
   job: {

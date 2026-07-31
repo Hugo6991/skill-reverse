@@ -2,9 +2,14 @@ name: Pull request checks
 
 on:
   pull_request:
+  workflow_dispatch:
   push:
     branches:
-      - codex/cloudflare-skill-reverse
+      - main
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -24,8 +29,4 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm copycheck
-      - run: pnpm fontcheck
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm check
