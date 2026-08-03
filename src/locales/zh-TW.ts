@@ -27,10 +27,11 @@ export const zhTW = {
     english: "EN"
   },
   home: {
-    eyebrow: "安裝之前，先讀懂思考",
-    title: "先別收藏 Skill，先取走它的思考",
+    eyebrow: "採用之前，先查證方法與證據",
+    title: "採用 AI Skill 前，先看懂它從哪裡來、如何運作、值不值得信任",
     description:
-      "貼上一個公開 skill、repo 或方法來源；先看創作者在解什麼問題、哪些規則值得帶走，再用任何聊天 AI 試一次，只有反覆需要時才封裝",
+      "分析公開的 Claude Code、Codex 與 GitHub Skills，整理作者背景、核心方法、證據來源、限制與採用建議",
+    featuredTitle: "近期公開研究",
     urlLabel: "Skill 或框架網址",
     urlPlaceholder: "https://github.com/owner/repo/tree/main/skills/example",
     continue: "繼續",

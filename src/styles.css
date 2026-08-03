@@ -2540,6 +2540,60 @@ footer {
   line-height: 1.65;
 }
 
+.featured-research {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 880px;
+  margin-top: var(--space-8);
+}
+
+.featured-research > span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.featured-research > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.featured-research a {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 76%, transparent);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+}
+
+.featured-research a:hover {
+  border-color: var(--stroke-strong);
+  background: var(--surface);
+}
+
+.featured-research strong,
+.featured-research small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.featured-research strong {
+  font-size: 14px;
+}
+
+.featured-research small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .hero-composer {
   position: relative;
   max-width: 880px;
@@ -3304,6 +3358,10 @@ footer {
 
   .hero-composer {
     margin-top: var(--space-8);
+  }
+
+  .featured-research > div {
+    grid-template-columns: 1fr;
   }
 
   .url-composer {

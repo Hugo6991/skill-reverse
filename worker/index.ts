@@ -48,12 +48,14 @@ import { trackWorkerEvent } from "./analytics";
 import {
   historySeoPage,
   homeSeoPage,
+  llmsText,
   privateSeoPage,
   renderSeoShell,
   reportSeoPage,
   robotsText,
   sitemapXml,
-  type SeoPage
+  type SeoPage,
+  type SeoReportLink
 } from "./seo";
 
 export { ActorGate, DailyBudget, ResearchScheduler, ResearchWorkflow };
@@ -1936,6 +1938,61 @@ app.get("/robots.txt", (c) => {
     "cache-control": "public, max-age=3600"
   });
 });
+async function publishedSeoReports(
+  db: D1Database,
+  locale: Locale,
+  limit: number
+): Promise<SeoReportLink[]> {
+  try {
+    const rows = await db
+      .prepare(
+        `SELECT j.report_id, r.payload_json
+         FROM jobs j
+         JOIN reports r ON r.id = j.report_id
+         WHERE j.status = 'completed'
+           AND j.publication_status = 'published'
+           AND j.report_id IS NOT NULL
+           AND j.published_at IS NOT NULL
+         ORDER BY j.published_at DESC, j.id DESC
+         LIMIT ?1`
+      )
+      .bind(limit)
+      .all<{ report_id: string; payload_json: string }>();
+    return rows.results.flatMap((row) => {
+      try {
+        const stored = JSON.parse(row.payload_json) as unknown;
+        const report = isBilingualReportBundle(stored)
+          ? upgradeStoredReport(resolveReport(stored, locale), locale)
+          : upgradeStoredReport(stored, locale);
+        return [
+          {
+            id: row.report_id,
+            title: report.title,
+            summary: report.framework.summary
+          }
+        ];
+      } catch {
+        return [];
+      }
+    });
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "seo_report_links_unavailable",
+        message: error instanceof Error ? error.message : "unavailable"
+      })
+    );
+    return [];
+  }
+}
+app.get("/llms.txt", async (c) => {
+  const origin = new URL(c.env.PUBLIC_APP_URL || c.req.url).origin;
+  const reports = await publishedSeoReports(c.env.DB, "zh-TW", 10);
+  return c.text(llmsText(origin, reports), 200, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "public, max-age=900"
+  });
+});
 app.get("/sitemap.xml", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT report_id
@@ -1978,7 +2035,7 @@ async function serveAppShell(c: Context<HonoEnv>) {
   let page: SeoPage | undefined;
   let status: 200 | 404 = 200;
   if (pathname === "/") {
-    page = homeSeoPage(locale);
+    page = homeSeoPage(locale, await publishedSeoReports(c.env.DB, locale, 3));
   } else if (pathname === "/history") {
     page = historySeoPage(locale);
   } else if (pathname === "/reports/demo") {
