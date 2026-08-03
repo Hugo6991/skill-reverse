@@ -16,6 +16,47 @@ export interface ResearchInput {
   turnstileToken: string;
 }
 
+export function FeaturedResearch() {
+  const { copy, locale } = useLocale();
+  const [featuredReports, setFeaturedReports] = useState<HistoryItem[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const search = new URLSearchParams({ limit: "3", lang: locale });
+    void fetch(`/api/history?${search}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("featured research unavailable");
+        const page = (await response.json()) as HistoryResponse;
+        setFeaturedReports(page.items);
+      })
+      .catch((caught) => {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) {
+          setFeaturedReports([]);
+        }
+      });
+    return () => controller.abort();
+  }, [locale]);
+
+  if (featuredReports.length === 0) return null;
+
+  return (
+    <section className="featured-research" aria-labelledby="featured-research-title">
+      <h2 id="featured-research-title">{copy.home.featuredTitle}</h2>
+      <div>
+        {featuredReports.map((report) => (
+          <a
+            href={`/reports/${encodeURIComponent(report.reportId)}?lang=${encodeURIComponent(locale)}`}
+            key={report.reportId}
+          >
+            <strong>{report.displayName}</strong>
+            <small>{report.skillLabels[0] ?? report.occupationTitle}</small>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function validatePublicUrl(
   value: string,
   messages: { invalidHttps: string; invalidUrl: string }
@@ -50,27 +91,9 @@ export function ResearchForm({
   const [occupation, setOccupation] = useState<OccupationProfile>();
   const [token, setToken] = useState(config.mode === "demo" ? "demo-token" : "");
   const [error, setError] = useState("");
-  const [featuredReports, setFeaturedReports] = useState<HistoryItem[]>([]);
   const [previousRuns, setPreviousRuns] = useState<HistoryItem[]>([]);
   const [checkingHistory, setCheckingHistory] = useState(false);
   const occupationInput = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const search = new URLSearchParams({ limit: "3", lang: locale });
-    void fetch(`/api/history?${search}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("featured research unavailable");
-        const page = (await response.json()) as HistoryResponse;
-        setFeaturedReports(page.items);
-      })
-      .catch((caught) => {
-        if (!(caught instanceof DOMException && caught.name === "AbortError")) {
-          setFeaturedReports([]);
-        }
-      });
-    return () => controller.abort();
-  }, [locale]);
 
   useEffect(() => {
     if (!urlReady) return;
@@ -184,23 +207,6 @@ export function ResearchForm({
         <h1 id="research-title">{copy.home.title}</h1>
         <p>{copy.home.description}</p>
       </div>
-
-      {featuredReports.length > 0 && (
-        <nav className="featured-research" aria-label={copy.home.featuredTitle}>
-          <span>{copy.home.featuredTitle}</span>
-          <div>
-            {featuredReports.map((report) => (
-              <a
-                href={`/reports/${encodeURIComponent(report.reportId)}?lang=${encodeURIComponent(locale)}`}
-                key={report.reportId}
-              >
-                <strong>{report.displayName}</strong>
-                <small>{report.skillLabels[0] ?? report.occupationTitle}</small>
-              </a>
-            ))}
-          </div>
-        </nav>
-      )}
 
       <form className="hero-composer" onSubmit={submit}>
         <label className="sr-only" htmlFor="target-url">

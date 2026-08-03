@@ -46,10 +46,10 @@ export function homeSeoPage(locale: Locale, featuredReports: SeoReportLink[] = [
     index: true,
     type: "website",
     bodyHtml: english
-      ? `<main><header><h1>Understand where an AI Skill comes from, how it works, and whether to trust it before adoption</h1><p>Skill Reverse analyzes public Claude Code, Codex, and GitHub Skills through creator context, transferable methods, source evidence, limitations, and adoption guidance.</p></header><section aria-labelledby="featured-research"><h2 id="featured-research">Recent evidence-backed research</h2><ul>${featuredItems}</ul><p><a href="${escapeAttribute(
+      ? `<main><header><h1>Take the thinking before installing the skill</h1><p>Paste a public skill, repository, or method. See which problem its creator solved and which rules transfer, try them in any chat AI, and package them only when the need repeats.</p></header><section aria-labelledby="featured-research"><h2 id="featured-research">Recent evidence-backed research</h2><ul>${featuredItems}</ul><p><a href="${escapeAttribute(
           localizedPath("/history", locale)
         )}">Browse the public research archive</a></p></section></main>`
-      : `<main><header><h1>採用 AI Skill 前，先看懂它從哪裡來、如何運作、值不值得信任</h1><p>Skill Reverse 分析公開的 Claude Code、Codex 與 GitHub Skills，整理作者背景、可攜方法、來源證據、限制與採用建議。</p></header><section aria-labelledby="featured-research"><h2 id="featured-research">近期公開研究</h2><ul>${featuredItems}</ul><p><a href="${escapeAttribute(
+      : `<main><header><h1>先別收藏 Skill，先取走它的思考</h1><p>貼上一個公開 skill、repo 或方法來源；先看創作者在解什麼問題、哪些規則值得帶走，再用任何聊天 AI 試一次，只有反覆需要時才封裝。</p></header><section aria-labelledby="featured-research"><h2 id="featured-research">近期公開研究</h2><ul>${featuredItems}</ul><p><a href="${escapeAttribute(
           localizedPath("/history", locale)
         )}">瀏覽完整公開成果庫</a></p></section></main>`
   };
