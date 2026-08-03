@@ -3,6 +3,7 @@ import { demoReport } from "../worker/demo";
 import { durationBucket } from "../worker/analytics";
 import {
   homeSeoPage,
+  llmsText,
   renderSeoShell,
   reportSeoPage,
   robotsText,
@@ -34,7 +35,13 @@ describe("SEO rendering", () => {
   it("renders an indexable localized homepage with canonical and nonce", () => {
     const html = renderSeoShell(
       template,
-      homeSeoPage("zh-TW"),
+      homeSeoPage("zh-TW", [
+        {
+          id: "featured-report",
+          title: "一份公開研究",
+          summary: "有來源支持的研究摘要"
+        }
+      ]),
       "https://skill-reverse.vibeencode.dev",
       "nonce123"
     );
@@ -44,6 +51,9 @@ describe("SEO rendering", () => {
     expect(html).toContain("lang=zh-TW");
     expect(html).toContain('nonce="nonce123"');
     expect(html).toContain("<h1>");
+    expect(html).toContain("AI Skill 作者、方法、證據與風險拆解");
+    expect(html).toContain("/reports/featured-report?lang=zh-TW");
+    expect(html).toContain("有來源支持的研究摘要");
     expect(html).not.toContain("noindex");
   });
 
@@ -56,6 +66,11 @@ describe("SEO rendering", () => {
     );
     expect(html).toContain(`<h1>${demoReport.title}</h1>`);
     expect(html).toContain(demoReport.framework.name);
+    expect(html).toContain(demoReport.framework.useWhen);
+    expect(html).toContain(demoReport.framework.avoidWhen);
+    expect(html).toContain(demoReport.claims[0].text);
+    expect(html).toContain(demoReport.sources[0].url);
+    expect(html).toContain(demoReport.caveats[0]);
     expect(html).toContain("<article>");
     expect(html).toContain("datePublished");
     expect(html).toContain("og:type");
@@ -63,6 +78,8 @@ describe("SEO rendering", () => {
 
   it("keeps private routes out of robots and publishes only explicit sitemap paths", () => {
     const robots = robotsText("https://skill-reverse.vibeencode.dev");
+    expect(robots).toContain("User-agent: OAI-SearchBot");
+    expect(robots).toContain("User-agent: PerplexityBot");
     expect(robots).toContain("Disallow: /jobs");
     expect(robots).toContain("Disallow: /collection");
     expect(robots).toContain("Disallow: /admin");
@@ -72,5 +89,22 @@ describe("SEO rendering", () => {
     expect(sitemap).toContain("hreflang=\"en\"");
     expect(sitemap).not.toContain("/jobs/");
     expect(sitemap).not.toContain("/collection");
+  });
+
+  it("publishes a curated LLM index without private routes", () => {
+    const output = llmsText("https://skill-reverse.vibeencode.dev", [
+      {
+        id: "report-one",
+        title: "Evidence [first]",
+        summary: "A concise\npublic summary"
+      }
+    ]);
+    expect(output).toContain("# Skill Reverse");
+    expect(output).toContain("## Start here");
+    expect(output).toContain("/reports/report-one?lang=zh-TW");
+    expect(output).toContain("Evidence \\[first\\]");
+    expect(output).toContain("A concise public summary");
+    expect(output).not.toContain("/admin");
+    expect(output).not.toContain("/collection");
   });
 });
