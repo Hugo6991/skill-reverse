@@ -1,10 +1,58 @@
 import { isBilingualReportBundle, resolveReport } from "../src/bilingual";
-import type { Locale, ReportPayload } from "../src/types";
+import type {
+  GameAxisId,
+  GameBadgeId,
+  HistoryAnalysisAxis,
+  HistoryAnalysisPreview,
+  Locale,
+  ReportPayload
+} from "../src/types";
 
 type JsonRecord = Record<string, unknown>;
 
+const GAME_AXIS_IDS: GameAxisId[] = [
+  "money",
+  "spectacle",
+  "potency",
+  "activation",
+  "renown",
+  "ascension"
+];
+const GAME_BADGE_IDS = new Set<GameBadgeId>([
+  "evidence_rich",
+  "low_dependency",
+  "portable",
+  "field_tested",
+  "well_maintained"
+]);
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isGameAxisId(value: unknown): value is GameAxisId {
+  return typeof value === "string" && GAME_AXIS_IDS.includes(value as GameAxisId);
+}
+
+function boundedScore(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
+    return undefined;
+  }
+  return Math.round(value);
+}
+
+function localizedReportRecord(
+  reportPayloadJson: string | null | undefined,
+  locale: Locale
+): JsonRecord | undefined {
+  if (!reportPayloadJson) return undefined;
+  try {
+    const parsed = JSON.parse(reportPayloadJson) as ReportPayload;
+    const localized = isBilingualReportBundle(parsed) ? resolveReport(parsed, locale) : parsed;
+    return isRecord(localized) ? localized : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function cleanLabel(value: unknown): string | undefined {
@@ -90,16 +138,7 @@ export function historyPresentation(
   skillLabels: string[];
 } {
   const sourceHost = new URL(targetUrl).hostname.replace(/^www\./, "");
-  let report: JsonRecord | undefined;
-  if (reportPayloadJson) {
-    try {
-      const parsed = JSON.parse(reportPayloadJson) as ReportPayload;
-      const localized = isBilingualReportBundle(parsed) ? resolveReport(parsed, locale) : parsed;
-      if (isRecord(localized)) report = localized;
-    } catch {
-      // A malformed or older report must not prevent history from loading
-    }
-  }
+  const report = localizedReportRecord(reportPayloadJson, locale);
 
   return {
     displayName:
@@ -111,17 +150,81 @@ export function historyPresentation(
   };
 }
 
+export function historyAnalysisPreview(
+  reportPayloadJson: string | null | undefined,
+  locale: Locale = "zh-TW"
+): HistoryAnalysisPreview | undefined {
+  const report = localizedReportRecord(reportPayloadJson, locale);
+  const profile = report && isRecord(report.gameProfile) ? report.gameProfile : undefined;
+  if (profile?.rubricVersion !== "game-profile-v2" || !Array.isArray(profile.axes)) {
+    return undefined;
+  }
+
+  const storedAxes = new Map<GameAxisId, HistoryAnalysisAxis>();
+  for (const candidate of profile.axes) {
+    if (!isRecord(candidate) || !isGameAxisId(candidate.id)) continue;
+    const value = boundedScore(candidate.value);
+    const coverage = boundedScore(candidate.coverage) ?? 0;
+    storedAxes.set(candidate.id, {
+      id: candidate.id,
+      ...(value === undefined ? {} : { value }),
+      coverage
+    });
+  }
+  if (storedAxes.size === 0) return undefined;
+
+  const axes = GAME_AXIS_IDS.map(
+    (id): HistoryAnalysisAxis => storedAxes.get(id) ?? { id, coverage: 0 }
+  );
+  const scoredIds = [...axes]
+    .filter((axis): axis is HistoryAnalysisAxis & { value: number } => axis.value !== undefined)
+    .sort((left, right) => right.value - left.value)
+    .map((axis) => axis.id);
+  const highlightAxisId = isGameAxisId(profile.highlightAxisId)
+    ? profile.highlightAxisId
+    : scoredIds.find((id) => id !== "activation") ?? scoredIds[0] ?? "potency";
+  const requestedRisk = isGameAxisId(profile.riskAxisId) ? profile.riskAxisId : "activation";
+  const riskAxisId =
+    requestedRisk !== highlightAxisId
+      ? requestedRisk
+      : GAME_AXIS_IDS.find((id) => id !== highlightAxisId && id === "activation") ??
+        GAME_AXIS_IDS.find((id) => id !== highlightAxisId) ??
+        requestedRisk;
+  const requestedSecondary = isGameAxisId(profile.accentAxisId)
+    ? profile.accentAxisId
+    : undefined;
+  const secondaryAxisId =
+    scoredIds.find((id) => id !== highlightAxisId && id !== riskAxisId) ??
+    (requestedSecondary !== highlightAxisId && requestedSecondary !== riskAxisId
+      ? requestedSecondary
+      : undefined) ??
+    GAME_AXIS_IDS.find((id) => id !== highlightAxisId && id !== riskAxisId) ??
+    highlightAxisId;
+  const badges = Array.isArray(profile.badges)
+    ? profile.badges
+        .filter(
+          (badge): badge is GameBadgeId =>
+            typeof badge === "string" && GAME_BADGE_IDS.has(badge as GameBadgeId)
+        )
+        .slice(0, 2)
+    : [];
+
+  return {
+    axes,
+    highlightAxisId,
+    secondaryAxisId,
+    riskAxisId,
+    badges
+  };
+}
+
 export function historyOccupationTitle(
   reportPayloadJson: string | null | undefined,
   locale: Locale,
   fallback: string
 ): string {
   if (!reportPayloadJson) return fallback;
-  try {
-    const parsed = JSON.parse(reportPayloadJson) as ReportPayload;
-    const localized = isBilingualReportBundle(parsed) ? resolveReport(parsed, locale) : parsed;
-    return localized.occupation.title || fallback;
-  } catch {
-    return fallback;
-  }
+  const report = localizedReportRecord(reportPayloadJson, locale);
+  const occupation = report && isRecord(report.occupation) ? report.occupation : undefined;
+  return typeof occupation?.title === "string" && occupation.title ? occupation.title : fallback;
 }

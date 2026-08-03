@@ -381,6 +381,20 @@ export interface JobStatus {
 
 export type PublicationStatus = "unpublished" | "published" | "hidden";
 
+export interface HistoryAnalysisAxis {
+  id: GameAxisId;
+  value?: number;
+  coverage: number;
+}
+
+export interface HistoryAnalysisPreview {
+  axes: HistoryAnalysisAxis[];
+  highlightAxisId: GameAxisId;
+  secondaryAxisId: GameAxisId;
+  riskAxisId: GameAxisId;
+  badges: GameBadgeId[];
+}
+
 export interface PublicHistoryItem {
   jobId: string;
   targetUrl: string;
@@ -396,6 +410,7 @@ export interface PublicHistoryItem {
   createdAt: string;
   updatedAt: string;
   publishedAt: string;
+  analysisPreview?: HistoryAnalysisPreview;
 }
 
 export type HistoryItem = PublicHistoryItem;

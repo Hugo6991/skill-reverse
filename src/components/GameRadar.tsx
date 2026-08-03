@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import { useLocale } from "../LocaleContext";
 import { gameAxisTheme } from "../game-theme";
-import type { GameAxis, GameAxisId } from "../types";
+import type { GameAxis, GameAxisId, HistoryAnalysisAxis } from "../types";
 
 export function GameRadar({
   axes,
@@ -15,7 +15,7 @@ export function GameRadar({
   accentAxisId = "potency",
   ariaLabel
 }: {
-  axes: GameAxis[];
+  axes: GameAxis[] | HistoryAnalysisAxis[];
   compact?: boolean;
   accentAxisId?: GameAxisId;
   ariaLabel?: string;

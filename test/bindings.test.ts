@@ -262,7 +262,15 @@ describe("Cloudflare bindings in workerd", () => {
           id: publicReportId,
           title: "Public report",
           targetUrl: "https://example.com/public",
-          sources: []
+          sources: [],
+          gameProfile: {
+            rubricVersion: "game-profile-v2",
+            axes: [{ id: "potency", value: 88, coverage: 80 }],
+            highlightAxisId: "potency",
+            accentAxisId: "potency",
+            riskAxisId: "activation",
+            badges: ["evidence_rich", "portable", "field_tested"]
+          }
         }),
         now,
         "9999-12-31T23:59:59.999Z"
@@ -272,9 +280,18 @@ describe("Cloudflare bindings in workerd", () => {
     const history = await SELF.fetch("https://another-domain.example/api/history");
     expect(history.status).toBe(200);
     expect(history.headers.get("set-cookie")).toBeNull();
-    const historyBody = (await history.json()) as { items: Array<{ jobId: string }> };
+    const historyBody = (await history.json()) as {
+      items: Array<{
+        jobId: string;
+        analysisPreview?: { axes: unknown[]; badges: string[] };
+      }>;
+    };
     expect(historyBody.items.some((item) => item.jobId === publicJobId)).toBe(true);
     expect(historyBody.items.some((item) => item.jobId === runningJobId)).toBe(false);
+    expect(historyBody.items.find((item) => item.jobId === publicJobId)?.analysisPreview).toMatchObject({
+      axes: expect.arrayContaining([{ id: "potency", value: 88, coverage: 80 }]),
+      badges: ["evidence_rich", "portable"]
+    });
 
     const myJobs = await SELF.fetch("https://example.com/api/my-jobs", {
       headers: { cookie }
