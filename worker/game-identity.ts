@@ -541,6 +541,24 @@ function titleCandidates(
   return unique([...(pair ?? []), ...TYPE_TITLES[primary]]);
 }
 
+function uniqueTitleForTypes(
+  primary: MethodTypeId,
+  secondary: ConcreteMethodTypeId | undefined,
+  unavailable: Set<string>
+): string {
+  const title = titleCandidates(primary, secondary).find(
+    (candidate) => isFourBeatTitle(candidate) && !unavailable.has(candidate)
+  );
+  if (title) return title;
+  for (const typeId of METHOD_TYPE_IDS) {
+    const alternate = TYPE_TITLES[typeId].find(
+      (candidate) => isFourBeatTitle(candidate) && !unavailable.has(candidate)
+    );
+    if (alternate) return alternate;
+  }
+  throw new Error("Unable to allocate a unique method-persona title");
+}
+
 function fallbackTitle(
   input: IdentityInput,
   primary: MethodTypeId,
@@ -563,17 +581,7 @@ function fallbackTitle(
   ) {
     return reportSpecificTitle;
   }
-  const title = titleCandidates(primary, secondary).find(
-    (candidate) => isFourBeatTitle(candidate) && !unavailable.has(candidate)
-  );
-  if (title) return title;
-  for (const typeId of METHOD_TYPE_IDS) {
-    const alternate = TYPE_TITLES[typeId].find(
-      (candidate) => isFourBeatTitle(candidate) && !unavailable.has(candidate)
-    );
-    if (alternate) return alternate;
-  }
-  throw new Error("Unable to allocate a unique method-persona title");
+  return uniqueTitleForTypes(primary, secondary, unavailable);
 }
 
 function signalFor(signals: MethodSignal[], typeId: MethodTypeId): MethodSignal | undefined {
@@ -678,6 +686,49 @@ function fallbackRationale(
         ["framework.useWhen"]
     }
   ];
+}
+
+function retitleCurrentIdentity(
+  identity: GameIdentity,
+  context: IdentitySelectionContext
+): GameIdentity {
+  const unavailable = new Set([
+    ...RESERVED_IDENTITY_TITLES,
+    ...(context.usedTitles ?? []).map(canonicalTitle)
+  ]);
+  const title = uniqueTitleForTypes(
+    identity.primaryMethodTypeId,
+    identity.secondaryMethodTypeId,
+    unavailable
+  );
+  const characters = Array.from(title);
+  const segments = [
+    characters.slice(0, 2).join(""),
+    characters.slice(2, 4).join("")
+  ] as const;
+  const primaryLabel =
+    identity.primaryMethodTypeId === "undetermined"
+      ? "尚未定型"
+      : METHOD_TYPE_LABELS[identity.primaryMethodTypeId].zh;
+  const secondaryLabel = identity.secondaryMethodTypeId
+    ? METHOD_TYPE_LABELS[identity.secondaryMethodTypeId].zh
+    : primaryLabel;
+  return {
+    ...identity,
+    title,
+    titleRationale: [
+      {
+        ...identity.titleRationale[0],
+        segment: segments[0],
+        explanation: `${segments[0]}對應這套方法面對的情境與張力（${primaryLabel}）`
+      },
+      {
+        ...identity.titleRationale[1],
+        segment: segments[1],
+        explanation: `${segments[1]}對應它反覆採取的行動（${secondaryLabel}）`
+      }
+    ]
+  };
 }
 
 function validatedCandidate(
@@ -793,8 +844,10 @@ export function repairGameIdentity(
   context: IdentitySelectionContext = {}
 ): GameIdentity {
   const usedTitles = new Set((context.usedTitles ?? []).map(canonicalTitle));
-  if (hasCurrentIdentity(identity) && !usedTitles.has(canonicalTitle(identity.title))) {
-    return identity;
+  if (hasCurrentIdentity(identity)) {
+    return usedTitles.has(canonicalTitle(identity.title))
+      ? retitleCurrentIdentity(identity, context)
+      : identity;
   }
   return fallbackGameIdentity(input, context, identity?.motifId);
 }
