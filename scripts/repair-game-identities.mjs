@@ -11,14 +11,20 @@ function parseWranglerJson(output) {
 
 function runWrangler(args, { capture = false } = {}) {
   const wrangler = resolve("node_modules", ".bin", process.platform === "win32" ? "wrangler.cmd" : "wrangler");
-  const result = spawnSync(wrangler, args, {
-    encoding: "utf8",
-    stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
-    maxBuffer: 20 * 1024 * 1024,
-    shell: process.platform === "win32"
-  });
-  if (result.status !== 0) process.exit(result.status ?? 1);
-  return result.stdout ?? "";
+  let result;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    result = spawnSync(wrangler, args, {
+      encoding: "utf8",
+      stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
+      maxBuffer: 20 * 1024 * 1024,
+      shell: process.platform === "win32"
+    });
+    if (result.status === 0) return result.stdout ?? "";
+    if (attempt < 4) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 500);
+    }
+  }
+  process.exit(result?.status ?? 1);
 }
 
 function sql(value) {
