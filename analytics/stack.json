@@ -30,8 +30,8 @@
   },
   "clarity": {
     "projectId": "",
-    "maskingMode": "balanced",
-    "cookiesEnabled": true,
+    "maskingMode": "strict",
+    "cookiesEnabled": false,
     "botDetection": true
   },
   "mixpanel": {
