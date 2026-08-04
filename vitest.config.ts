@@ -1,7 +1,19 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
-export default defineConfig({
+const nodeBackupTest = "test/backup-r2-artifacts.test.ts";
+const nodeBackupTestRequested = process.argv.some((argument) =>
+  argument.replaceAll("\\", "/").endsWith(nodeBackupTest)
+);
+
+const nodeConfig = defineConfig({
+  test: {
+    environment: "node",
+    include: [nodeBackupTest]
+  }
+});
+
+const cloudflareConfig = defineConfig({
   plugins: [
     cloudflareTest(async () => ({
       main: "./worker/index.ts",
@@ -19,6 +31,9 @@ export default defineConfig({
     }))
   ],
   test: {
-    include: ["test/**/*.test.ts"]
+    include: ["test/**/*.test.ts"],
+    exclude: [...configDefaults.exclude, nodeBackupTest]
   }
 });
+
+export default nodeBackupTestRequested ? nodeConfig : cloudflareConfig;
