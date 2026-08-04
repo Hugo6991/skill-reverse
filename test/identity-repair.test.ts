@@ -5,7 +5,7 @@ import {
 } from "../src/bilingual";
 import type { GameIdentity, ReverseReport } from "../src/types";
 import { demoReport, demoReportEn } from "../worker/demo";
-import { isFourBeatTitle } from "../worker/game-identity";
+import { isFourBeatTitle, repairGameIdentity } from "../worker/game-identity";
 import {
   planIdentityRepair,
   type IdentityRepairRow
@@ -93,6 +93,93 @@ function row(
 }
 
 describe("four-beat identity repair", () => {
+  it("eliminates collisions between current identities and newly repaired titles", () => {
+    const first = {
+      ...demoReport,
+      id: "report-current-1"
+    };
+    const second = {
+      ...demoReport,
+      id: "report-current-2"
+    };
+    const legacyThreat = reportWithTitle(
+      "report-legacy-threat",
+      "以可編輯威脅模型為中"
+    );
+    const currentThreat = {
+      ...legacyThreat,
+      id: "report-current-threat",
+      gameProfile: {
+        ...legacyThreat.gameProfile,
+        identity: repairGameIdentity(
+          legacyThreat,
+          legacyThreat.gameProfile.identity
+        )
+      }
+    };
+    const plan = planIdentityRepair([
+      row(first, first.gameProfile, {
+        report_id: first.id,
+        card_id: first.id,
+        report_created_at: "2026-07-28T00:00:00.000Z"
+      }),
+      row(second, second.gameProfile, {
+        report_id: second.id,
+        card_id: second.id,
+        report_created_at: "2026-07-29T00:00:00.000Z"
+      }),
+      row(legacyThreat, legacyThreat.gameProfile, {
+        report_id: legacyThreat.id,
+        card_id: legacyThreat.id,
+        report_created_at: "2026-07-30T00:00:00.000Z"
+      }),
+      row(currentThreat, currentThreat.gameProfile, {
+        report_id: currentThreat.id,
+        card_id: currentThreat.id,
+        report_created_at: "2026-07-31T00:00:00.000Z"
+      })
+    ]);
+
+    expect(plan.metrics).toMatchObject({
+      invalidBefore: 1,
+      invalidAfter: 0,
+      duplicateTitlesBefore: 1,
+      duplicateTitlesAfter: 0,
+      duplicateRateAfter: 0
+    });
+    expect(new Set(plan.changes.map((item) => item.afterTitle)).size).toBe(4);
+    expect(plan.changes.every((item) => isFourBeatTitle(item.afterTitle))).toBe(true);
+    expect(plan.changes.map((item) => item.reason)).toEqual([
+      "unchanged",
+      "duplicate",
+      "invalid",
+      "duplicate"
+    ]);
+    const retitled = JSON.parse(
+      plan.changes[1].reportPayloadJson
+    ) as ReverseReport;
+    const {
+      title: _beforeTitle,
+      titleRationale: beforeRationale,
+      ...beforeIdentityStructure
+    } = second.gameProfile.identity;
+    const {
+      title: retitledTitle,
+      titleRationale: afterRationale,
+      ...afterIdentityStructure
+    } = retitled.gameProfile.identity;
+    expect(afterIdentityStructure).toEqual(beforeIdentityStructure);
+    expect(afterRationale.map((item) => item.evidenceRefs)).toEqual(
+      beforeRationale.map((item) => item.evidenceRefs)
+    );
+    expect(afterRationale.map((item) => item.segment)).toEqual([
+      Array.from(retitledTitle).slice(0, 2).join(""),
+      Array.from(retitledTitle).slice(2, 4).join("")
+    ]);
+    expect(retitled.gameProfile.axes).toEqual(second.gameProfile.axes);
+    expect(plan.safeToApply).toBe(true);
+  });
+
   it("uses the existing v2 card as the axis source for a legacy report", () => {
     const report = reportWithTitle("report-legacy", "以可編輯威脅模型為中");
     const legacyPayload = {
@@ -142,6 +229,71 @@ describe("four-beat identity repair", () => {
     });
     const repaired = JSON.parse(plan.changes[0].reportPayloadJson) as ReverseReport;
     expect(repaired.gameProfile.axes).toEqual(beforeAxes);
+  });
+
+  it("keeps existing English identity copy when the current source identity is unchanged", () => {
+    const source = { ...demoReport, id: "report-current-bilingual" };
+    const english: ReverseReport = {
+      ...demoReportEn,
+      id: source.id,
+      gameProfile: {
+        ...demoReportEn.gameProfile,
+        identity: {
+          ...demoReportEn.gameProfile.identity,
+          signatureMove: "Custom translated signature move.",
+          strength: "Custom translated strength.",
+          shadow: "Custom translated shadow.",
+          beats: [
+            {
+              ...demoReportEn.gameProfile.identity.beats[0],
+              text: "Custom translated beat 1."
+            },
+            {
+              ...demoReportEn.gameProfile.identity.beats[1],
+              text: "Custom translated beat 2."
+            },
+            {
+              ...demoReportEn.gameProfile.identity.beats[2],
+              text: "Custom translated beat 3."
+            }
+          ],
+          titleRationale: [
+            {
+              ...demoReportEn.gameProfile.identity.titleRationale[0],
+              explanation: "Custom translated rationale 1."
+            },
+            {
+              ...demoReportEn.gameProfile.identity.titleRationale[1],
+              explanation: "Custom translated rationale 2."
+            }
+          ]
+        }
+      }
+    };
+    const bundle = createBilingualReportBundle(source, english, {
+      sourceLocale: "zh-TW",
+      synthesizedAt: "2026-07-28T00:00:00.000Z",
+      synthesisModel: "test",
+      translationModel: "test",
+      sourceContentHash: "test"
+    });
+    const card = createBilingualGameProfileBundle(
+      source.gameProfile,
+      english.gameProfile
+    );
+    const plan = planIdentityRepair([
+      row(bundle, card, { report_id: source.id, card_id: source.id })
+    ]);
+
+    expect(plan.safeToApply).toBe(true);
+    expect(plan.writes).toHaveLength(0);
+    expect(plan.changes[0]).toMatchObject({
+      reason: "unchanged",
+      reportChanged: false,
+      cardChanged: false
+    });
+    expect(plan.changes[0].reportPayloadJson).toBe(JSON.stringify(bundle));
+    expect(plan.changes[0].cardGameProfileJson).toBe(JSON.stringify(card));
   });
 
   it("supports bilingual report and card bundles while preserving English copy", () => {
