@@ -101,8 +101,52 @@ function repairReason(
   return isFourBeatTitle(identity.title) ? "version" : "invalid";
 }
 
+function existingEnglishCopy(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 function stampEnglishIdentity(identity: GameIdentity, source: GameIdentity): GameIdentity {
-  return localizedEnglishIdentity(source, identity.title);
+  const fallback = localizedEnglishIdentity(source, identity.title);
+  return {
+    ...source,
+    title: existingEnglishCopy(identity.title, fallback.title),
+    signatureMove: existingEnglishCopy(
+      identity.signatureMove,
+      fallback.signatureMove
+    ),
+    strength: existingEnglishCopy(identity.strength, fallback.strength),
+    shadow: existingEnglishCopy(identity.shadow, fallback.shadow),
+    titleRationale: [
+      {
+        ...source.titleRationale[0],
+        explanation: existingEnglishCopy(
+          identity.titleRationale?.[0]?.explanation,
+          fallback.titleRationale[0].explanation
+        )
+      },
+      {
+        ...source.titleRationale[1],
+        explanation: existingEnglishCopy(
+          identity.titleRationale?.[1]?.explanation,
+          fallback.titleRationale[1].explanation
+        )
+      }
+    ],
+    beats: [
+      {
+        ...source.beats[0],
+        text: existingEnglishCopy(identity.beats?.[0]?.text, fallback.beats[0].text)
+      },
+      {
+        ...source.beats[1],
+        text: existingEnglishCopy(identity.beats?.[1]?.text, fallback.beats[1].text)
+      },
+      {
+        ...source.beats[2],
+        text: existingEnglishCopy(identity.beats?.[2]?.text, fallback.beats[2].text)
+      }
+    ]
+  };
 }
 
 function sameIdentity(left: GameIdentity, right: GameIdentity): boolean {
