@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import backfillScript from "../scripts/backfill-game-profiles.mjs?raw";
 import { demoReport } from "../worker/demo";
 import { computeGameProfile } from "../worker/game-profile";
 import { historyPresentation } from "../worker/history";
@@ -33,6 +34,12 @@ const dependencies = {
 };
 
 describe("game profile backfill", () => {
+  it("loads TypeScript dependencies through Vite instead of native Node ESM", () => {
+    expect(backfillScript).toContain('moduleServer.ssrLoadModule("/worker/game-profile.ts")');
+    expect(backfillScript).toContain('moduleServer.ssrLoadModule("/worker/backfill-plan.ts")');
+    expect(backfillScript).not.toContain('import("../worker/game-profile.ts")');
+  });
+
   it("plans one payload update and one private card for a legacy report", () => {
     const { gameProfile: _gameProfile, ...legacyReport } = demoReport;
     const plan = planGameProfileBackfill([row(legacyReport)], dependencies);

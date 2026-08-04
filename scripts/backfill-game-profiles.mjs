@@ -18,28 +18,59 @@ function runWrangler(args, { capture = false } = {}) {
   return result.stdout ?? "";
 }
 
-async function main() {
-  const apply = process.argv.includes("--apply");
-  const backupConfirmed = process.argv.includes("--backup-confirmed");
+export async function loadBackfillDependencies() {
+  const { createServer } = await import("vite");
+  const moduleServer = await createServer({
+    configFile: false,
+    root: process.cwd(),
+    appType: "custom",
+    server: { middlewareMode: true },
+    optimizeDeps: { noDiscovery: true },
+    logLevel: "error"
+  });
+  try {
+    const [gameProfile, history, publication, backfillPlan] = await Promise.all([
+      moduleServer.ssrLoadModule("/worker/game-profile.ts"),
+      moduleServer.ssrLoadModule("/worker/history.ts"),
+      moduleServer.ssrLoadModule("/worker/publication.ts"),
+      moduleServer.ssrLoadModule("/worker/backfill-plan.ts")
+    ]);
+    return {
+      computeGameProfile: gameProfile.computeGameProfile,
+      historyPresentation: history.historyPresentation,
+      targetKey: publication.targetKey,
+      planGameProfileBackfill: backfillPlan.planGameProfileBackfill,
+      reportUpdateSql: backfillPlan.reportUpdateSql,
+      cardUpsertSql: backfillPlan.cardUpsertSql
+    };
+  } finally {
+    await moduleServer.close();
+  }
+}
+
+export async function runGameProfileBackfill({
+  args = process.argv.slice(2),
+  now = new Date().toISOString(),
+  wrangler = runWrangler
+} = {}) {
+  const apply = args.includes("--apply");
+  const backupConfirmed = args.includes("--backup-confirmed");
   if (apply && !backupConfirmed) {
     console.error("✕ Refusing remote writes without --backup-confirmed");
     console.error("  Run pnpm backup:prod first, then repeat with --apply --backup-confirmed");
     process.exit(1);
   }
-  const [
-    { computeGameProfile },
-    { historyPresentation },
-    { targetKey },
-    { planGameProfileBackfill, reportUpdateSql, cardUpsertSql }
-  ] = await Promise.all([
-    import("../worker/game-profile.ts"),
-    import("../worker/history.ts"),
-    import("../worker/publication.ts"),
-    import("../worker/backfill-plan.ts")
-  ]);
+  const {
+    computeGameProfile,
+    historyPresentation,
+    targetKey,
+    planGameProfileBackfill,
+    reportUpdateSql,
+    cardUpsertSql
+  } = await loadBackfillDependencies();
   console.log(`\n→ ${apply ? "Running" : "Planning"} game-profile-v2 backfill`);
   const payload = parseWranglerJson(
-    runWrangler(
+    wrangler(
       [
         "d1",
         "execute",
@@ -67,7 +98,6 @@ async function main() {
     )
   );
   const rows = payload.flatMap((entry) => entry.results ?? []);
-  const now = new Date().toISOString();
   const plan = planGameProfileBackfill(rows, {
     now,
     computeGameProfile,
@@ -114,7 +144,7 @@ async function main() {
       cardByReport.get(row.report_id)
     ].filter(Boolean);
     if (!statements.length) continue;
-    runWrangler([
+    wrangler([
       "d1",
       "execute",
       "DB",
@@ -123,7 +153,7 @@ async function main() {
       statements.join("; ")
     ]);
   }
-  runWrangler([
+  wrangler([
     "d1",
     "execute",
     "DB",
@@ -136,5 +166,5 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await main();
+  await runGameProfileBackfill();
 }
