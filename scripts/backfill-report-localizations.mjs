@@ -6,8 +6,13 @@ import { join } from "node:path";
 
 const apply = process.argv.includes("--apply");
 const remote = process.argv.includes("--remote");
+const validate = process.argv.includes("--validate");
+const backupConfirmed = process.argv.includes("--backup-confirmed");
 if (!remote) {
   throw new Error("Pass --remote explicitly. This backfill is intended for the production D1 database.");
+}
+if (apply && !backupConfirmed) {
+  throw new Error("Refusing remote writes without --backup-confirmed after a production backup.");
 }
 
 async function readVars() {
@@ -27,14 +32,6 @@ async function readVars() {
   return vars;
 }
 
-const vars = await readVars();
-const apiKey = process.env.OPENROUTER_API_KEY || vars.OPENROUTER_API_KEY;
-const model =
-  process.env.OPENROUTER_SYNTHESIS_MODEL ||
-  vars.OPENROUTER_SYNTHESIS_MODEL ||
-  "openai/gpt-5.6-terra";
-if (!apiKey) throw new Error("OPENROUTER_API_KEY is required to translate legacy reports.");
-
 function wrangler(...args) {
   return execFileSync("pnpm", ["exec", "wrangler", ...args], {
     encoding: "utf8",
@@ -53,6 +50,19 @@ const query = wrangler(
 );
 const pages = JSON.parse(query);
 const rows = pages.flatMap((page) => page.results ?? []);
+if (!apply && !validate) {
+  console.log(`✓ Plan found ${rows.length} legacy report(s); no provider calls or writes were made.`);
+  console.log("  Validate translations with --validate, or apply through the backup-wrapped package script.");
+  process.exit(0);
+}
+
+const vars = await readVars();
+const apiKey = process.env.OPENROUTER_API_KEY || vars.OPENROUTER_API_KEY;
+const model =
+  process.env.OPENROUTER_SYNTHESIS_MODEL ||
+  vars.OPENROUTER_SYNTHESIS_MODEL ||
+  "openai/gpt-5.6-terra";
+if (!apiKey) throw new Error("OPENROUTER_API_KEY is required to translate legacy reports.");
 
 function assertLengths(source, translated) {
   const pairs = [
@@ -189,6 +199,7 @@ function quote(value) {
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "skill-reverse-bilingual-"));
 try {
+  const plannedUpdates = [];
   for (const row of rows) {
     const source = JSON.parse(row.payload_json);
     if (source?.schemaVersion === 2) continue;
@@ -223,12 +234,17 @@ try {
         sourceContentHash: createHash("sha256").update(JSON.stringify(source)).digest("hex")
       }
     };
-    console.log(`${apply ? "Updating" : "Would update"} ${row.id}`);
-    if (!apply) continue;
-    const sqlPath = join(temporaryDirectory, `${row.id}.sql`);
+    console.log(`${apply ? "Prepared" : "Validated"} ${row.id}`);
+    plannedUpdates.push({ id: row.id, bundle });
+  }
+  if (apply) {
+    console.log(`→ Applying ${plannedUpdates.length} fully validated translation(s)`);
+  }
+  for (const update of apply ? plannedUpdates : []) {
+    const sqlPath = join(temporaryDirectory, `${update.id}.sql`);
     await writeFile(
       sqlPath,
-      `UPDATE reports SET payload_json = ${quote(JSON.stringify(bundle))}, content_schema_version = 2 WHERE id = ${quote(row.id)} AND content_schema_version < 2;\n`
+      `UPDATE reports SET payload_json = ${quote(JSON.stringify(update.bundle))}, content_schema_version = 2 WHERE id = ${quote(update.id)} AND content_schema_version < 2;\n`
     );
     wrangler("d1", "execute", "DB", "--remote", "--file", sqlPath);
   }
@@ -239,5 +255,5 @@ try {
 console.log(
   apply
     ? `✓ Backfilled ${rows.length} legacy report(s)`
-    : `Dry run complete for ${rows.length} report(s). Re-run with --apply after pnpm backup:prod.`
+    : `✓ Validated ${rows.length} translation(s) without remote writes.`
 );
