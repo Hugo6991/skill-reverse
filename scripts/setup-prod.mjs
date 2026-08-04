@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Writable } from "node:stream";
+import { validateSmokeReport } from "./setup-prod-validation.mjs";
 
 if (!input.isTTY) {
   console.error("setup:prod needs an interactive terminal so secrets never appear in command history.");
@@ -178,8 +179,8 @@ const perplexityKey = await askSecret(
 const openRouterKey = await askSecret(
   hasOpenRouterKey
     ? "OpenRouter API key (leave blank to keep existing)"
-    : "OpenRouter API key for OpenAI synthesis",
-  { optional: true }
+    : "OpenRouter API key for bilingual synthesis and translation",
+  { optional: hasOpenRouterKey }
 );
 const twitterKey = await askSecret(
   hasTwitterKey ? "TwitterAPI.io key (leave blank to keep existing)" : "TwitterAPI.io key",
@@ -262,11 +263,11 @@ if (!health?.checks) {
 
 console.log("\nPreflight");
 for (const [name, result] of Object.entries(health.checks ?? {})) {
-  const optionalFailure = (name === "social" || name === "openrouter") && !result.ok;
+  const optionalFailure = name === "social" && !result.ok;
   console.log(`${result.ok ? "✓" : optionalFailure ? "!" : "✕"} ${name}: ${result.detail ?? ""}`);
 }
 const requiredFailures = Object.entries(health.checks ?? {}).filter(
-  ([name, result]) => name !== "social" && name !== "openrouter" && !result.ok
+  ([name, result]) => name !== "social" && !result.ok
 );
 if (requiredFailures.length) {
   console.error("\nProduction remains locked. Fix the red checks, then run setup:prod again.");
@@ -324,46 +325,15 @@ if (Number(smokeJob.costUsd) > 0.5) {
 const smokeReportResponse = await fetch(
   `${deployment.origin}/api/reports/${encodeURIComponent(smokeJob.reportId)}`
 );
-const smokeReport = await smokeReportResponse.json();
-const sourceIds = new Set((smokeReport.sources ?? []).map((source) => source.id));
-const citationsAreValid =
-  (smokeReport.sources?.length ?? 0) > 0 &&
-  smokeReport.sources.every((source) => {
-    try {
-      return new URL(source.url).protocol === "https:";
-    } catch {
-      return false;
-    }
-  });
-const verifiedClaimsAreSupported = (smokeReport.claims ?? [])
-  .filter((claim) => claim.status === "verified")
-  .every(
-    (claim) =>
-      claim.evidenceIds.length > 0 &&
-      claim.evidenceIds.every((sourceId) => sourceIds.has(sourceId))
-  );
-const gameProfileIsValid =
-  smokeReport.gameProfile?.rubricVersion === "game-profile-v2" &&
-  smokeReport.gameProfile?.identity?.identityVersion === "method-persona-v1" &&
-  typeof smokeReport.gameProfile?.identity?.title === "string" &&
-  /^\p{Script=Han}{4}$/u.test(smokeReport.gameProfile.identity.title) &&
-  Array.isArray(smokeReport.gameProfile?.identity?.beats) &&
-  smokeReport.gameProfile.identity.beats.length === 3 &&
-  Array.isArray(smokeReport.gameProfile?.axes) &&
-  smokeReport.gameProfile.axes.length === 6 &&
-  new Set(smokeReport.gameProfile.axes.map((axis) => axis.id)).size === 6;
-if (
-  !smokeReportResponse.ok ||
-  !citationsAreValid ||
-  !verifiedClaimsAreSupported ||
-  !gameProfileIsValid
-) {
+const smokeReportPayload = await smokeReportResponse.json();
+const smokeValidation = validateSmokeReport(smokeReportPayload);
+if (!smokeReportResponse.ok || !smokeValidation.ok) {
   console.error("✕ Smoke report failed citation claim or game-profile validation");
   console.error("Production remains locked");
   rl.close();
   process.exit(1);
 }
-console.log(`✓ Live report passed · ${smokeReport.sources.length} sources · $${smokeJob.costUsd}`);
+console.log(`✓ Live report passed · ${smokeValidation.sourceCount} sources · $${smokeJob.costUsd}`);
 
 run(["secret", "put", "SETUP_COMPLETE"], { input: "true\n" });
 console.log("\n✓ Production unlocked");

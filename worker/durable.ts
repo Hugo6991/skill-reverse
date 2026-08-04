@@ -417,23 +417,31 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
           created_at: string;
           actual_cents: number;
         }>();
-      if (!row || row.status === "completed" || row.status === "failed") {
+      if (!row) {
         delete state.active[jobId];
         changed = true;
-        if (row) {
-          await Promise.allSettled([
-            this.env.ACTOR_GATE.getByName(row.actor_hash).release(jobId),
-            this.env.DAILY_BUDGET.getByName(row.created_at.slice(0, 10)).settle(
-              jobId,
-              row.actual_cents
-            )
-          ]);
-          await trackWorkerEvent(this.env, "research_failed", {
+        continue;
+      }
+      if (row.status === "completed" || row.status === "failed") {
+        const gateResults = await Promise.allSettled([
+          this.env.ACTOR_GATE.getByName(row.actor_hash).release(jobId),
+          this.env.DAILY_BUDGET.getByName(row.created_at.slice(0, 10)).settle(
             jobId,
-            eventId: `${jobId}:research_failed:workflow_completion_lost`,
-            errorCode: "workflow_completion_lost"
-          });
+            row.actual_cents
+          )
+        ]);
+        if (gateResults.some((result) => result.status === "rejected")) {
+          console.warn(
+            JSON.stringify({
+              event: "scheduler_settlement_deferred",
+              jobId,
+              message: "Actor or budget settlement is temporarily unavailable"
+            })
+          );
+          continue;
         }
+        delete state.active[jobId];
+        changed = true;
         continue;
       }
 
@@ -446,7 +454,7 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
           status.status === "complete"
         ) {
           const now = new Date().toISOString();
-          await this.env.DB.prepare(
+          const failureUpdate = await this.env.DB.prepare(
             `UPDATE jobs
              SET status = 'failed', error_code = 'workflow_completion_lost',
                  error_message = ?1, finished_at = ?2, updated_at = ?2
@@ -459,13 +467,30 @@ export class ResearchScheduler extends DurableObject<AppEnv> {
               jobId
             )
             .run();
-          await Promise.allSettled([
+          if ((failureUpdate.meta.changes ?? 0) > 0) {
+            await trackWorkerEvent(this.env, "research_failed", {
+              jobId,
+              eventId: `${jobId}:research_failed:workflow_completion_lost`,
+              errorCode: "workflow_completion_lost"
+            });
+          }
+          const gateResults = await Promise.allSettled([
             this.env.ACTOR_GATE.getByName(row.actor_hash).release(jobId),
             this.env.DAILY_BUDGET.getByName(row.created_at.slice(0, 10)).settle(
               jobId,
               row.actual_cents
             )
           ]);
+          if (gateResults.some((result) => result.status === "rejected")) {
+            console.warn(
+              JSON.stringify({
+                event: "scheduler_settlement_deferred",
+                jobId,
+                message: "Actor or budget settlement is temporarily unavailable"
+              })
+            );
+            continue;
+          }
           delete state.active[jobId];
           changed = true;
         }

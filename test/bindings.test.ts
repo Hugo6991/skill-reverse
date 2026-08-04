@@ -16,6 +16,16 @@ beforeAll(async () => {
 });
 
 describe("Cloudflare bindings in workerd", () => {
+  it("reports all four publication-critical shallow checks as ready in demo mode", async () => {
+    const health = await SELF.fetch("https://example.com/api/health");
+    expect(health.status).toBe(200);
+    expect(await health.json()).toMatchObject({
+      ok: true,
+      status: "ready",
+      summary: { required: 4, total: 4 }
+    });
+  });
+
   it("serves indexable SEO shells and keeps private routes out of search", async () => {
     const homepage = await SELF.fetch("https://example.com/?lang=zh-TW", {
       headers: { accept: "text/html" }

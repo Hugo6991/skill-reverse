@@ -1815,10 +1815,10 @@ app.get("/api/health", async (c) => {
     detail: c.env.PERPLEXITY_API_KEY ? "configured" : "missing"
   };
   checks.openrouter = {
-    ok: Boolean(c.env.OPENROUTER_API_KEY),
+    ok: !requireProductionSecrets || Boolean(c.env.OPENROUTER_API_KEY),
     detail: c.env.OPENROUTER_API_KEY
       ? `${c.env.OPENROUTER_SYNTHESIS_MODEL || "openai/gpt-5.6-terra"} configured`
-      : "optional final synthesis unavailable"
+      : "missing; bilingual publication requires translation"
   };
   checks.turnstile = {
     ok:
@@ -1832,7 +1832,8 @@ app.get("/api/health", async (c) => {
     detail: c.env.TWITTERAPI_KEY ? "configured" : "optional provider unavailable"
   };
 
-  const requiredOk = checks.database.ok && checks.perplexity.ok && checks.turnstile.ok;
+  const requiredCheckNames = ["database", "perplexity", "openrouter", "turnstile"];
+  const requiredOk = requiredCheckNames.every((name) => checks[name]?.ok);
   if (authorized && c.req.query("deep") === "1") {
     checks.adminAccess = {
       ok: Boolean(c.env.CF_ACCESS_TEAM_DOMAIN && c.env.CF_ACCESS_AUD),
@@ -1912,8 +1913,8 @@ app.get("/api/health", async (c) => {
       resolveAppMode(c.env) === "locked" ? "setup_required" : requiredOk ? "ready" : "degraded",
     checks: authorized ? checks : undefined,
     summary: {
-      required: Object.values(checks).filter((check) => check.ok).length,
-      total: Object.keys(checks).length
+      required: requiredCheckNames.filter((name) => checks[name]?.ok).length,
+      total: requiredCheckNames.length
     }
   });
 });

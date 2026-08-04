@@ -1072,6 +1072,7 @@ bootstrap Cloudflare resources
 required for public research：
 
 - `PERPLEXITY_API_KEY`
+- `OPENROUTER_API_KEY`，因為 English translation 沒有 fallback
 - `TURNSTILE_SITE_KEY`
 - `TURNSTILE_SECRET_KEY`
 - `ANON_SESSION_SECRET`
@@ -1080,10 +1081,6 @@ required for public research：
 - `CF_ACCESS_TEAM_DOMAIN`
 - `CF_ACCESS_AUD`
 - `CF_ACCESS_ALLOWED_EMAIL`
-
-目前雙語 production job 實際還需要：
-
-- `OPENROUTER_API_KEY`，因為 English translation 沒有 fallback。
 
 optional degraded lane：
 
@@ -1104,32 +1101,27 @@ optional degraded lane：
 
 ## 16. 已確認的架構落差與風險
 
-以下不是推測，而是目前設定、文件與執行路徑之間的可觀察差異：
+以下不是推測，而是目前設定與執行路徑之間的可觀察差異：
 
-1. **OpenRouter 標示 optional，但雙語發布實際必需。**
-   `README.md`、health 與 setup wizard 把 OpenRouter 視為 optional；然而 Workflow
-   無條件執行 English translation，缺 key 會得到 non-retryable
-   `provider_authentication_failed`，job 不會完成。
-2. **setup smoke 仍以單語 report shape 驗證。**
-   `/api/reports/:id` 現在回 bilingual bundle，但 `scripts/setup-prod.mjs`
-   直接讀 root `sources`、`claims`、`gameProfile`；對 schema v2 bundle 會驗證失敗。
-3. **`JOB_USD_LIMIT` 不是硬性執行上限。**
+1. **`JOB_USD_LIMIT` 不是硬性執行上限。**
    它預留 daily budget 並控制 manual retry，但 provider steps 不會在每次呼叫前
    中止超額 job。
-4. **capability token 尚未成為授權機制。**
+2. **capability token 尚未成為授權機制。**
    token/hash 被建立與保存，但現行 read routes 不驗證它。
-5. **SSRF 防護是 hostname 基線，不是完整 DNS/IP 驗證。**
+3. **SSRF 防護是 hostname 基線，不是完整 DNS/IP 驗證。**
    private IPv4 與常見 metadata 已阻擋，但 IPv6 private ranges 與 DNS rebinding
    仍依賴平台。
-6. **失敗 capture 的 artifact TTL 語意與設定名稱不同。**
+4. **失敗 capture 的 artifact TTL 語意與設定名稱不同。**
    未成功發布前沒有 `source_artifacts` index，因此 7 天 cleanup 找不到；
    實際由 30 天 job expiry prefix cleanup 刪除。
-7. **hidden report 會進入 expiry cleanup。**
-   hidden 不是 published；job 初始 expiry 沒在完成時改成永久值。被 hide 的舊報告
-   可能在下一次 Cron 被永久刪除，而不只是暫時下架。
-8. **跨層 observability 缺少統一 correlation ID。**
+5. **跨層 observability 缺少統一 correlation ID。**
    `jobId` 已能連接大多數 async 流程，但一般 HTTP 500 log 沒有 method、
    request ID、stack 或 actor/job context。
+
+已於 2026-08-05 修正並加入 regression tests：OpenRouter production readiness、
+schema v2 雙語 setup smoke、publish 後 settlement 不得回寫 failed、terminal gate
+重試順序，以及新完成 job 的永久 expiry。舊有 hidden job 若完成於修正前，仍應在
+資料維護時另外檢查 expiry。
 
 ## 17. 維運排查順序
 
