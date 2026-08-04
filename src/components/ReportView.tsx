@@ -192,7 +192,7 @@ export function ReportView({
   }
 
   return (
-    <main className="report-page">
+    <main className="report-page" data-clarity-mask="true">
       <button className="back-button" type="button" onClick={onBack}>
         <ArrowLeft size={16} aria-hidden="true" />
         {copy.report.back}

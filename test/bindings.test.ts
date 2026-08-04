@@ -44,6 +44,15 @@ describe("Cloudflare bindings in workerd", () => {
     expect(demo.status).toBe(200);
     expect(await demo.text()).toContain("<article>");
 
+    const privacy = await SELF.fetch("https://example.com/privacy?lang=en", {
+      headers: { accept: "text/html" }
+    });
+    const privacyHtml = await privacy.text();
+    expect(privacy.status).toBe(200);
+    expect(privacy.headers.get("x-robots-tag")).toBe("index, follow");
+    expect(privacyHtml).toContain("Privacy and data use");
+    expect(privacyHtml).toContain("Clarity, session replay, and Mixpanel are not enabled now");
+
     const collection = await SELF.fetch("https://example.com/collection", {
       headers: { accept: "text/html" }
     });
@@ -67,6 +76,7 @@ describe("Cloudflare bindings in workerd", () => {
     expect(sitemap.headers.get("content-type")).toContain("application/xml");
     const xml = await sitemap.text();
     expect(xml).toContain("/reports/demo");
+    expect(xml).toContain("/privacy?lang=en");
     expect(xml).not.toContain("/jobs/");
   });
 

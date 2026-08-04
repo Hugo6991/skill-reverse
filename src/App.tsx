@@ -13,6 +13,8 @@ import { AdminPage } from "./components/AdminPage";
 import { CollectionPage } from "./components/CollectionPage";
 import { HistoryPage } from "./components/HistoryPage";
 import { JobProgress } from "./components/JobProgress";
+import { PrivacyControls } from "./components/PrivacyControls";
+import { PrivacyPage } from "./components/PrivacyPage";
 import { PublicCardPage } from "./components/PublicCardPage";
 import { ReportView } from "./components/ReportView";
 import {
@@ -54,6 +56,7 @@ function parseRoute(): AppRoute {
   const parts = window.location.pathname.split("/").filter(Boolean);
   if (parts.length === 0) return { kind: "home" };
   if (parts[0] === "admin") return { kind: "admin" };
+  if (parts[0] === "privacy" && parts.length === 1) return { kind: "privacy" };
   if (parts[0] === "history" && parts.length === 1) return { kind: "history" };
   if (parts[0] === "collection" && parts.length === 1) return { kind: "collection" };
   if (parts[0] === "jobs" && parts[1]) {
@@ -118,6 +121,7 @@ export default function App() {
   const [reportPayload, setReportPayload] = useState<ReportPayload>();
   const [busy, setBusy] = useState(false);
   const [pageError, setPageError] = useState("");
+  const [privacySettingsOpen, setPrivacySettingsOpen] = useState(false);
   const pollTimer = useRef<number | undefined>(undefined);
   const lastViewedStage = useRef("");
 
@@ -186,6 +190,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    initializeAnalytics();
     const routeKind = route.kind === "not_found" ? "not_found" : routeKindFromPath();
     setAnalyticsContext({ locale, route_kind: routeKind });
     track("page_view", { locale, route_kind: routeKind });
@@ -348,6 +353,7 @@ export default function App() {
       );
     }
     if (route.kind === "admin") return <AdminPage onNavigate={navigate} />;
+    if (route.kind === "privacy") return <PrivacyPage />;
     if (route.kind === "history") return <HistoryPage onNavigate={navigate} />;
     if (route.kind === "collection") return <CollectionPage onNavigate={navigate} />;
     if (route.kind === "public_card") {
@@ -403,8 +409,18 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <TopNav route={route} onNavigate={navigate} />
+      <TopNav
+        route={route}
+        onNavigate={navigate}
+        onOpenPrivacySettings={() => setPrivacySettingsOpen(true)}
+      />
       {renderPage()}
+      <PrivacyControls
+        open={privacySettingsOpen}
+        routeKind={route.kind === "not_found" ? "not_found" : routeKindFromPath()}
+        onOpenChange={setPrivacySettingsOpen}
+        onNavigate={navigate}
+      />
     </div>
   );
 }

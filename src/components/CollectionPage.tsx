@@ -82,7 +82,7 @@ export function CollectionPage({ onNavigate }: { onNavigate(path: string): void 
   }
 
   return (
-    <main className="page-frame collection-page">
+    <main className="page-frame collection-page" data-clarity-mask="true">
       <header className="page-heading collection-heading">
         <span className="eyebrow">{copy.collection.eyebrow}</span>
         <h1>{copy.collection.title}</h1>

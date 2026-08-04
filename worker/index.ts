@@ -54,6 +54,7 @@ import {
   homeSeoPage,
   llmsText,
   privateSeoPage,
+  privacySeoPage,
   renderSeoShell,
   reportSeoPage,
   robotsText,
@@ -2044,6 +2045,8 @@ async function serveAppShell(c: Context<HonoEnv>) {
     page = homeSeoPage(locale, await publishedSeoReports(c.env.DB, locale, 3));
   } else if (pathname === "/history") {
     page = historySeoPage(locale);
+  } else if (pathname === "/privacy") {
+    page = privacySeoPage(locale);
   } else if (pathname === "/reports/demo") {
     page = reportSeoPage(resolveReport(demoReportBundle, locale), locale);
   } else if (pathname.startsWith("/reports/")) {
