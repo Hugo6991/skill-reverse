@@ -23,7 +23,7 @@
 - 瀏覽器匿名藏經閣、365 天輕量卡片與主動開啟的公開分享卡
 - Cloudflare Access 站長管理頁、公開來源快照與 evidence screenshot
 - locked → doctor → 真實研究 smoke → public 的安全部署流程
-- GTM、GA4、Clarity、Mixpanel 與 Search Console 的 manifest-driven Analytics Stack as Code
+- 有明確 opt-in／撤回入口的 GA4 第一階段，以及 provider-scoped GTM、Clarity、Mixpanel、Search Console Analytics Stack as Code
 - 內建 Anthropic `skill-creator` example brief，不會呼叫付費服務
 
 ## 最快開始
@@ -150,7 +150,7 @@ pnpm preview:upload
 pnpm deploy
 ```
 
-第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。production deploy 完成後會自動對正式網址執行 release smoke；可用 `SKILL_REVERSE_URL` 覆寫驗證網址。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。它不會自動下載 R2 objects；正式回填或高風險資料 mutation 前，另用 `pnpm backup:r2-artifacts` 下載 published artifacts、驗證 SHA-256 manifest，並把整個 timestamp 目錄複製到 owner-controlled 備份位置。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。production deploy 完成後會自動對正式網址執行 release smoke；可用 `SKILL_REVERSE_URL` 覆寫驗證網址。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
 ### Release QA gate
 
