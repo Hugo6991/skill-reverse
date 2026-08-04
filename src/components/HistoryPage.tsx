@@ -211,7 +211,7 @@ export function HistoryPage({ onNavigate }: { onNavigate(path: string): void }) 
   }
 
   return (
-    <main className="page-frame history-page">
+    <main className="page-frame history-page" data-clarity-mask="true">
       <header className="page-heading">
         <span className="eyebrow">{copy.history.eyebrow}</span>
         <h1>{copy.history.title}</h1>

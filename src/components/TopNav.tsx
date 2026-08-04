@@ -4,13 +4,15 @@ import {
   Globe2,
   Plus,
   ScanSearch,
-  ShieldCheck
+  ShieldCheck,
+  SlidersHorizontal
 } from "lucide-react";
 import { useLocale } from "../LocaleContext";
 
 export type AppRoute =
   | { kind: "home" }
   | { kind: "admin" }
+  | { kind: "privacy" }
   | { kind: "history" }
   | { kind: "collection" }
   | { kind: "job"; id: string }
@@ -46,10 +48,12 @@ function NavLink({
 
 export function TopNav({
   route,
-  onNavigate
+  onNavigate,
+  onOpenPrivacySettings
 }: {
   route: AppRoute;
   onNavigate(path: string): void;
+  onOpenPrivacySettings(): void;
 }) {
   const { copy, locale, setLocale } = useLocale();
   return (
@@ -124,6 +128,16 @@ export function TopNav({
             {copy.nav.english}
           </button>
         </div>
+        <button
+          className="privacy-nav-button"
+          type="button"
+          aria-label={copy.privacy.navSettings}
+          title={copy.privacy.navSettings}
+          onClick={onOpenPrivacySettings}
+        >
+          <SlidersHorizontal size={16} aria-hidden="true" />
+          <span>{copy.privacy.navSettings}</span>
+        </button>
       </div>
     </header>
   );

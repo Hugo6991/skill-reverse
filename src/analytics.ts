@@ -45,9 +45,13 @@ type AnalyticsPayload = AnalyticsProperties & {
 
 declare global {
   interface Window {
-    dataLayer: Array<Record<string, unknown>>;
+    dataLayer?: Array<Record<string, unknown>>;
   }
 }
+
+export type AnalyticsConsent = "unknown" | "granted" | "denied";
+
+export const ANALYTICS_CONSENT_STORAGE_KEY = "skill-reverse:analytics-consent";
 
 const allowedKeys = new Set<keyof AnalyticsProperties>([
   "locale",
@@ -68,7 +72,12 @@ let sharedContext: AnalyticsProperties = {};
 let initialized = false;
 
 export function initializeAnalytics(): void {
-  if (initialized || !isTrackablePage()) return;
+  if (initialized) return;
+  if (getAnalyticsConsent() !== "granted") {
+    clearAnalyticsArtifacts();
+    return;
+  }
+  if (!isTrackablePage()) return;
   initialized = true;
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
@@ -94,7 +103,13 @@ export function track(
   eventName: AnalyticsEventName,
   properties: AnalyticsProperties = {}
 ): string | undefined {
-  if (!isTrackablePage()) return undefined;
+  if (
+    !initialized ||
+    getAnalyticsConsent() !== "granted" ||
+    !isTrackablePage()
+  ) {
+    return undefined;
+  }
   window.dataLayer = window.dataLayer || [];
   const payload: AnalyticsPayload = {
     event_id: crypto.randomUUID(),
@@ -109,6 +124,33 @@ export function track(
     event_payload_base64: encodePayload(payload)
   });
   return payload.event_id;
+}
+
+export function getAnalyticsConsent(): AnalyticsConsent {
+  try {
+    const stored = window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY);
+    return stored === "granted" || stored === "denied" ? stored : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+export function setAnalyticsConsent(consent: Exclude<AnalyticsConsent, "unknown">): boolean {
+  const changed = getAnalyticsConsent() !== consent;
+  try {
+    window.localStorage.setItem(ANALYTICS_CONSENT_STORAGE_KEY, consent);
+  } catch {
+    return false;
+  }
+  if (changed && consent === "granted") sharedContext = {};
+  return changed;
+}
+
+export function revokeAnalyticsConsent({ reload = true }: { reload?: boolean } = {}): void {
+  setAnalyticsConsent("denied");
+  clearAnalyticsArtifacts();
+  initialized = false;
+  if (reload) window.location.reload();
 }
 
 export function routeKindFromPath(pathname = window.location.pathname): string {
@@ -146,6 +188,70 @@ function isTrackablePage(): boolean {
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
     )
   );
+}
+
+function clearAnalyticsArtifacts(): void {
+  removeAnalyticsScripts();
+  clearAnalyticsStorage(window.localStorage);
+  clearAnalyticsStorage(window.sessionStorage);
+  clearAnalyticsCookies();
+  delete window.dataLayer;
+}
+
+function removeAnalyticsScripts(): void {
+  try {
+    document
+      .querySelectorAll<HTMLScriptElement>(
+        [
+          'script[src*="googletagmanager.com"]',
+          'script[src*="google-analytics.com"]',
+          'script[src*="clarity.ms"]',
+          'script[src*="cdn.mxpnl.com"]'
+        ].join(",")
+      )
+      .forEach((script) => script.remove());
+  } catch {
+    // A restrictive browser environment can block DOM cleanup; consent still stays denied.
+  }
+}
+
+function clearAnalyticsStorage(storage: Storage): void {
+  try {
+    const analyticsStorageKey = /^(?:_ga|_gid|_gat|_gac_|_gcl_|amp_token|_cl|clarity|clid$|anonchk$|mr$|muid$|sm$|mp_|__mp_opt_in_out_)/i;
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+      (key): key is string => Boolean(key)
+    );
+    keys.forEach((key) => {
+      if (key !== ANALYTICS_CONSENT_STORAGE_KEY && analyticsStorageKey.test(key)) {
+        storage.removeItem(key);
+      }
+    });
+  } catch {
+    // Storage can be unavailable in strict privacy modes; cleanup remains best effort.
+  }
+}
+
+function clearAnalyticsCookies(): void {
+  try {
+    const analyticsCookie = /^(?:_ga(?:_|$)|_gid$|_gat(?:_|$)|_gac_|_gcl_|amp_token$|_cl|clarity|clid$|anonchk$|mr$|muid$|sm$|mp_)/i;
+    const names = document.cookie
+      .split(";")
+      .map((part) => part.trim().split("=")[0])
+      .filter((name) => analyticsCookie.test(name));
+    const hostnameParts = window.location.hostname.split(/\./u);
+    const domains = new Set<string | undefined>([undefined, window.location.hostname]);
+    for (let index = 1; index < hostnameParts.length - 1; index += 1) {
+      domains.add(`.${hostnameParts.slice(index).join(String.fromCharCode(46))}`);
+    }
+    names.forEach((name) => {
+      domains.forEach((domain) => {
+        const domainAttribute = domain ? `; Domain=${domain}` : "";
+        document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${domainAttribute}`;
+      });
+    });
+  } catch {
+    // Cookie access can be unavailable; the page reload still stops active analytics code.
+  }
 }
 
 function sanitizeProperties(input: AnalyticsProperties): AnalyticsProperties {

@@ -58,7 +58,7 @@ export function JobProgress({
     setRetryError(message);
   }, []);
   return (
-    <main className="page-frame job-page">
+    <main className="page-frame job-page" data-clarity-mask="true">
       <button className="back-button" type="button" onClick={onBack}>
         <ArrowLeft size={16} aria-hidden="true" />
         {copy.job.back}
