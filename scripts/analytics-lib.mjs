@@ -42,6 +42,281 @@ export function selectedGtmProviders(providers) {
   return GTM_PROVIDERS.filter((provider) => selected.has(provider));
 }
 
+export function gtmLiveVersionUrl(containerPath) {
+  return `https://tagmanager.googleapis.com/tagmanager/v2/${containerPath}/versions:live`;
+}
+
+export function publishedGtmResources(remoteGtm) {
+  return {
+    variables: collectionItems(remoteGtm?.live, "variables"),
+    triggers: collectionItems(remoteGtm?.live, "triggers"),
+    tags: collectionItems(remoteGtm?.live, "tags")
+  };
+}
+
+export function gtmVersionResponseErrors(response, { requireVersionPath = false } = {}) {
+  const errors = [];
+  const syncStatus = response?.syncStatus ?? {};
+  if (syncStatus.syncError) errors.push("syncError");
+  if (syncStatus.mergeConflict === true) errors.push("mergeConflict");
+  if (response?.syncError) errors.push("syncError");
+  if (Array.isArray(response?.mergeConflict) && response.mergeConflict.length > 0) {
+    errors.push("mergeConflict");
+  }
+  if (response?.compilerError) errors.push("compilerError");
+  if (requireVersionPath && !response?.containerVersion?.path) {
+    errors.push("missingContainerVersionPath");
+  }
+  return [...new Set(errors)];
+}
+
+const GTM_RESOURCE_COLLECTIONS = Object.freeze([
+  ["variables", "variable"],
+  ["triggers", "trigger"],
+  ["tags", "tag"]
+]);
+
+const LEGACY_GA_TAG_TYPES = new Set(["ga", "gaawe", "gaawc", "ua"]);
+
+export function inspectGtmProviderReconciliation(
+  existing,
+  desired,
+  providers = ANALYTICS_PROVIDERS
+) {
+  const selected = new Set(selectedGtmProviders(providers));
+  const conflicts = [];
+  const untouched = [];
+
+  for (const [collection, kind] of GTM_RESOURCE_COLLECTIONS) {
+    const desiredNames = new Set(
+      collectionItems(desired, collection).map(resourceName)
+    );
+    const desiredMatches = new Map();
+
+    for (const resource of collectionItems(existing, collection)) {
+      const name = resourceName(resource);
+      if (desiredNames.has(name)) {
+        const count = (desiredMatches.get(name) ?? 0) + 1;
+        desiredMatches.set(name, count);
+        if (count === 1) continue;
+        conflicts.push({
+          kind,
+          name,
+          reason: "duplicate-managed-resource",
+          ...providerField(managedResourceProvider(name))
+        });
+        continue;
+      }
+
+      const managedProvider = managedResourceProvider(name);
+      if (managedProvider && !selected.has(managedProvider)) {
+        conflicts.push({
+          kind,
+          name,
+          reason: "unselected-managed-provider",
+          provider: managedProvider
+        });
+        continue;
+      }
+      if (isManagedResourceName(name)) {
+        conflicts.push({
+          kind,
+          name,
+          reason: "stale-managed-resource",
+          ...providerField(managedProvider)
+        });
+        continue;
+      }
+
+      if (kind === "tag" && resource?.paused === true) {
+        untouched.push({ kind, name });
+        continue;
+      }
+
+      const legacyProvider = kind === "tag" ? legacyAnalyticsTagProvider(resource) : undefined;
+      if (legacyProvider) {
+        conflicts.push({
+          kind,
+          name,
+          reason: "legacy-analytics-tag",
+          provider: legacyProvider
+        });
+        continue;
+      }
+
+      untouched.push({ kind, name });
+    }
+  }
+
+  return { conflicts, untouched };
+}
+
+export function inspectGtmDesiredDrift(existing, desired) {
+  const drift = [];
+  const triggerIds = new Map(
+    collectionItems(existing, "triggers").map((trigger) => [
+      resourceName(trigger),
+      String(trigger?.triggerId ?? "")
+    ])
+  );
+
+  for (const [collection, kind] of GTM_RESOURCE_COLLECTIONS) {
+    const actualByName = new Map(
+      collectionItems(existing, collection).map((resource) => [
+        resourceName(resource),
+        resource
+      ])
+    );
+    for (const desiredResource of collectionItems(desired, collection)) {
+      const name = resourceName(desiredResource);
+      const actual = actualByName.get(name);
+      if (!actual) {
+        drift.push({ kind, name, reason: "missing-managed-resource" });
+        continue;
+      }
+      const expected = materializeDesiredGtmResource(
+        desiredResource,
+        kind,
+        triggerIds
+      );
+      const differingKeys = Object.keys(expected).filter(
+        (key) =>
+          stableResourceJson(normalizeGtmComparisonValue(kind, key, actual?.[key])) !==
+          stableResourceJson(normalizeGtmComparisonValue(kind, key, expected[key]))
+      );
+      if (kind === "tag" && actual?.paused === true) differingKeys.push("paused");
+      if (differingKeys.length > 0) {
+        drift.push({
+          kind,
+          name,
+          reason: "managed-resource-drift",
+          differingKeys: [...new Set(differingKeys)]
+        });
+      }
+    }
+  }
+  return drift;
+}
+
+function materializeDesiredGtmResource(resource, kind, triggerIds) {
+  const expected = Object.fromEntries(
+    Object.entries(resource).filter(
+      ([key]) => !["desiredTrigger", "desiredBlockingTrigger"].includes(key)
+    )
+  );
+  if (kind !== "tag") return expected;
+  expected.firingTriggerId = resource.desiredTrigger
+    ? [triggerIds.get(resource.desiredTrigger)].filter(Boolean)
+    : [];
+  expected.blockingTriggerId = resource.desiredBlockingTrigger
+    ? [triggerIds.get(resource.desiredBlockingTrigger)].filter(Boolean)
+    : [];
+  return expected;
+}
+
+function stableResourceJson(value) {
+  return JSON.stringify(stableResourceValue(value));
+}
+
+function stableResourceValue(value) {
+  if (Array.isArray(value)) return value.map(stableResourceValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, stableResourceValue(value[key])])
+  );
+}
+
+function normalizeGtmComparisonValue(kind, key, value) {
+  if (
+    kind === "tag" &&
+    (key === "firingTriggerId" || key === "blockingTriggerId")
+  ) {
+    return Array.isArray(value) ? [...value].map(String).sort() : [];
+  }
+  return value;
+}
+
+function collectionItems(state, collection) {
+  const items = state?.[collection];
+  return Array.isArray(items) ? items : [];
+}
+
+function resourceName(resource) {
+  const name = String(resource?.name ?? "").trim();
+  return name || "(unnamed)";
+}
+
+function isManagedResourceName(name) {
+  return /^\[managed\](?:\s|$)/iu.test(name);
+}
+
+function managedResourceProvider(name) {
+  if (!isManagedResourceName(name)) return undefined;
+  const managedName = name.replace(/^\[managed\]\s*/iu, "");
+  if (/^clarity(?:\s|$)/iu.test(managedName)) return "clarity";
+  if (/^mixpanel(?:\s|$)/iu.test(managedName)) return "mixpanel";
+  if (/^(?:ga(?:4)?|google tag)(?:\s|$)/iu.test(managedName)) return "ga4";
+  if (managedName === "Product Event" || managedName === "Page View Event") {
+    return "ga4";
+  }
+  return undefined;
+}
+
+function legacyAnalyticsTagProvider(tag) {
+  const type = String(tag?.type ?? "").trim().toLowerCase();
+  const name = resourceName(tag);
+  if (LEGACY_GA_TAG_TYPES.has(type)) return "ga4";
+  if (/\b(?:ga4|google analytics|universal analytics)\b/iu.test(name)) return "ga4";
+  if (/\bclarity\b/iu.test(name)) return "clarity";
+  if (/\bmixpanel\b/iu.test(name)) return "mixpanel";
+
+  const payload = collectStringValues(tag?.parameter ?? []).join("\n");
+  if (
+    type === "googtag" &&
+    (/\bG-[A-Z0-9]+\b/iu.test(payload) ||
+      /\{\{[^}]*\b(?:ga4|ga measurement id|analytics measurement)\b[^}]*\}\}/iu.test(
+        payload
+      ))
+  ) {
+    return "ga4";
+  }
+  if (
+    /clarity\.ms\/tag|(?:^|\W)clarity\s*\(\s*["'](?:consentv2|event|identify|set|upgrade)["']/iu.test(
+      payload
+    )
+  ) {
+    return "clarity";
+  }
+  if (
+    /cdn\.mxpnl\.com|api(?:-[a-z]+)?\.mixpanel\.com|(?:^|\W)mixpanel\.(?:identify|init|register|track)/iu.test(
+      payload
+    )
+  ) {
+    return "mixpanel";
+  }
+  if (
+    /google-analytics\.com|googletagmanager\.com\/gtag\/js|(?:^|\W)gtag\s*\(\s*["']config["']/iu.test(
+      payload
+    )
+  ) {
+    return "ga4";
+  }
+  return undefined;
+}
+
+function collectStringValues(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStringValues);
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value).flatMap(collectStringValues);
+}
+
+function providerField(provider) {
+  return provider ? { provider } : {};
+}
+
 export function partitionProvidersByPrerequisites(providers, prerequisites) {
   const runnable = [];
   const skipped = [];

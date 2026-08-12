@@ -113,6 +113,58 @@ afterEach(() => {
 });
 
 describe("browser analytics consent", () => {
+  it("requires a document navigation in both directions across the analytics boundary", async () => {
+    installBrowserRuntime();
+    const analytics = await import("../src/analytics");
+    const sameDocumentHistory = ["/admin", "/reports/demo"];
+
+    expect(
+      analytics.crossesAnalyticsExclusionBoundary(
+        sameDocumentHistory[0],
+        sameDocumentHistory[1]
+      )
+    ).toBe(true);
+    expect(
+      analytics.crossesAnalyticsExclusionBoundary(
+        sameDocumentHistory[1],
+        sameDocumentHistory[0]
+      )
+    ).toBe(true);
+    expect(analytics.crossesAnalyticsExclusionBoundary("/", "/reports/demo")).toBe(
+      false
+    );
+    expect(analytics.crossesAnalyticsExclusionBoundary("/admin", "/admin/tools")).toBe(
+      false
+    );
+    expect(analytics.crossesAnalyticsExclusionBoundary("/", "/administrator")).toBe(
+      false
+    );
+  });
+
+  it("keeps analytics cleanup fail-safe when browser storage getters throw", async () => {
+    const runtime = installBrowserRuntime();
+    Object.defineProperties(runtime.window, {
+      localStorage: {
+        configurable: true,
+        get() {
+          throw new DOMException("Storage access is blocked", "SecurityError");
+        }
+      },
+      sessionStorage: {
+        configurable: true,
+        get() {
+          throw new DOMException("Storage access is blocked", "SecurityError");
+        }
+      }
+    });
+    const analytics = await import("../src/analytics");
+
+    expect(analytics.getAnalyticsConsent()).toBe("unknown");
+    expect(() => analytics.initializeAnalytics()).not.toThrow();
+    expect(runtime.appendedScripts).toHaveLength(0);
+    expect(runtime.window.dataLayer).toBeUndefined();
+  });
+
   it.each([undefined, "denied"] as const)(
     "keeps %s consent free of dataLayer and scripts while clearing legacy identity",
     async (consent) => {
