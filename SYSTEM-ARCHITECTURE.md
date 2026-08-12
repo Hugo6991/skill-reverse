@@ -130,7 +130,7 @@ flowchart TB
 | Admin auth | Cloudflare Access | JWT 驗證、owner allowlist | `worker/access.ts` |
 | Tests | Vitest + Workers pool | unit、binding、bootstrap、bilingual tests | `test/`, `vitest.config.ts` |
 | Package manager | pnpm | 10.31 workspace | `package.json`, `pnpm-workspace.yaml` |
-| Runtime baseline | Node.js | `>=22`，repository 預期 Node 24 | `package.json`, `.node-version` |
+| Runtime baseline | Node.js | `>=24`，repository 固定 Node 24 | `package.json`, `.node-version` |
 
 ### 3.1 程式碼責任
 
