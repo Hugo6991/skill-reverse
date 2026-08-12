@@ -5,6 +5,13 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), cloudflare()],
   server: {
-    port: 5173
+    host: "localhost",
+    port: 5173,
+    strictPort: true,
+    hmr: {
+      host: "localhost",
+      protocol: "ws",
+      clientPort: 5173
+    }
   }
 });

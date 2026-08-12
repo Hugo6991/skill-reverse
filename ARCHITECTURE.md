@@ -16,6 +16,10 @@ flowchart LR
     Worker --> Workflow["Workflow\n長時間研究流程"]
     Worker --> Gates["Durable Objects\n併發與預算控制"]
     Browser --> Turnstile["Turnstile\n防機器人驗證"]
+    Browser --> RUM["Cloudflare RUM\n無瀏覽器儲存的效能遙測"]
+    Browser --> Consent{"允許可選分析？"}
+    Consent -- yes --> GTM["GTM → GA4\n第一階段"]
+    Consent -- no --> NoAnalytics["不建立 dataLayer\n不載入 GTM"]
     Workflow --> BrowserRun["Browser Run\n讀取公開網頁"]
     Workflow --> Providers["Perplexity / OpenRouter / TwitterAPI"]
     Queue["Queue + Scheduler\n公平排隊"] --> Workflow
@@ -36,6 +40,8 @@ Cloudflare 提供的是執行平台和託管服務；`worker/`、`migrations/`�
 | Workflow | 可重試、可恢復的多階段 AI 研究管線 | `worker/workflow.ts` |
 | Queue / Durable Objects | 全站排隊、每人限制、每日預算與一致性 | `worker/durable.ts` |
 | Turnstile | 避免匿名訪客大量消耗付費 API | `worker/security.ts` |
+| Analytics consent | 同意前不建立 dataLayer；撤回時清除本站可控的 vendor storage | `src/analytics.ts`、`src/components/PrivacyControls.tsx` |
+| Analytics as Code | provider-scoped plan／apply／publish／verify；第一階段只發布 GA4＋Search Console | `analytics/`、`scripts/analytics.mjs` |
 | Cloudflare Access | 只允許 owner 進入 `/admin` 與管理 API | `worker/access.ts` |
 | Wrangler binding | Worker 與 D1、R2、Workflow 等資源的連線 | `wrangler.jsonc` |
 
@@ -122,13 +128,17 @@ pnpm deploy
 pnpm release
 ```
 
-`backup:prod` 會在 migration 前把遠端 D1 的持久資料表匯出，並以舊、新 schema 都具備的 completed report 條件記錄 R2 參考 key，寫入 gitignored 的 `.backups/<timestamp>/`。Cloudflare D1 export 無法匯出 FTS5 virtual table，因此 `occupations_fts*` 會明確排除；它們是由 `occupations` 重建的搜尋索引，不是唯一資料。R2 目前只備份 key inventory，不會複製物件本體；正式回填前應另存一份 Cloudflare 外的 R2 objects。`deploy` 只允許 `main` 執行，套用 migration 後會先以和應用程式相同的 URL 規則精確回填 `target_key`，才部署 Worker。功能分支使用 `pnpm preview:upload`，只上傳 preview version，不變更 D1。D1 另有 [Time Travel](https://developers.cloudflare.com/d1/platform/release-notes/)，但不應取代獨立備份。
+`backup:prod` 會在 migration 前把遠端 D1 的持久資料表匯出，並以舊、新 schema 都具備的 completed report 條件記錄 R2 參考 key，寫入 gitignored 的 `.backups/<timestamp>/`。Cloudflare D1 export 無法匯出 FTS5 virtual table，因此 `occupations_fts*` 會明確排除；它們是由 `occupations` 重建的搜尋索引，不是唯一資料。
+
+`backup:prod` 本身只完成 D1 export 與 R2 inventory。正式資料回填或其他高風險 mutation 前，必須再執行 `pnpm backup:r2-artifacts -- .backups/<timestamp>/published-r2-inventory.txt`；它會逐一下載 published snapshot／screenshot、拒絕不安全 key 或不完整批次，並產生 SHA-256 manifest。完成後再以 `pnpm backup:r2-artifacts -- --verify .backups/<timestamp>/published-r2-artifacts` 驗證，最後把整個 timestamp 目錄複製到 owner-controlled、非 repository 的備份位置。`release` 不會自動做這個完整 R2 copy，不能把 inventory 誤當災難復原備份。
+
+`deploy` 只允許 `main` 執行，套用 migration 後會先以和應用程式相同的 URL 規則精確回填 `target_key`，才部署 Worker。功能分支使用 `pnpm preview:upload`，只上傳 preview version，不變更 D1。D1 另有 [Time Travel](https://developers.cloudflare.com/d1/platform/release-notes/)，但不應取代獨立備份。
 
 舊報告補上遊戲化畫像時，先執行 `pnpm db:backfill-game-profiles:remote` 做唯讀規劃。確認零失敗且完成新備份後，使用 `pnpm db:backfill-game-profiles:apply`；成功後會寫入 `app_meta.game_profile_backfill_v2`。身份去重則先執行 `pnpm db:repair-method-personas:remote`，確認 duplicate guard 歸零後才執行對應的 `:apply` 指令。
 
 舊單語報告先以 `pnpm db:backfill-reports:remote` 盤點，不會呼叫 provider；設定本機 OpenRouter key 後可用 `pnpm db:backfill-reports:validate` 完整翻譯與驗證但不寫 D1。只有 `pnpm db:backfill-reports:apply` 會先建立新備份，再把全部驗證完成的翻譯套用到 production。
 
-恢復前先建立當下備份；D1 restore 或 import 會改變正式資料。R2 還原時依 `published-r2-inventory.txt` 對照 D1 reference，避免把不屬於 published report 的暫存物件公開。
+恢復前先建立當下備份；D1 restore 或 import 會改變正式資料。R2 還原時先驗證 `published-r2-artifacts/checksum-manifest.json`，再依 `published-r2-inventory.txt` 對照 D1 reference，避免把不屬於 published report 的暫存物件公開。
 
 ## 常見問題
 

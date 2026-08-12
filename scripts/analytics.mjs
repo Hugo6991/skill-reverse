@@ -4,6 +4,17 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+  buildDesiredState,
+  completePendingWorkspaceState,
+  createPendingWorkspaceState,
+  fetchWithSafeRetries,
+  invalidateWorkspaceApplyState,
+  parseProviders,
+  partitionProvidersByPrerequisites,
+  publishStateErrors,
+  selectedGtmProviders
+} from "./analytics-lib.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stackPath = path.join(root, "analytics", "stack.json");
@@ -18,6 +29,14 @@ const supportedCommands = new Set(["plan", "apply", "publish", "verify", "export
 if (!supportedCommands.has(command)) {
   fail(`Unknown command "${command}". Use plan, apply, publish, verify, or export.`);
 }
+let providers;
+try {
+  providers = parseProviders(process.argv.slice(3));
+} catch (error) {
+  fail(errorMessage(error));
+}
+const providerSet = new Set(providers);
+const gtmProviders = selectedGtmProviders(providers);
 
 const [stack, trackingPlan, persistedState] = await Promise.all([
   readJson(stackPath),
@@ -26,7 +45,20 @@ const [stack, trackingPlan, persistedState] = await Promise.all([
 ]);
 validateLocalConfig(stack, trackingPlan);
 
-const state = structuredClone(persistedState);
+let state = structuredClone(persistedState);
+state.google ??= {};
+state.workspaceChecksum ??= "";
+state.workspaceProviders = Array.isArray(state.workspaceProviders)
+  ? state.workspaceProviders
+  : [];
+state.workspaceSavedAt ??= "";
+state.applyAttemptChecksum ??= "";
+state.applyAttemptProviders = Array.isArray(state.applyAttemptProviders)
+  ? state.applyAttemptProviders
+  : [];
+state.applyAttemptStartedAt ??= "";
+state.appliedChecksum ??= "";
+state.appliedProviders = Array.isArray(state.appliedProviders) ? state.appliedProviders : [];
 const resolved = {
   gtmContainerId: stack.google.gtmContainerId || state.google.gtmContainerId,
   gtmPublicId: stack.google.gtmPublicId || state.google.gtmPublicId,
@@ -39,7 +71,7 @@ const checksum = createHash("sha256")
   .digest("hex")
   .slice(0, 12);
 
-let desired = buildDesiredState(stack, trackingPlan, resolved);
+let desired = buildDesiredState(stack, trackingPlan, resolved, providers);
 const prerequisites = getMissingPrerequisites(stack, resolved);
 
 if (command === "plan") await plan();
@@ -51,31 +83,45 @@ if (command === "export") await exportBundle();
 async function plan() {
   heading("Analytics plan");
   printLocalSummary();
-  if (prerequisites.google.length > 0) {
-    note("Google remote plan skipped", prerequisites.google);
-  } else {
-    const google = await googleClient();
-    const remote = await readGoogleState(google);
-    printDiff("GTM variables", desired.gtm.variables, remote.gtm.variables);
-    printDiff("GTM triggers", desired.gtm.triggers, remote.gtm.triggers);
-    printDiff("GTM tags", desired.gtm.tags, remote.gtm.tags);
-    printDiff(
-      "GA4 custom dimensions",
-      desired.ga.customDimensions,
-      remote.ga.customDimensions,
-      (item) => item.parameterName
-    );
-    printDiff(
-      "GA4 key events",
-      desired.ga.keyEvents,
-      remote.ga.keyEvents,
-      (item) => item.eventName
-    );
+  const { runnable: runnableProviders, skipped } =
+    partitionProvidersByPrerequisites(providers, prerequisites);
+  for (const { provider, missing } of skipped) {
+    note(`${providerLabel(provider)} remote plan skipped`, missing);
   }
 
-  if (prerequisites.mixpanel.length > 0) {
-    note("Mixpanel remote plan skipped", prerequisites.mixpanel);
-  } else {
+  let google;
+  const runnableGtmProviders = selectedGtmProviders(runnableProviders);
+  if (runnableGtmProviders.length > 0) {
+    google = await googleClient();
+    const remoteDesired = buildDesiredState(
+      stack,
+      trackingPlan,
+      resolved,
+      runnableGtmProviders
+    );
+    const remote = await readGoogleState(google, {
+      providers: runnableGtmProviders
+    });
+    printDiff("GTM variables", remoteDesired.gtm.variables, remote.gtm.variables);
+    printDiff("GTM triggers", remoteDesired.gtm.triggers, remote.gtm.triggers);
+    printDiff("GTM tags", remoteDesired.gtm.tags, remote.gtm.tags);
+    if (runnableGtmProviders.includes("ga4")) {
+      printDiff(
+        "GA4 custom dimensions",
+        remoteDesired.ga.customDimensions,
+        remote.ga.customDimensions,
+        (item) => item.parameterName
+      );
+      printDiff(
+        "GA4 key events",
+        remoteDesired.ga.keyEvents,
+        remote.ga.keyEvents,
+        (item) => item.eventName
+      );
+    }
+  }
+
+  if (runnableProviders.includes("mixpanel")) {
     const schemas = await readMixpanelSchemas();
     printDiff(
       "Mixpanel Lexicon schemas",
@@ -85,62 +131,131 @@ async function plan() {
     );
   }
 
-  if (!stack.clarity.projectId) {
-    note("Clarity remote check skipped", ["analytics/stack.json: clarity.projectId"]);
-  } else {
-    console.log(`  KEEP   Clarity project ${stack.clarity.projectId} (project settings remain manual)`);
+  if (runnableProviders.includes("clarity")) {
+    console.log(
+      `  KEEP   Clarity project ${stack.clarity.projectId} (project settings remain manual)`
+    );
+  }
+
+  if (runnableProviders.includes("search-console")) {
+    google ??= await googleClient();
+    await planSearchConsole(google);
   }
 }
 
 async function apply() {
-  requirePrerequisites("Google", prerequisites.google);
-  requirePrerequisites("Mixpanel", prerequisites.mixpanel);
-  if (!stack.clarity.projectId) {
-    fail("Clarity prerequisite is missing: clarity.projectId");
+  for (const provider of providers) {
+    requirePrerequisites(providerLabel(provider), prerequisites[provider]);
   }
   heading("Applying analytics desired state");
-  const google = await googleClient();
+  let google;
+  if (gtmProviders.length > 0 || providerSet.has("search-console")) {
+    google = await googleClient();
+  }
+
   const [beforeGoogle, beforeMixpanel] = await Promise.all([
-    readGoogleState(google, { allowMissing: true }),
-    readMixpanelSchemas()
+    gtmProviders.length > 0
+      ? readGoogleState(google, { allowMissing: true, providers: gtmProviders })
+      : Promise.resolve(null),
+    providerSet.has("mixpanel") ? readMixpanelSchemas() : Promise.resolve(null)
   ]);
-  await saveSnapshot(
-    "before-apply",
-    sanitize({ google: beforeGoogle, mixpanelSchemas: beforeMixpanel })
-  );
+  const beforeApply = {};
+  if (beforeGoogle) beforeApply.google = beforeGoogle;
+  if (beforeMixpanel) beforeApply.mixpanelSchemas = beforeMixpanel;
+  if (Object.keys(beforeApply).length > 0) {
+    await saveSnapshot("before-apply", sanitize(beforeApply));
+  }
 
-  const ga = await applyGa(google);
-  resolved.gaPropertyId = ga.propertyId;
-  resolved.gaWebStreamId = ga.streamId;
-  resolved.gaMeasurementId = ga.measurementId;
-  desired = buildDesiredState(stack, trackingPlan, resolved);
-  const gtm = await applyGtm(google);
-  await applyMixpanelSchemas();
-  await submitSitemap(google);
+  if (gtmProviders.length > 0) {
+    state = invalidateWorkspaceApplyState(state, {
+      checksum,
+      providers,
+      startedAt: new Date().toISOString()
+    });
+    await writeState();
+  }
 
-  state.google = {
-    ...state.google,
-    gtmContainerId: gtm.containerId,
-    gtmPublicId: gtm.publicId,
-    gtmWorkspaceId: gtm.workspaceId,
-    gaPropertyId: ga.propertyId,
-    gaWebStreamId: ga.streamId,
-    gaMeasurementId: ga.measurementId
-  };
-  state.lastAppliedAt = new Date().toISOString();
-  await writeState();
-  console.log("\nApply complete. GTM is not published; inspect the workspace, then run pnpm analytics:publish.");
+  if (providerSet.has("ga4")) {
+    const ga = await applyGa(google);
+    resolved.gaPropertyId = ga.propertyId;
+    resolved.gaWebStreamId = ga.streamId;
+    resolved.gaMeasurementId = ga.measurementId;
+    state.google = {
+      ...state.google,
+      gaPropertyId: ga.propertyId,
+      gaWebStreamId: ga.streamId,
+      gaMeasurementId: ga.measurementId
+    };
+    await writeState();
+    desired = buildDesiredState(stack, trackingPlan, resolved, providers);
+  }
+
+  if (gtmProviders.length > 0) {
+    const gtm = await applyGtm(google);
+    resolved.gtmContainerId = gtm.containerId;
+    resolved.gtmPublicId = gtm.publicId;
+    state = createPendingWorkspaceState(state, {
+      checksum,
+      providers,
+      google: {
+        gtmContainerId: gtm.containerId,
+        gtmPublicId: gtm.publicId,
+        gtmWorkspaceId: gtm.workspaceId
+      },
+      recordedAt: new Date().toISOString()
+    });
+    await writeState();
+  }
+
+  const providerFailures = [];
+  if (providerSet.has("search-console")) {
+    try {
+      await submitSitemap(google);
+    } catch (error) {
+      providerFailures.push(`Search Console apply failed: ${errorMessage(error)}`);
+    }
+  }
+  if (providerSet.has("mixpanel")) {
+    try {
+      await applyMixpanelSchemas();
+    } catch (error) {
+      providerFailures.push(`Mixpanel apply failed: ${errorMessage(error)}`);
+    }
+  }
+  if (providerFailures.length > 0) fail(providerFailures.join("\n"));
+
+  if (gtmProviders.length > 0) {
+    state = completePendingWorkspaceState(state, {
+      checksum,
+      providers,
+      appliedAt: new Date().toISOString()
+    });
+    await writeState();
+  } else {
+    state.lastAppliedAt = new Date().toISOString();
+    await writeState();
+  }
+
+  if (gtmProviders.length > 0) {
+    console.log(
+      "\nApply complete. GTM is not published; inspect the workspace, then run pnpm analytics:publish with the same --providers selection."
+    );
+  } else {
+    console.log("\nApply complete.");
+  }
 }
 
 async function publish() {
-  requirePrerequisites("Google", prerequisites.google);
-  if (!state.google.gtmWorkspaceId) {
-    fail("No managed GTM workspace is recorded. Run pnpm analytics:apply first.");
-  }
+  const mismatches = publishStateErrors(state, checksum, providers);
+  if (mismatches.length > 0) fail(mismatches.join("\n"));
+  requirePrerequisites("Google Tag Manager", prerequisites.gtmPublish);
   heading("Publishing GTM version");
   const google = await googleClient();
   const workspacePath = gtmWorkspacePath(state.google.gtmWorkspaceId);
-  const sync = await google.post(`https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}:sync`, {});
+  const sync = await google.post(
+    `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}:sync`,
+    {}
+  );
   if ((sync.mergeConflict ?? []).length > 0) {
     fail("GTM workspace has merge conflicts. Resolve them in GTM before publishing.");
   }
@@ -158,11 +273,16 @@ async function publish() {
     `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}:create_version`,
     {
       name: `[managed] ${date} ${gitCommit} ${checksum}`,
-      notes: `Skill Reverse Analytics Stack as Code\ncommit=${gitCommit}\nmanifest=${checksum}`
+      notes:
+        `Skill Reverse Analytics Stack as Code\ncommit=${gitCommit}\nmanifest=${checksum}\nproviders=${providers.join(",")}`
     }
   );
-  if ((version.compilerError ?? false) || !(version.containerVersion?.path)) {
-    fail(`GTM rejected the container version: ${JSON.stringify(version.compilerError ?? version)}`);
+  if ((version.compilerError ?? false) || !version.containerVersion?.path) {
+    fail(
+      `GTM rejected the container version: ${JSON.stringify(
+        version.compilerError ?? version
+      )}`
+    );
   }
   await google.post(
     `https://tagmanager.googleapis.com/tagmanager/v2/${version.containerVersion.path}:publish`,
@@ -170,6 +290,9 @@ async function publish() {
   );
   state.lastPublishedVersionPath = version.containerVersion.path;
   state.google.gtmWorkspaceId = "";
+  state.workspaceChecksum = "";
+  state.workspaceProviders = [];
+  state.workspaceSavedAt = "";
   await writeState();
   console.log(`Published ${version.containerVersion.path}`);
 }
@@ -179,41 +302,76 @@ async function verify() {
   printLocalSummary();
   const failures = [];
   const warnings = [];
+  const { runnable: runnableProviders, skipped } =
+    partitionProvidersByPrerequisites(providers, prerequisites);
+  for (const { provider, missing } of skipped) {
+    failures.push(
+      `${providerLabel(provider)} verification skipped: ${missing.join(", ")}`
+    );
+  }
 
-  if (prerequisites.google.length === 0) {
+  let google;
+  const runnableGtmProviders = selectedGtmProviders(runnableProviders);
+  if (runnableGtmProviders.length > 0) {
     try {
-      const google = await googleClient();
-      const remote = await readGoogleState(google);
-      verifyNames("GTM variables", desired.gtm.variables, remote.gtm.variables, failures);
-      verifyNames("GTM triggers", desired.gtm.triggers, remote.gtm.triggers, failures);
-      verifyNames("GTM tags", desired.gtm.tags, remote.gtm.tags, failures);
+      google = await googleClient();
+      const remoteDesired = buildDesiredState(
+        stack,
+        trackingPlan,
+        resolved,
+        runnableGtmProviders
+      );
+      const remote = await readGoogleState(google, {
+        providers: runnableGtmProviders
+      });
       verifyNames(
-        "GA4 custom dimensions",
-        desired.ga.customDimensions,
-        remote.ga.customDimensions,
-        failures,
-        (item) => item.parameterName
+        "GTM variables",
+        remoteDesired.gtm.variables,
+        remote.gtm.variables,
+        failures
       );
       verifyNames(
-        "GA4 key events",
-        desired.ga.keyEvents,
-        remote.ga.keyEvents,
-        failures,
-        (item) => item.eventName
+        "GTM triggers",
+        remoteDesired.gtm.triggers,
+        remote.gtm.triggers,
+        failures
       );
+      verifyNames("GTM tags", remoteDesired.gtm.tags, remote.gtm.tags, failures);
+      if (runnableGtmProviders.includes("ga4")) {
+        verifyNames(
+          "GA4 custom dimensions",
+          remoteDesired.ga.customDimensions,
+          remote.ga.customDimensions,
+          failures,
+          (item) => item.parameterName
+        );
+        verifyNames(
+          "GA4 key events",
+          remoteDesired.ga.keyEvents,
+          remote.ga.keyEvents,
+          failures,
+          (item) => item.eventName
+        );
+        await sendSyntheticGaEvent(warnings);
+      }
       if (!state.lastPublishedVersionPath) {
         warnings.push("No GTM version has been published by this automation yet.");
       }
-      await verifySearchConsole(google, warnings);
-      await sendSyntheticGaEvent(warnings);
     } catch (error) {
-      failures.push(`Google verification failed: ${errorMessage(error)}`);
+      failures.push(`Google/GTM verification failed: ${errorMessage(error)}`);
     }
-  } else {
-    warnings.push(`Google live verification skipped: ${prerequisites.google.join(", ")}`);
   }
 
-  if (prerequisites.mixpanel.length === 0) {
+  if (runnableProviders.includes("search-console")) {
+    try {
+      google ??= await googleClient();
+      await verifySearchConsole(google, failures);
+    } catch (error) {
+      failures.push(`Search Console verification failed: ${errorMessage(error)}`);
+    }
+  }
+
+  if (runnableProviders.includes("mixpanel")) {
     try {
       const schemas = await readMixpanelSchemas();
       verifyNames(
@@ -227,15 +385,20 @@ async function verify() {
     } catch (error) {
       failures.push(`Mixpanel verification failed: ${errorMessage(error)}`);
     }
-  } else {
-    warnings.push(`Mixpanel live verification skipped: ${prerequisites.mixpanel.join(", ")}`);
   }
-  if (process.env.CLARITY_EXPORT_TOKEN) {
-    try {
-      const clarity = await readClarityExport();
-      bundle.remoteState.clarityInsights = sanitize(clarity);
-    } catch (error) {
-      bundle.remoteState.clarityError = errorMessage(error);
+
+  if (runnableProviders.includes("clarity")) {
+    if (process.env.CLARITY_EXPORT_TOKEN) {
+      try {
+        await readClarityExport();
+        console.log("  OK     Clarity Data Export API");
+      } catch (error) {
+        failures.push(`Clarity verification failed: ${errorMessage(error)}`);
+      }
+    } else {
+      warnings.push(
+        "Optional CLARITY_EXPORT_TOKEN is unavailable; Clarity delivery still requires the browser runtime gate."
+      );
     }
   }
 
@@ -251,17 +414,29 @@ async function exportBundle() {
   const bundle = {
     exportedAt: new Date().toISOString(),
     manifestChecksum: checksum,
+    providers,
     stack,
     trackingPlan,
     state: sanitize(state),
     desiredState: desired,
     remoteState: {}
   };
+  const { runnable: runnableProviders } = partitionProvidersByPrerequisites(
+    providers,
+    prerequisites
+  );
+  const runnableGtmProviders = selectedGtmProviders(runnableProviders);
+  let google;
 
-  if (prerequisites.google.length === 0) {
+  if (runnableGtmProviders.length > 0) {
     try {
-      const google = await googleClient();
-      bundle.remoteState.google = sanitize(await readGoogleState(google, { allowMissing: true }));
+      google = await googleClient();
+      bundle.remoteState.google = sanitize(
+        await readGoogleState(google, {
+          allowMissing: true,
+          providers: runnableGtmProviders
+        })
+      );
       if (state.lastPublishedVersionPath) {
         bundle.remoteState.gtmPublishedVersion = sanitize(
           await google.get(
@@ -273,11 +448,31 @@ async function exportBundle() {
       bundle.remoteState.googleError = errorMessage(error);
     }
   }
-  if (prerequisites.mixpanel.length === 0) {
+  if (runnableProviders.includes("search-console")) {
+    try {
+      google ??= await googleClient();
+      bundle.remoteState.searchConsole = sanitize(
+        await readSearchConsoleSite(google)
+      );
+    } catch (error) {
+      bundle.remoteState.searchConsoleError = errorMessage(error);
+    }
+  }
+  if (runnableProviders.includes("mixpanel")) {
     try {
       bundle.remoteState.mixpanelSchemas = sanitize(await readMixpanelSchemas());
     } catch (error) {
       bundle.remoteState.mixpanelError = errorMessage(error);
+    }
+  }
+  if (
+    runnableProviders.includes("clarity") &&
+    process.env.CLARITY_EXPORT_TOKEN
+  ) {
+    try {
+      bundle.remoteState.clarityInsights = sanitize(await readClarityExport());
+    } catch (error) {
+      bundle.remoteState.clarityError = errorMessage(error);
     }
   }
 
@@ -285,228 +480,6 @@ async function exportBundle() {
   const output = path.join(exportDir, `analytics-bundle-${checksum}.json`);
   await writeFile(output, `${JSON.stringify(bundle, null, 2)}\n`, { mode: 0o600 });
   console.log(`Wrote ${path.relative(root, output)} (secrets removed).`);
-}
-
-function buildDesiredState(config, plan, ids) {
-  const managed = (name) => `[managed] ${name}`;
-  const common = Object.keys(plan.properties);
-  const dlv = [
-    ["event_name", "event_name"],
-    ...common.map((property) => [property, property]),
-    ["event_payload_base64", "event_payload_base64"]
-  ];
-  const variables = [
-    constantVariable(managed("GA Measurement ID"), ids.gaMeasurementId),
-    constantVariable(managed("Clarity Project ID"), config.clarity.projectId),
-    constantVariable(managed("Mixpanel Project Token"), config.mixpanel.projectToken),
-    constantVariable(managed("Mixpanel API Host"), mixpanelApiHost(config.mixpanel.region)),
-    constantVariable(managed("Production hostname"), config.site.hostnames[0]),
-    constantVariable(managed("Debug mode"), "false"),
-    constantVariable(managed("Route exclusion flag"), config.site.excludedPaths.join("|")),
-    ...dlv.map(([name, pathName]) => dataLayerVariable(managed(`DLV - ${name}`), pathName))
-  ];
-
-  const productTrigger = customEventTrigger(
-    managed("Product Event"),
-    "product_event",
-    config.site.hostnames[0],
-    config.site.excludedPaths
-  );
-  const pageViewTrigger = customEventTrigger(
-    managed("Page View Event"),
-    "product_event",
-    config.site.hostnames[0],
-    config.site.excludedPaths,
-    { eventName: "page_view" }
-  );
-  const clarityTrigger = customEventTrigger(
-    managed("Clarity Event"),
-    "product_event",
-    config.site.hostnames[0],
-    config.site.excludedPaths
-  );
-  const mixpanelTrigger = customEventTrigger(
-    managed("Mixpanel Event"),
-    "product_event",
-    config.site.hostnames[0],
-    config.site.excludedPaths
-  );
-  mixpanelTrigger.filter.push(
-    condition(
-      "DOES_NOT_MATCH_REGEX",
-      `{{${managed("DLV - event_name")}}}`,
-      "^(research_queued|research_running|research_completed|research_failed|research_retried|report_published)$"
-    )
-  );
-  const initTrigger = {
-    name: managed("Initialization - Production only"),
-    type: "INITIALIZATION",
-    filter: productionFilters(config.site.hostnames[0], config.site.excludedPaths)
-  };
-  const excludeAdmin = {
-    name: managed("Exclude Admin"),
-    type: "PAGEVIEW",
-    filter: [
-      condition("MATCH_REGEX", "{{Page Path}}", "^/(admin|api)(/|$)")
-    ]
-  };
-  const previewDebug = {
-    name: managed("Preview / Debug"),
-    type: "CUSTOM_EVENT",
-    customEventFilter: [condition("EQUALS", "{{_event}}", "gtm.preview")]
-  };
-  const triggers = [
-    initTrigger,
-    productTrigger,
-    pageViewTrigger,
-    clarityTrigger,
-    mixpanelTrigger,
-    excludeAdmin,
-    previewDebug
-  ];
-
-  const gaParameters = common
-    .filter((name) => name !== "occurred_at")
-    .map((name) => mapParameter(name, `{{${managed(`DLV - ${name}`)}}}`));
-  const tags = [
-    {
-      name: managed("Google Tag"),
-      type: "googtag",
-      parameter: [templateParameter("tagId", `{{${managed("GA Measurement ID")}}}`)],
-      desiredTrigger: initTrigger.name
-    },
-    {
-      name: managed("GA4 Product Event"),
-      type: "gaawe",
-      parameter: [
-        templateParameter("eventName", `{{${managed("DLV - event_name")}}}`),
-        templateParameter("measurementIdOverride", `{{${managed("GA Measurement ID")}}}`),
-        { type: "LIST", key: "eventParameters", list: gaParameters }
-      ],
-      desiredTrigger: productTrigger.name,
-      desiredBlockingTrigger: pageViewTrigger.name
-    },
-    {
-      name: managed("GA4 Page View"),
-      type: "gaawe",
-      parameter: [
-        templateParameter("eventName", "page_view"),
-        templateParameter("measurementIdOverride", `{{${managed("GA Measurement ID")}}}`),
-        { type: "LIST", key: "eventParameters", list: gaParameters }
-      ],
-      desiredTrigger: pageViewTrigger.name
-    },
-    {
-      name: managed("Clarity Initialization"),
-      type: "html",
-      parameter: [
-        templateParameter("html", clarityInitializationHtml(managed("Clarity Project ID")))
-      ],
-      desiredTrigger: initTrigger.name
-    },
-    {
-      name: managed("Clarity Event / Custom Tags"),
-      type: "html",
-      parameter: [templateParameter("html", clarityEventHtml(managed))],
-      desiredTrigger: clarityTrigger.name
-    },
-    {
-      name: managed("Mixpanel Initialization"),
-      type: "html",
-      parameter: [
-        templateParameter(
-          "html",
-          mixpanelInitializationHtml(
-            managed("Mixpanel Project Token"),
-            managed("Mixpanel API Host"),
-            config.mixpanel.persistence
-          )
-        )
-      ],
-      desiredTrigger: initTrigger.name
-    },
-    {
-      name: managed("Mixpanel Product Event"),
-      type: "html",
-      parameter: [templateParameter("html", mixpanelEventHtml(managed))],
-      desiredTrigger: mixpanelTrigger.name
-    }
-  ];
-
-  const customDimensions = [
-    "locale",
-    "route_kind",
-    "occupation_code",
-    "research_stage",
-    "report_type",
-    "source_submission_type",
-    "share_method",
-    "error_code",
-    "duration_bucket",
-    "queue_duration_bucket"
-  ].map((parameterName) => ({
-    parameterName,
-    displayName: parameterName,
-    description: plan.properties[parameterName]?.description ?? parameterName,
-    scope: "EVENT"
-  }));
-  const keyEvents = plan.events
-    .filter((event) => event.keyEvent)
-    .map((event) => ({ eventName: event.name, countingMethod: "ONCE_PER_EVENT" }));
-  const schemas = plan.events.map((event) => ({
-    eventName: event.name,
-    description: event.description,
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      properties: Object.fromEntries(
-        Object.entries(plan.properties).map(([name, property]) => [
-          name,
-          {
-            type: property.type,
-            description: property.enum
-              ? `${property.description} Allowed values: ${property.enum.join(", ")}.`
-              : property.description
-          }
-        ])
-      )
-    }
-  }));
-  return {
-    gtm: {
-      folderName: "Skill Reverse / Managed",
-      variables,
-      triggers,
-      tags,
-      builtInVariables: ["PAGE_HOSTNAME", "PAGE_PATH", "PAGE_URL"]
-    },
-    ga: {
-      customDimensions,
-      keyEvents,
-      enhancedMeasurement: {
-        streamEnabled: true,
-        scrollsEnabled: true,
-        outboundClicksEnabled: true,
-        fileDownloadsEnabled: true,
-        pageChangesEnabled: false,
-        siteSearchEnabled: false,
-        formInteractionsEnabled: false,
-        videoEngagementEnabled: false
-      },
-      retention: {
-        eventDataRetention: "FOURTEEN_MONTHS",
-        resetUserDataOnNewActivity: true
-      },
-      emailRedactionEnabled: true
-    },
-    mixpanel: { schemas },
-    clarity: {
-      projectId: config.clarity.projectId,
-      maskingMode: config.clarity.maskingMode,
-      cookiesEnabled: config.clarity.cookiesEnabled,
-      botDetection: config.clarity.botDetection
-    }
-  };
 }
 
 async function applyGtm(google) {
@@ -529,7 +502,7 @@ async function applyGtm(google) {
     containerId = container.containerId;
   }
   const containerPath = `accounts/${accountId}/containers/${containerId}`;
-  const workspaceName = `[managed] Analytics Stack ${checksum}`;
+  const workspaceName = managedWorkspaceName(gtmProviders);
   const workspaces = await paginatedGoogle(
     google,
     `https://tagmanager.googleapis.com/tagmanager/v2/${containerPath}/workspaces`,
@@ -541,7 +514,7 @@ async function applyGtm(google) {
       `https://tagmanager.googleapis.com/tagmanager/v2/${containerPath}/workspaces`,
       {
         name: workspaceName,
-        description: `Managed from analytics manifests. checksum=${checksum}`
+        description: `Managed from analytics manifests. checksum=${checksum}; providers=${gtmProviders.join(",")}`
       }
     );
   }
@@ -765,20 +738,54 @@ async function submitSitemap(google) {
   console.log(`  SUBMIT Search Console sitemap ${sitemap}`);
 }
 
-async function readGoogleState(google, { allowMissing = false } = {}) {
+async function readSearchConsoleSite(google) {
+  const response = await google.raw(
+    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(stack.google.searchConsoleSiteUrl)}`
+  );
+  if (!response.ok) throw await httpError("Search Console property", response);
+  return response.json();
+}
+
+async function planSearchConsole(google) {
+  const site = await readSearchConsoleSite(google);
+  console.log(
+    `  KEEP   Search Console ${site.siteUrl ?? stack.google.searchConsoleSiteUrl} (${site.permissionLevel ?? "accessible"})`
+  );
+}
+
+async function readGoogleState(
+  google,
+  { allowMissing = false, providers: requestedProviders = gtmProviders } = {}
+) {
+  const requested = new Set(requestedProviders);
   const result = {
     gtm: { variables: [], triggers: [], tags: [], folders: [], versions: [] },
     ga: { customDimensions: [], keyEvents: [], property: null, stream: null }
   };
-  if (stack.google.gtmAccountId && resolved.gtmContainerId) {
+  if (
+    selectedGtmProviders(requestedProviders).length > 0 &&
+    stack.google.gtmAccountId &&
+    resolved.gtmContainerId
+  ) {
     const workspaces = await paginatedGoogle(
       google,
       `https://tagmanager.googleapis.com/tagmanager/v2/accounts/${stack.google.gtmAccountId}/containers/${resolved.gtmContainerId}/workspaces`,
       "workspace"
     );
+    const expectedWorkspaceName = managedWorkspaceName(
+      selectedGtmProviders(requestedProviders)
+    );
+    const legacyWorkspaceName = `[managed] Analytics Stack ${checksum}`;
+    const stateWorkspaceMatches =
+      state.workspaceChecksum === checksum &&
+      selectedGtmProviders(state.workspaceProviders).join(",") ===
+        selectedGtmProviders(requestedProviders).join(",");
     const workspace =
-      workspaces.find((item) => item.workspaceId === state.google.gtmWorkspaceId) ??
-      workspaces.find((item) => item.name?.startsWith("[managed] Analytics Stack"));
+      (stateWorkspaceMatches
+        ? workspaces.find((item) => item.workspaceId === state.google.gtmWorkspaceId)
+        : undefined) ??
+      workspaces.find((item) => item.name === expectedWorkspaceName) ??
+      workspaces.find((item) => item.name === legacyWorkspaceName);
     if (workspace) {
       const workspacePath = gtmWorkspacePath(workspace.workspaceId);
       const [variables, triggers, tags, folders] = await Promise.all([
@@ -804,7 +811,7 @@ async function readGoogleState(google, { allowMissing = false } = {}) {
       console.warn("  WARN   No managed GTM workspace exists yet.");
     }
   }
-  if (resolved.gaPropertyId) {
+  if (requested.has("ga4") && resolved.gaPropertyId) {
     const propertyName = `properties/${resolved.gaPropertyId}`;
     const [property, dimensions, keyEvents, streams] = await Promise.all([
       google.get(`https://analyticsadmin.googleapis.com/v1beta/${propertyName}`),
@@ -951,15 +958,9 @@ async function sendSyntheticGaEvent(warnings) {
   console.log(`  SENT   GA4 synthetic event ${eventId}`);
 }
 
-async function verifySearchConsole(google, warnings) {
-  if (!stack.google.searchConsoleSiteUrl) return;
-  const response = await google.raw(
-    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(stack.google.searchConsoleSiteUrl)}`
-  );
-  if (!response.ok) {
-    warnings.push(`Search Console property is not accessible (${response.status}).`);
-    return;
-  }
+async function verifySearchConsole(google, failures) {
+  await readSearchConsoleSite(google);
+  console.log("  OK     Search Console property access");
   const inspect = await google.raw(
     "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect",
     {
@@ -973,7 +974,7 @@ async function verifySearchConsole(google, warnings) {
     }
   );
   if (!inspect.ok) {
-    warnings.push(`Search Console URL Inspection failed (${inspect.status}).`);
+    failures.push(`Search Console URL Inspection failed (${inspect.status}).`);
   } else {
     const body = await inspect.json();
     const verdict = body.inspectionResult?.indexStatusResult?.verdict ?? "UNKNOWN";
@@ -989,14 +990,10 @@ async function verifyProductionShell(failures, warnings) {
     const html = await response.text();
     if (!response.ok) failures.push(`Production homepage returned ${response.status}.`);
     if (/noindex/i.test(html)) failures.push("Production homepage still contains noindex.");
-    if (resolved.gtmPublicId && !html.includes(resolved.gtmPublicId)) {
-      failures.push(`Production HTML does not contain GTM public ID ${resolved.gtmPublicId}.`);
-    }
-    if (!resolved.gtmPublicId) {
-      warnings.push("GTM public ID is blank, so production GTM installation could not be checked.");
-    }
-    if (stack.clarity.projectId) {
-      warnings.push("Clarity collect delivery requires a browser session; use GTM Preview once after publish.");
+    if (gtmProviders.length > 0) {
+      warnings.push(
+        `Browser runtime gate required for ${gtmProviders.join(", ")}: raw HTML cannot prove GTM tag execution; verify delivery in GTM Preview and each provider's live/debug view.`
+      );
     }
   } catch (error) {
     warnings.push(`Production HTML check skipped: ${errorMessage(error)}`);
@@ -1057,7 +1054,7 @@ async function googleClient() {
   }
   const token = await serviceAccountAccessToken(credentials);
   const raw = (url, init = {}) =>
-    fetch(url, {
+    fetchWithSafeRetries(fetch, url, {
       ...init,
       headers: {
         authorization: `Bearer ${token}`,
@@ -1117,14 +1114,19 @@ async function serviceAccountAccessToken(credentials) {
   const signer = createSign("RSA-SHA256");
   signer.update(unsigned);
   const assertion = `${unsigned}.${base64Url(signer.sign(credentials.private_key))}`;
-  const response = await fetch(credentials.token_uri ?? "https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion
-    })
-  });
+  const response = await fetchWithSafeRetries(
+    fetch,
+    credentials.token_uri ?? "https://oauth2.googleapis.com/token",
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion
+      })
+    },
+    { operation: "oauth-token" }
+  );
   if (!response.ok) throw await httpError("Google OAuth", response);
   const body = await response.json();
   return body.access_token;
@@ -1144,97 +1146,19 @@ async function paginatedGoogle(google, url, key) {
   return result;
 }
 
-function constantVariable(name, value) {
-  return { name, type: "c", parameter: [templateParameter("value", value)] };
-}
-
-function dataLayerVariable(name, value) {
-  return {
-    name,
-    type: "v",
-    parameter: [
-      { type: "INTEGER", key: "dataLayerVersion", value: "2" },
-      templateParameter("name", value)
-    ]
-  };
-}
-
-function customEventTrigger(name, transportEvent, hostname, excludedPaths, options = {}) {
-  const filters = productionFilters(hostname, excludedPaths);
-  if (options.eventName) {
-    filters.push(
-      condition("EQUALS", `{{[managed] DLV - event_name}}`, options.eventName)
-    );
-  }
-  return {
-    name,
-    type: "CUSTOM_EVENT",
-    customEventFilter: [condition("EQUALS", "{{_event}}", transportEvent)],
-    filter: filters
-  };
-}
-
-function productionFilters(hostname, excludedPaths) {
-  const escapedPaths = excludedPaths.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return [
-    condition("EQUALS", "{{Page Hostname}}", hostname),
-    condition(
-      "DOES_NOT_MATCH_REGEX",
-      "{{Page Path}}",
-      `^(${escapedPaths.join("|")})(/|$)`
-    )
-  ];
-}
-
-function condition(type, left, right) {
-  return {
-    type,
-    parameter: [
-      { type: "TEMPLATE", key: "arg0", value: left },
-      { type: "TEMPLATE", key: "arg1", value: right }
-    ]
-  };
-}
-
-function templateParameter(key, value) {
-  return { type: "TEMPLATE", key, value: String(value ?? "") };
-}
-
-function mapParameter(name, value) {
-  return {
-    type: "MAP",
-    map: [
-      templateParameter("name", name),
-      templateParameter("value", value)
-    ]
-  };
-}
-
-function clarityInitializationHtml(projectVariable) {
-  return `<script>(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);try{var k="skill-reverse:clarity-id",v=localStorage.getItem(k);if(!v){v=crypto.randomUUID();localStorage.setItem(k,v)}c[a]("identify",v)}catch(e){}})(window,document,"clarity","script","{{${projectVariable}}}");</script>`;
-}
-
-function clarityEventHtml(managed) {
-  const value = (name) => `{{${managed(`DLV - ${name}`)}}}`;
-  return `<script>(function(){if(typeof clarity!=="function")return;var n="${value("event_name")}";clarity("event",n);clarity("set","locale","${value("locale")}");clarity("set","route_kind","${value("route_kind")}");clarity("set","occupation_code","${value("occupation_code")}");clarity("set","research_stage","${value("research_stage")}");if(/^(research_started|research_failed|research_completed|share_completed)$/.test(n))clarity("upgrade",n);})();</script>`;
-}
-
-function mixpanelInitializationHtml(tokenVariable, hostVariable, persistence) {
-  return `<script>(function(f,b){if(b.__SV)return;var e,g,i,h;window.mixpanel=b;b._i=[];b.init=function(e,f,c){function g(a,d){var b=d.split(".");2==b.length&&(a=a[b[0]],d=b[1]);a[d]=function(){a.push([d].concat(Array.prototype.slice.call(arguments,0)))}}var a=b;"undefined"!==typeof c?a=b[c]=[]:c="mixpanel";a.people=a.people||[];a.toString=function(a){var d="mixpanel";"mixpanel"!==c&&(d+="."+c);a||(d+=" (stub)");return d};a.people.toString=function(){return a.toString(1)+".people (stub)"};i="disable time_event track track_pageview track_links track_forms register register_once alias unregister identify name_tag set_config reset".split(" ");for(h=0;h<i.length;h++)g(a,i[h]);b._i.push([e,f,c])};b.__SV=1.2;e=f.createElement("script");e.type="text/javascript";e.async=!0;e.src="https://cdn.mxpnl.com/libs/mixpanel-2-latest.min.js";g=f.getElementsByTagName("script")[0];g.parentNode.insertBefore(e,g)})(document,window.mixpanel||[]);mixpanel.init("{{${tokenVariable}}}",{api_host:"{{${hostVariable}}}",persistence:"${persistence}",autocapture:false,track_pageview:false,record_sessions_percent:0});</script>`;
-}
-
-function mixpanelEventHtml(managed) {
-  const name = `{{${managed("DLV - event_name")}}}`;
-  const payload = `{{${managed("DLV - event_payload_base64")}}}`;
-  return `<script>(function(){try{if(!window.mixpanel||!window.mixpanel.track)return;var json=decodeURIComponent(escape(atob("${payload}")));window.mixpanel.track("${name}",JSON.parse(json))}catch(e){}})();</script>`;
-}
-
 function getMissingPrerequisites(config, ids) {
-  const google = [];
-  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) google.push("GOOGLE_APPLICATION_CREDENTIALS");
-  if (!config.google.gtmAccountId) google.push("google.gtmAccountId");
-  if (!config.google.gaAccountId && !ids.gaPropertyId) google.push("google.gaAccountId");
+  const googleAuth = [];
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    googleAuth.push("GOOGLE_APPLICATION_CREDENTIALS");
+  }
+  const gtm = [...googleAuth];
+  if (!config.google.gtmAccountId) gtm.push("google.gtmAccountId");
+  const ga4 = [...gtm];
+  if (!config.google.gaAccountId && !ids.gaPropertyId) ga4.push("google.gaAccountId");
+  const clarity = [...gtm];
+  if (!config.clarity.projectId) clarity.push("clarity.projectId");
   const mixpanel = [];
+  mixpanel.push(...gtm);
   if (!config.mixpanel.projectId) mixpanel.push("mixpanel.projectId");
   if (!config.mixpanel.projectToken) mixpanel.push("mixpanel.projectToken");
   if (!process.env.MIXPANEL_SERVICE_ACCOUNT_USERNAME) {
@@ -1243,7 +1167,25 @@ function getMissingPrerequisites(config, ids) {
   if (!process.env.MIXPANEL_SERVICE_ACCOUNT_SECRET) {
     mixpanel.push("MIXPANEL_SERVICE_ACCOUNT_SECRET");
   }
-  return { google, mixpanel };
+  const searchConsole = [...googleAuth];
+  if (!config.google.searchConsoleSiteUrl) {
+    searchConsole.push("google.searchConsoleSiteUrl");
+  }
+  const gtmPublish = [...gtm];
+  if (!ids.gtmContainerId) gtmPublish.push("google.gtmContainerId");
+  return {
+    ga4: [...new Set(ga4)],
+    clarity: [...new Set(clarity)],
+    mixpanel: [...new Set(mixpanel)],
+    "search-console": [...new Set(searchConsole)],
+    gtmPublish: [...new Set(gtmPublish)]
+  };
+}
+
+function providerLabel(provider) {
+  if (provider === "ga4") return "GA4/GTM";
+  if (provider === "search-console") return "Search Console";
+  return provider[0].toUpperCase() + provider.slice(1);
 }
 
 function validateLocalConfig(config, plan) {
@@ -1273,6 +1215,7 @@ function validateLocalConfig(config, plan) {
 function printLocalSummary() {
   console.log(`  OK     stack schema v${stack.schemaVersion}`);
   console.log(`  OK     tracking plan: ${trackingPlan.events.length} events`);
+  console.log(`  OK     providers: ${providers.join(", ")}`);
   console.log(`  OK     GTM desired state: ${desired.gtm.variables.length} variables, ${desired.gtm.triggers.length} triggers, ${desired.gtm.tags.length} tags`);
   console.log(`  OK     GA4: ${desired.ga.customDimensions.length} dimensions, ${desired.ga.keyEvents.length} key events`);
   console.log(`  OK     manifest checksum ${checksum}`);
@@ -1363,6 +1306,10 @@ async function writeState() {
 
 function gtmWorkspacePath(workspaceId) {
   return `accounts/${stack.google.gtmAccountId}/containers/${resolved.gtmContainerId || state.google.gtmContainerId}/workspaces/${workspaceId}`;
+}
+
+function managedWorkspaceName(selectedProviders) {
+  return `[managed] Analytics Stack ${checksum} ${selectedProviders.join("+")}`;
 }
 
 function normalizeResourceId(value) {

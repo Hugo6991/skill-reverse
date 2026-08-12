@@ -33,7 +33,17 @@ describe("Cloudflare bindings in workerd", () => {
     const homepageHtml = await homepage.text();
     expect(homepage.status).toBe(200);
     expect(homepage.headers.get("x-robots-tag")).toBe("index, follow");
-    expect(homepage.headers.get("content-security-policy")).toContain("googletagmanager.com");
+    const productionCsp = homepage.headers.get("content-security-policy") ?? "";
+    const productionScriptSrc = productionCsp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("script-src"));
+    const productionConnectSrc = productionCsp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("connect-src"));
+    expect(productionCsp).toContain("googletagmanager.com");
+    expect(productionScriptSrc).toContain("'nonce-");
+    expect(productionScriptSrc).not.toContain("'unsafe-inline'");
+    expect(productionConnectSrc).not.toContain("localhost");
     expect(homepageHtml).toContain('rel="canonical"');
     expect(homepageHtml).toContain('hreflang="en"');
     expect(homepageHtml).not.toContain("noindex");
@@ -43,6 +53,15 @@ describe("Cloudflare bindings in workerd", () => {
     });
     expect(demo.status).toBe(200);
     expect(await demo.text()).toContain("<article>");
+
+    const privacy = await SELF.fetch("https://example.com/privacy?lang=en", {
+      headers: { accept: "text/html" }
+    });
+    const privacyHtml = await privacy.text();
+    expect(privacy.status).toBe(200);
+    expect(privacy.headers.get("x-robots-tag")).toBe("index, follow");
+    expect(privacyHtml).toContain("Privacy and data use");
+    expect(privacyHtml).toContain("Clarity, session replay, and Mixpanel are not enabled now");
 
     const collection = await SELF.fetch("https://example.com/collection", {
       headers: { accept: "text/html" }
@@ -57,6 +76,43 @@ describe("Cloudflare bindings in workerd", () => {
     expect(missing.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 
+  it("allows only the local Vite host to run the React refresh preamble and HMR socket", async () => {
+    const response = await SELF.fetch("http://localhost:5173/", {
+      headers: { accept: "text/html" }
+    });
+    const csp = response.headers.get("content-security-policy") ?? "";
+    const scriptSrc = csp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("script-src"));
+    const connectSrc = csp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("connect-src"));
+
+    expect(response.status).toBe(200);
+    expect(scriptSrc).toContain("'unsafe-inline'");
+    expect(scriptSrc).not.toContain("'nonce-");
+    expect(connectSrc).toContain("ws://localhost:5173");
+  });
+
+  it.each([
+    "http://localhost:5174/",
+    "https://localhost:5173/",
+    "http://127.0.0.1:5173/"
+  ])("does not relax CSP for a non-canonical local origin: %s", async (url) => {
+    const response = await SELF.fetch(url, { headers: { accept: "text/html" } });
+    const csp = response.headers.get("content-security-policy") ?? "";
+    const scriptSrc = csp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("script-src"));
+    const connectSrc = csp
+      .split(";")
+      .find((directive) => directive.trim().startsWith("connect-src"));
+
+    expect(scriptSrc).toContain("'nonce-");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+    expect(connectSrc).not.toContain("ws://localhost:5173");
+  });
+
   it("publishes robots and sitemap from the Worker", async () => {
     const robots = await SELF.fetch("https://example.com/robots.txt");
     expect(robots.status).toBe(200);
@@ -67,6 +123,7 @@ describe("Cloudflare bindings in workerd", () => {
     expect(sitemap.headers.get("content-type")).toContain("application/xml");
     const xml = await sitemap.text();
     expect(xml).toContain("/reports/demo");
+    expect(xml).toContain("/privacy?lang=en");
     expect(xml).not.toContain("/jobs/");
   });
 

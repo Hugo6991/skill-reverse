@@ -9,6 +9,14 @@
     "gaMeasurementId": "",
     "gaMeasurementProtocolSecretName": ""
   },
+  "workspaceChecksum": "",
+  "workspaceProviders": [],
+  "workspaceSavedAt": "",
+  "applyAttemptChecksum": "",
+  "applyAttemptProviders": [],
+  "applyAttemptStartedAt": "",
+  "appliedChecksum": "",
+  "appliedProviders": [],
   "lastAppliedAt": "",
   "lastPublishedVersionPath": ""
 }

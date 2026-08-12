@@ -1,10 +1,17 @@
 # Skill Reverse
 
+[![Pull request checks](https://github.com/Hugo6991/skill-reverse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Hugo6991/skill-reverse/actions/workflows/ci.yml)
+![Node.js 24](https://img.shields.io/badge/Node.js-24-5FA04E?logo=nodedotjs&logoColor=white)
+![pnpm 10.31.0](https://img.shields.io/badge/pnpm-10.31.0-F69220?logo=pnpm&logoColor=white)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
 從一個公開 skill、repo 或方法來源，反向提取「可遷移的思考框架」、創作者形成脈絡、可追溯證據與應用視角。
 
 這不是 skill 收藏器、安裝推薦榜或權威排行榜。產品預設先把方法降維成可在任何聊天 AI 試跑的文字；只有反覆有效、容易漏做的流程才值得進一步封裝。followers、GitHub stars 與職業吻合度不會提高 claim 的真實性分數。
 
 這是 owner-operated production application。原始碼 repository 維持 Private，不是公開 template，也不提供 fork 或一鍵複製部署流程。
+
+Production：[skill-reverse.vibeencode.dev](https://skill-reverse.vibeencode.dev)
 
 這個產品如何從一個念頭逐步長成現在的系統，以及開發過程如何改變提問與 AI 協作方式，記錄在 [開發札記](./DEVELOPMENT-NOTES.md)。
 
@@ -23,12 +30,12 @@
 - 瀏覽器匿名藏經閣、365 天輕量卡片與主動開啟的公開分享卡
 - Cloudflare Access 站長管理頁、公開來源快照與 evidence screenshot
 - locked → doctor → 真實研究 smoke → public 的安全部署流程
-- GTM、GA4、Clarity、Mixpanel 與 Search Console 的 manifest-driven Analytics Stack as Code
+- 有明確 opt-in／撤回入口的 GA4 與 Search Console 第一階段；Clarity、Mixpanel 的 provider-scoped automation 已備妥但尚未啟用
 - 內建 Anthropic `skill-creator` example brief，不會呼叫付費服務
 
 ## 最快開始
 
-需要 Node.js 22 以上；專案的 `.node-version` 使用 Node.js 24。
+需要 Node.js 24 以上與 pnpm 10.31.0；專案的 `.node-version` 與 `packageManager` 固定這兩個 runtime 版本。
 
 ```bash
 pnpm install
@@ -36,11 +43,11 @@ pnpm setup:local
 pnpm dev
 ```
 
-開啟 `http://localhost:5173`。本地預設為 demo mode，使用 Cloudflare 官方 Turnstile 測試 keys，不會呼叫 Perplexity、TwitterAPI.io 或 Browser Run。
+開啟 `http://localhost:5173`。本地預設為 demo mode，使用 Cloudflare 官方 Turnstile 測試 keys，不會呼叫 Perplexity、OpenRouter、TwitterAPI.io 或 Browser Run；Vite React Refresh 與 HMR 只在這個本機 origin 開放。
 
 ## Analytics 與 SEO
 
-事件規格與非敏感平台 ID 分別版本化在 `analytics/events.json` 與 `analytics/stack.json`。先執行 `pnpm analytics:plan` 檢查本機 desired state；帳號資料未填時只會列出缺少項目，不會修改遠端。完整的第一次授權、`apply → publish → verify → export` 順序、GTM Preview 驗收與 SEO 索引邊界見 [ANALYTICS.md](./ANALYTICS.md)。
+事件規格與非敏感平台 ID 分別版本化在 `analytics/events.json` 與 `analytics/stack.json`。目前 production 只規劃 GA4 與 Search Console；先執行 `pnpm analytics:plan -- --providers=ga4,search-console` 檢查本機 desired state。Clarity、Mixpanel 仍維持 disabled，不能納入 publish。完整的第一次授權、`apply → publish → verify → export` 順序、GTM Preview 驗收與 SEO 索引邊界見 [ANALYTICS.md](./ANALYTICS.md)。
 
 ## Private production deployment
 
@@ -150,7 +157,14 @@ pnpm preview:upload
 pnpm deploy
 ```
 
-第一次套用新的 production migration 前使用 `pnpm release`，它會先匯出 D1 與 completed report 的 R2 reference inventory，再執行 deploy。`pnpm deploy` 只允許產品分支執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。production deploy 完成後會自動對正式網址執行 release smoke；可用 `SKILL_REVERSE_URL` 覆寫驗證網址。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+`pnpm backup:prod` 只匯出 D1 與 completed report 的 R2 reference inventory。正式回填或高風險資料 mutation 前，把 `<timestamp>` 換成剛產生的備份目錄名稱，下載並驗證 published artifacts：
+
+```bash
+pnpm backup:r2-artifacts -- .backups/<timestamp>/published-r2-inventory.txt
+pnpm backup:r2-artifacts -- --verify .backups/<timestamp>/published-r2-artifacts
+```
+
+驗證完成後，把整個 timestamp 目錄複製到 owner-controlled 備份位置。第一次套用新的 production migration 前使用 `pnpm release`，它會先執行 `backup:prod` 再 deploy，但不會自動下載 R2 objects。`pnpm deploy` 只允許 `main` 執行，會先 copycheck、typecheck、test、build、套用向後相容 migration，以正式 URL 規則精確回填 `target_key`，再部署 Worker。`pnpm preview:upload` 只驗證、建置與上傳 preview version，不執行 D1 migration。production deploy 完成後會自動對正式網址執行 release smoke；可用 `SKILL_REVERSE_URL` 覆寫驗證網址。`/api/health` 的 `version` 可用來核對線上 Worker version ID 與建立時間。完整架構、Access 設定、備份與恢復流程見 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 
 ### Release QA gate
 
@@ -169,14 +183,18 @@ pnpm deploy
 node scripts/release-smoke.mjs https://example-preview.workers.dev
 ```
 
-`game-profile-v2` 回填預設只做 dry run：執行 `pnpm db:backfill-game-profiles:remote` 會按建立時間列出 payload 更新與卡片 upsert 數量，不會寫入正式資料。確認計畫後，使用 `pnpm db:backfill-game-profiles:apply`；這個命令會先執行正式備份，再以明確的 `--apply --backup-confirmed` 寫入報告 payload 與 `skill_cards.game_profile_json`。回填保留 report ID、分享 slug、公開狀態與收藏歸屬，失敗時不寫入完成標記，也不會替卡片開啟分享。
+`game-profile-v2` 回填預設只做 dry run：執行 `pnpm db:backfill-game-profiles:remote` 會按建立時間列出 payload 更新與卡片 upsert 數量，不會寫入正式資料。確認計畫後，使用 `pnpm db:backfill-game-profiles:apply`；這個命令會先執行 `backup:prod`，再以明確的 `--apply --backup-confirmed` 寫入報告 payload 與 `skill_cards.game_profile_json`。回填保留中英文 locale、report ID、分享 slug、公開狀態與收藏歸屬，失敗時不寫入完成標記，也不會替卡片開啟分享。完整 R2 copy 仍需依上方步驟另外執行。
 
 四字身份命名修復同樣預設為 dry run：`pnpm db:repair-game-identities:remote` 會依報告建立時間列出每筆中文名稱的前後對照、無效數、重複率、fallback 比例與意象分布。只有所有中文名稱都符合四字規格且沒有重複時，`pnpm db:repair-game-identities:apply` 才會先備份正式 D1，再同步更新 report payload 與既有 card profile；英文文案、六軸分數、report ID、分享 slug 與收藏歸屬不變。
 
+舊單語報告的雙語回填分三階段：`pnpm db:backfill-reports:remote` 只盤點 legacy reports，不呼叫 provider、不寫 D1；`pnpm db:backfill-reports:validate` 使用本機 OpenRouter key 完整翻譯與驗證，但不寫 D1；只有 `pnpm db:backfill-reports:apply` 會先執行 `backup:prod`，再把整批驗證完成的雙語 payload 寫入 production。高風險 mutation 前仍需另外完成上方 R2 download 與 verify。
+
 ## API
 
+- `GET /api/config`：讀取目前公開模式與 Turnstile site key
 - `POST /api/jobs`：建立研究工作
 - `GET /api/jobs/:id`：查詢排隊順位、階段、重試與降級狀態
+- `POST /api/jobs/:id/retry`：通過 Turnstile 後重試可恢復的失敗工作
 - `GET /api/my-jobs`：讀取目前匿名 actor 的排隊中、執行中與失敗工作
 - `PUT /api/jobs/:id/sources`：在 90 秒視窗補充或略過來源
 - `GET /api/history?limit=&cursor=&targetUrl=`：讀取全站 completed + published 公開 archive

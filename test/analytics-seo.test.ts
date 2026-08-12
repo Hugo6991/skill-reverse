@@ -4,6 +4,7 @@ import { durationBucket } from "../worker/analytics";
 import {
   homeSeoPage,
   llmsText,
+  privacySeoPage,
   renderSeoShell,
   reportSeoPage,
   robotsText,
@@ -77,6 +78,41 @@ describe("SEO rendering", () => {
     expect(html).toContain("og:type");
   });
 
+  it("renders an indexable bilingual privacy notice with clear provider boundaries", () => {
+    const english = renderSeoShell(
+      template,
+      privacySeoPage("en"),
+      "https://skill-reverse.vibeencode.dev",
+      "privacy123"
+    );
+    expect(english).toContain("Privacy and data use");
+    expect(english).toContain("GA4 loads only after explicit consent");
+    expect(english).toContain("current page URL, IP address");
+    expect(english).toContain("retained for 14 months");
+    expect(english).toContain("not added as custom event properties");
+    expect(english).toContain("https://policies.google.com/technologies/partner-sites");
+    expect(english).toContain("https://support.google.com/analytics/answer/7318509?hl=en-uk");
+    expect(english).toContain("Google Analytics privacy disclosures policy");
+    expect(english).toContain("Clarity, session replay, and Mixpanel are not enabled now");
+    expect(english).toContain("Cloudflare RUM");
+    expect(english).toContain("operational logs may still be processed");
+    expect(english).toContain("unindexed captures are kept for up to 30 days");
+    expect(english).toContain("non-public artifact index");
+    expect(english).toContain('name="robots" content="index,follow"');
+    expect(english).toContain("/privacy?lang=en");
+    expect(english).not.toContain("noindex");
+
+    const chinese = renderSeoShell(
+      template,
+      privacySeoPage("zh-TW"),
+      "https://skill-reverse.vibeencode.dev",
+      "privacy456"
+    );
+    expect(chinese).toContain("隱私與資料使用");
+    expect(chinese).toContain("GA4 只有在明確同意後才載入");
+    expect(chinese).toContain("提供這項服務或工作坊的原管道");
+  });
+
   it("keeps private routes out of robots and publishes only explicit sitemap paths", () => {
     const robots = robotsText("https://skill-reverse.vibeencode.dev");
     expect(robots).toContain("User-agent: OAI-SearchBot");
@@ -85,6 +121,7 @@ describe("SEO rendering", () => {
     expect(robots).toContain("Disallow: /collection");
     expect(robots).toContain("Disallow: /admin");
     const sitemap = sitemapXml("https://skill-reverse.vibeencode.dev", ["report-safe"]);
+    expect(sitemap).toContain("/privacy?lang=zh-TW");
     expect(sitemap).toContain("/reports/report-safe");
     expect(sitemap).toContain("/reports/demo");
     expect(sitemap).toContain("hreflang=\"en\"");
