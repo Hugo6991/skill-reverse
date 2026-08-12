@@ -72,12 +72,12 @@ let sharedContext: AnalyticsProperties = {};
 let initialized = false;
 
 export function initializeAnalytics(): void {
+  if (!isTrackablePage()) return;
   if (initialized) return;
   if (getAnalyticsConsent() !== "granted") {
     clearAnalyticsArtifacts();
     return;
   }
-  if (!isTrackablePage()) return;
   initialized = true;
   window.dataLayer = window.dataLayer || [];
   window.dataLayer.push({
@@ -161,6 +161,22 @@ export function routeKindFromPath(pathname = window.location.pathname): string {
   return first;
 }
 
+export function isAnalyticsExcludedPath(pathname: string): boolean {
+  return excludedPaths.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
+export function crossesAnalyticsExclusionBoundary(
+  currentPathname: string,
+  nextPathname: string
+): boolean {
+  return (
+    isAnalyticsExcludedPath(currentPathname) !==
+    isAnalyticsExcludedPath(nextPathname)
+  );
+}
+
 export function analyticsDurationBucket(
   from: string | undefined,
   to: string | undefined
@@ -184,16 +200,14 @@ function isTrackablePage(): boolean {
     window.location.hostname === "127.0.0.1";
   return (
     hostnameAllowed &&
-    !excludedPaths.some(
-      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-    )
+    !isAnalyticsExcludedPath(pathname)
   );
 }
 
 function clearAnalyticsArtifacts(): void {
   removeAnalyticsScripts();
-  clearAnalyticsStorage(window.localStorage);
-  clearAnalyticsStorage(window.sessionStorage);
+  clearAnalyticsStorage("localStorage");
+  clearAnalyticsStorage("sessionStorage");
   clearAnalyticsCookies();
   delete window.dataLayer;
 }
@@ -215,8 +229,9 @@ function removeAnalyticsScripts(): void {
   }
 }
 
-function clearAnalyticsStorage(storage: Storage): void {
+function clearAnalyticsStorage(storageName: "localStorage" | "sessionStorage"): void {
   try {
+    const storage = window[storageName];
     const analyticsStorageKey = /^(?:_ga|_gid|_gat|_gac_|_gcl_|amp_token|_cl|clarity|clid$|anonchk$|mr$|muid$|sm$|mp_|__mp_opt_in_out_)/i;
     const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
       (key): key is string => Boolean(key)

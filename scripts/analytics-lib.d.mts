@@ -11,6 +11,63 @@ export function parseProviders(args?: string[]): AnalyticsProvider[];
 export function selectedGtmProviders(
   providers: Iterable<AnalyticsProvider | string>
 ): Exclude<AnalyticsProvider, "search-console">[];
+export function gtmLiveVersionUrl(containerPath: string): string;
+export function publishedGtmResources(remoteGtm: {
+  live?: AnalyticsGtmResources;
+  [key: string]: unknown;
+}): Required<AnalyticsGtmResources>;
+export function gtmVersionResponseErrors(
+  response: unknown,
+  options?: { requireVersionPath?: boolean }
+): string[];
+
+export type GtmResourceKind = "variable" | "trigger" | "tag";
+export type GtmReconciliationConflictReason =
+  | "duplicate-managed-resource"
+  | "unselected-managed-provider"
+  | "stale-managed-resource"
+  | "legacy-analytics-tag";
+
+export interface AnalyticsGtmResources {
+  variables?: AnalyticsNamedResource[];
+  triggers?: AnalyticsNamedResource[];
+  tags?: AnalyticsNamedResource[];
+}
+
+export interface GtmReconciliationConflict {
+  kind: GtmResourceKind;
+  name: string;
+  reason: GtmReconciliationConflictReason;
+  provider?: Exclude<AnalyticsProvider, "search-console">;
+}
+
+export interface GtmUntouchedResource {
+  kind: GtmResourceKind;
+  name: string;
+}
+
+export interface GtmReconciliationInspection {
+  conflicts: GtmReconciliationConflict[];
+  untouched: GtmUntouchedResource[];
+}
+
+export interface GtmDesiredDrift {
+  kind: GtmResourceKind;
+  name: string;
+  reason: "missing-managed-resource" | "managed-resource-drift";
+  differingKeys?: string[];
+}
+
+export function inspectGtmProviderReconciliation(
+  existing: AnalyticsGtmResources,
+  desired: AnalyticsGtmResources,
+  providers?: Iterable<AnalyticsProvider>
+): GtmReconciliationInspection;
+export function inspectGtmDesiredDrift(
+  existing: AnalyticsGtmResources,
+  desired: AnalyticsGtmResources
+): GtmDesiredDrift[];
+
 export function partitionProvidersByPrerequisites(
   providers: Iterable<AnalyticsProvider>,
   prerequisites: Partial<Record<AnalyticsProvider, string[]>>

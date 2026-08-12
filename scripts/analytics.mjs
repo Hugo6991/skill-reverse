@@ -9,9 +9,14 @@ import {
   completePendingWorkspaceState,
   createPendingWorkspaceState,
   fetchWithSafeRetries,
+  gtmLiveVersionUrl,
+  gtmVersionResponseErrors,
   invalidateWorkspaceApplyState,
+  inspectGtmDesiredDrift,
+  inspectGtmProviderReconciliation,
   parseProviders,
   partitionProvidersByPrerequisites,
+  publishedGtmResources,
   publishStateErrors,
   selectedGtmProviders
 } from "./analytics-lib.mjs";
@@ -102,6 +107,18 @@ async function plan() {
     const remote = await readGoogleState(google, {
       providers: runnableGtmProviders
     });
+    diagnoseGtmProviderReconciliation(
+      remote.gtm.live,
+      remoteDesired.gtm,
+      runnableGtmProviders
+    );
+    if (remote.gtm.workspaceId) {
+      diagnoseGtmProviderReconciliation(
+        remote.gtm,
+        remoteDesired.gtm,
+        runnableGtmProviders
+      );
+    }
     printDiff("GTM variables", remoteDesired.gtm.variables, remote.gtm.variables);
     printDiff("GTM triggers", remoteDesired.gtm.triggers, remote.gtm.triggers);
     printDiff("GTM tags", remoteDesired.gtm.tags, remote.gtm.tags);
@@ -153,6 +170,16 @@ async function apply() {
     google = await googleClient();
   }
 
+  let preparedGtm;
+  if (gtmProviders.length > 0) {
+    state = invalidateWorkspaceApplyState(state, {
+      checksum,
+      providers,
+      startedAt: new Date().toISOString()
+    });
+    await writeState();
+  }
+
   const [beforeGoogle, beforeMixpanel] = await Promise.all([
     gtmProviders.length > 0
       ? readGoogleState(google, { allowMissing: true, providers: gtmProviders })
@@ -167,12 +194,7 @@ async function apply() {
   }
 
   if (gtmProviders.length > 0) {
-    state = invalidateWorkspaceApplyState(state, {
-      checksum,
-      providers,
-      startedAt: new Date().toISOString()
-    });
-    await writeState();
+    preparedGtm = await prepareGtmWorkspace(google);
   }
 
   if (providerSet.has("ga4")) {
@@ -191,7 +213,7 @@ async function apply() {
   }
 
   if (gtmProviders.length > 0) {
-    const gtm = await applyGtm(google);
+    const gtm = await applyGtm(google, preparedGtm);
     resolved.gtmContainerId = gtm.containerId;
     resolved.gtmPublicId = gtm.publicId;
     state = createPendingWorkspaceState(state, {
@@ -256,15 +278,33 @@ async function publish() {
     `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}:sync`,
     {}
   );
-  if ((sync.mergeConflict ?? []).length > 0) {
-    fail("GTM workspace has merge conflicts. Resolve them in GTM before publishing.");
+  const syncErrors = gtmVersionResponseErrors(sync);
+  if (syncErrors.length > 0) {
+    fail(
+      `GTM workspace sync failed (${syncErrors.join(", ")}). Resolve it in GTM before publishing.`
+    );
   }
+  const publishWorkspace = await readGtmWorkspaceResources(google, workspacePath);
+  assertGtmProviderReconciliation(
+    publishWorkspace,
+    desired.gtm,
+    gtmProviders,
+    "GTM workspace after syncing the live container"
+  );
+  assertGtmDesiredState(
+    publishWorkspace,
+    desired.gtm,
+    "GTM workspace after syncing the live container"
+  );
   const preview = await google.post(
     `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}:quick_preview`,
     {}
   );
-  if (preview.compilerError) {
-    fail("GTM quick preview reported a compiler error; publish was stopped.");
+  const previewErrors = gtmVersionResponseErrors(preview, {
+    requireVersionPath: true
+  });
+  if (previewErrors.length > 0) {
+    fail(`GTM quick preview failed (${previewErrors.join(", ")}); publish was stopped.`);
   }
 
   const gitCommit = git("rev-parse", "--short=12", "HEAD") || "no-git-commit";
@@ -277,18 +317,28 @@ async function publish() {
         `Skill Reverse Analytics Stack as Code\ncommit=${gitCommit}\nmanifest=${checksum}\nproviders=${providers.join(",")}`
     }
   );
-  if ((version.compilerError ?? false) || !version.containerVersion?.path) {
+  const versionErrors = gtmVersionResponseErrors(version, {
+    requireVersionPath: true
+  });
+  if (versionErrors.length > 0) {
     fail(
-      `GTM rejected the container version: ${JSON.stringify(
-        version.compilerError ?? version
-      )}`
+      `GTM rejected the container version (${versionErrors.join(", ")}).`
     );
   }
-  await google.post(
+  const published = await google.post(
     `https://tagmanager.googleapis.com/tagmanager/v2/${version.containerVersion.path}:publish`,
     {}
   );
-  state.lastPublishedVersionPath = version.containerVersion.path;
+  const publishedErrors = gtmVersionResponseErrors(published, {
+    requireVersionPath: true
+  });
+  if (publishedErrors.length > 0) {
+    fail(`GTM publish failed (${publishedErrors.join(", ")}).`);
+  }
+  if (published.containerVersion.path !== version.containerVersion.path) {
+    fail("GTM published a different container version than the reviewed preview.");
+  }
+  state.lastPublishedVersionPath = published.containerVersion.path;
   state.google.gtmWorkspaceId = "";
   state.workspaceChecksum = "";
   state.workspaceProviders = [];
@@ -324,19 +374,40 @@ async function verify() {
       const remote = await readGoogleState(google, {
         providers: runnableGtmProviders
       });
+      const published = publishedGtmResources(remote.gtm);
+      collectGtmProviderReconciliationFailures(
+        published,
+        remoteDesired.gtm,
+        runnableGtmProviders,
+        failures
+      );
+      collectGtmDesiredDriftFailures(published, remoteDesired.gtm, failures);
+      if (remote.gtm.workspaceId) {
+        collectGtmProviderReconciliationFailures(
+          remote.gtm,
+          remoteDesired.gtm,
+          runnableGtmProviders,
+          failures
+        );
+      }
       verifyNames(
-        "GTM variables",
+        "Published GTM variables",
         remoteDesired.gtm.variables,
-        remote.gtm.variables,
+        published.variables,
         failures
       );
       verifyNames(
-        "GTM triggers",
+        "Published GTM triggers",
         remoteDesired.gtm.triggers,
-        remote.gtm.triggers,
+        published.triggers,
         failures
       );
-      verifyNames("GTM tags", remoteDesired.gtm.tags, remote.gtm.tags, failures);
+      verifyNames(
+        "Published GTM tags",
+        remoteDesired.gtm.tags,
+        published.tags,
+        failures
+      );
       if (runnableGtmProviders.includes("ga4")) {
         verifyNames(
           "GA4 custom dimensions",
@@ -482,7 +553,7 @@ async function exportBundle() {
   console.log(`Wrote ${path.relative(root, output)} (secrets removed).`);
 }
 
-async function applyGtm(google) {
+async function prepareGtmWorkspace(google) {
   const accountId = stack.google.gtmAccountId;
   let containerId = resolved.gtmContainerId;
   let container;
@@ -502,6 +573,15 @@ async function applyGtm(google) {
     containerId = container.containerId;
   }
   const containerPath = `accounts/${accountId}/containers/${containerId}`;
+  const liveVersion = await readLiveGtmContainerVersion(google, containerPath, {
+    allowMissing: true
+  });
+  assertGtmProviderReconciliation(
+    gtmVersionResources(liveVersion),
+    desired.gtm,
+    gtmProviders,
+    "GTM live container before provider reconciliation"
+  );
   const workspaceName = managedWorkspaceName(gtmProviders);
   const workspaces = await paginatedGoogle(
     google,
@@ -518,7 +598,34 @@ async function applyGtm(google) {
       }
     );
   }
-  const workspacePath = workspace.path;
+  const workspacePath =
+    workspace.path ?? `${containerPath}/workspaces/${workspace.workspaceId}`;
+  resolved.gtmContainerId = containerId;
+  resolved.gtmPublicId = container.publicId ?? "";
+  assertGtmProviderReconciliation(
+    await readGtmWorkspaceResources(google, workspacePath),
+    desired.gtm,
+    gtmProviders,
+    `GTM workspace ${workspace.name} inherited from the live container`
+  );
+  return {
+    containerId,
+    publicId: container.publicId ?? "",
+    workspaceId: workspace.workspaceId,
+    workspacePath,
+    name: workspace.name
+  };
+}
+
+async function applyGtm(google, prepared) {
+  const workspace = prepared ?? (await prepareGtmWorkspace(google));
+  const workspacePath = workspace.workspacePath;
+  assertGtmProviderReconciliation(
+    await readGtmWorkspaceResources(google, workspacePath),
+    desired.gtm,
+    gtmProviders,
+    `GTM workspace ${workspace.name} before reconciliation`
+  );
 
   await enableBuiltInVariables(google, workspacePath, desired.gtm.builtInVariables);
   const folders = await paginatedGoogle(
@@ -560,8 +667,8 @@ async function applyGtm(google) {
   await reconcileCollection(google, workspacePath, "tags", "tag", tags);
   console.log(`  READY  GTM workspace ${workspace.name}`);
   return {
-    containerId,
-    publicId: container.publicId ?? "",
+    containerId: workspace.containerId,
+    publicId: workspace.publicId,
     workspaceId: workspace.workspaceId,
     variables
   };
@@ -753,13 +860,65 @@ async function planSearchConsole(google) {
   );
 }
 
+async function readGtmWorkspaceResources(google, workspacePath) {
+  const [variables, triggers, tags, folders] = await Promise.all([
+    paginatedGoogle(
+      google,
+      `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/variables`,
+      "variable"
+    ),
+    paginatedGoogle(
+      google,
+      `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/triggers`,
+      "trigger"
+    ),
+    paginatedGoogle(
+      google,
+      `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/tags`,
+      "tag"
+    ),
+    paginatedGoogle(
+      google,
+      `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/folders`,
+      "folder"
+    )
+  ]);
+  return { variables, triggers, tags, folders };
+}
+
+function gtmVersionResources(version) {
+  return {
+    variables: version?.variable ?? [],
+    triggers: version?.trigger ?? [],
+    tags: version?.tag ?? [],
+    folders: version?.folder ?? []
+  };
+}
+
+async function readLiveGtmContainerVersion(google, containerPath, { allowMissing = false } = {}) {
+  const response = await google.raw(
+    gtmLiveVersionUrl(containerPath)
+  );
+  if (allowMissing && response.status === 404) return null;
+  if (!response.ok) throw await httpError("GTM live container version", response);
+  return response.json();
+}
+
 async function readGoogleState(
   google,
   { allowMissing = false, providers: requestedProviders = gtmProviders } = {}
 ) {
   const requested = new Set(requestedProviders);
   const result = {
-    gtm: { variables: [], triggers: [], tags: [], folders: [], versions: [] },
+    gtm: {
+      variables: [],
+      triggers: [],
+      tags: [],
+      folders: [],
+      versions: [],
+      live: { variables: [], triggers: [], tags: [], folders: [] },
+      workspaceId: ""
+    },
     ga: { customDimensions: [], keyEvents: [], property: null, stream: null }
   };
   if (
@@ -772,10 +931,16 @@ async function readGoogleState(
       `https://tagmanager.googleapis.com/tagmanager/v2/accounts/${stack.google.gtmAccountId}/containers/${resolved.gtmContainerId}/workspaces`,
       "workspace"
     );
+    const containerPath = `accounts/${stack.google.gtmAccountId}/containers/${resolved.gtmContainerId}`;
+    const liveVersion = await readLiveGtmContainerVersion(google, containerPath, {
+      allowMissing: true
+    });
+    const live = gtmVersionResources(liveVersion);
+    result.gtm.live = live;
+    result.gtm.versions = liveVersion ? [liveVersion] : [];
     const expectedWorkspaceName = managedWorkspaceName(
       selectedGtmProviders(requestedProviders)
     );
-    const legacyWorkspaceName = `[managed] Analytics Stack ${checksum}`;
     const stateWorkspaceMatches =
       state.workspaceChecksum === checksum &&
       selectedGtmProviders(state.workspaceProviders).join(",") ===
@@ -784,31 +949,23 @@ async function readGoogleState(
       (stateWorkspaceMatches
         ? workspaces.find((item) => item.workspaceId === state.google.gtmWorkspaceId)
         : undefined) ??
-      workspaces.find((item) => item.name === expectedWorkspaceName) ??
-      workspaces.find((item) => item.name === legacyWorkspaceName);
+      workspaces.find((item) => item.name === expectedWorkspaceName);
     if (workspace) {
       const workspacePath = gtmWorkspacePath(workspace.workspaceId);
-      const [variables, triggers, tags, folders] = await Promise.all([
-        paginatedGoogle(google, `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/variables`, "variable"),
-        paginatedGoogle(google, `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/triggers`, "trigger"),
-        paginatedGoogle(google, `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/tags`, "tag"),
-        paginatedGoogle(google, `https://tagmanager.googleapis.com/tagmanager/v2/${workspacePath}/folders`, "folder")
-      ]);
-      result.gtm = { ...result.gtm, variables, triggers, tags, folders };
-    } else if (state.lastPublishedVersionPath) {
-      const version = await google.get(
-        `https://tagmanager.googleapis.com/tagmanager/v2/${state.lastPublishedVersionPath}`
-      );
       result.gtm = {
         ...result.gtm,
-        variables: version.variable ?? [],
-        triggers: version.trigger ?? [],
-        tags: version.tag ?? [],
-        folders: version.folder ?? [],
-        versions: [version]
+        ...(await readGtmWorkspaceResources(google, workspacePath)),
+        workspaceId: workspace.workspaceId
       };
-    } else if (!allowMissing) {
-      console.warn("  WARN   No managed GTM workspace exists yet.");
+    } else {
+      if (liveVersion) {
+        result.gtm = {
+          ...result.gtm,
+          ...live
+        };
+      } else if (!allowMissing) {
+        console.warn("  WARN   The GTM container has no live version yet.");
+      }
     }
   }
   if (requested.has("ga4") && resolved.gaPropertyId) {
@@ -1231,6 +1388,82 @@ function printDiff(label, expected, actual, key = (item) => item.name) {
     else if (sameDesired(item, current)) console.log(`  KEEP   ${name}`);
     else console.log(`  UPDATE ${name}`);
   }
+}
+
+function diagnoseGtmProviderReconciliation(existing, expected, selectedProviders) {
+  const inspection = inspectGtmProviderReconciliation(
+    existing,
+    expected,
+    selectedProviders
+  );
+  for (const conflict of inspection.conflicts) {
+    console.error(`  BLOCK  ${formatGtmReconciliationConflict(conflict)}`);
+  }
+  for (const resource of inspection.untouched) {
+    console.log(`  KEEP   unrelated GTM ${resource.kind} ${resource.name}`);
+  }
+  return inspection;
+}
+
+function assertGtmProviderReconciliation(existing, expected, selectedProviders, context) {
+  const { conflicts } = inspectGtmProviderReconciliation(
+    existing,
+    expected,
+    selectedProviders
+  );
+  if (conflicts.length === 0) return;
+  fail(
+    `${context} contains analytics resources outside the selected provider reconciliation:\n` +
+      conflicts.map((conflict) => `- ${formatGtmReconciliationConflict(conflict)}`).join("\n") +
+      "\nResolve these recognized analytics resources in GTM before apply or publish. Unrelated unknown tags are left untouched."
+  );
+}
+
+function collectGtmProviderReconciliationFailures(
+  existing,
+  expected,
+  selectedProviders,
+  failures
+) {
+  const { conflicts } = inspectGtmProviderReconciliation(
+    existing,
+    expected,
+    selectedProviders
+  );
+  failures.push(
+    ...conflicts.map(
+      (conflict) => `GTM provider reconciliation blocked: ${formatGtmReconciliationConflict(conflict)}`
+    )
+  );
+}
+
+function assertGtmDesiredState(existing, expected, context) {
+  const drift = inspectGtmDesiredDrift(existing, expected);
+  if (drift.length === 0) return;
+  fail(
+    `${context} does not match the selected managed desired state:\n` +
+      drift.map((item) => `- ${formatGtmDesiredDrift(item)}`).join("\n")
+  );
+}
+
+function collectGtmDesiredDriftFailures(existing, expected, failures) {
+  failures.push(
+    ...inspectGtmDesiredDrift(existing, expected).map(
+      (item) => `Published GTM desired state drift: ${formatGtmDesiredDrift(item)}`
+    )
+  );
+}
+
+function formatGtmDesiredDrift(item) {
+  const keys = item.differingKeys?.length
+    ? ` (${item.differingKeys.join(", ")})`
+    : "";
+  return `${item.kind} ${item.name}: ${item.reason}${keys}`;
+}
+
+function formatGtmReconciliationConflict(conflict) {
+  const provider = conflict.provider ? ` (${conflict.provider})` : "";
+  return `${conflict.kind} ${conflict.name}${provider}: ${conflict.reason}`;
 }
 
 function verifyNames(label, expected, actual, failures, key = (item) => item.name) {

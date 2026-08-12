@@ -5,9 +5,14 @@ import {
   completePendingWorkspaceState,
   createPendingWorkspaceState,
   fetchWithSafeRetries,
+  gtmLiveVersionUrl,
+  gtmVersionResponseErrors,
   invalidateWorkspaceApplyState,
+  inspectGtmDesiredDrift,
+  inspectGtmProviderReconciliation,
   parseProviders,
   partitionProvidersByPrerequisites,
+  publishedGtmResources,
   publishStateErrors
 } from "../scripts/analytics-lib.mjs";
 
@@ -339,6 +344,380 @@ describe("analytics publish guard", () => {
         appliedAt: "2026-08-05T00:01:00.000Z"
       })
     ).toThrow("pending workspace does not match");
+  });
+});
+
+describe("GTM provider reconciliation guard", () => {
+  const ga4 = buildDesiredState(stack, plan, ids, ["ga4"]).gtm;
+
+  it("uses the GTM live pseudo-version endpoint", () => {
+    expect(
+      gtmLiveVersionUrl("accounts/1/containers/2")
+    ).toBe(
+      "https://tagmanager.googleapis.com/tagmanager/v2/accounts/1/containers/2/versions:live"
+    );
+  });
+
+  it("rejects GTM sync, preview and version error responses", () => {
+    expect(
+      gtmVersionResponseErrors({
+        syncStatus: { syncError: true, mergeConflict: true }
+      })
+    ).toEqual(["syncError", "mergeConflict"]);
+    expect(gtmVersionResponseErrors({ mergeConflict: [{}] })).toEqual([
+      "mergeConflict"
+    ]);
+    expect(gtmVersionResponseErrors({ compilerError: true })).toEqual([
+      "compilerError"
+    ]);
+    expect(gtmVersionResponseErrors({}, { requireVersionPath: true })).toEqual([
+      "missingContainerVersionPath"
+    ]);
+    expect(
+      gtmVersionResponseErrors(
+        { containerVersion: { path: "accounts/1/containers/2/versions/3" } },
+        { requireVersionPath: true }
+      )
+    ).toEqual([]);
+  });
+
+  it("verifies published live resources instead of an un-published workspace", () => {
+    expect(
+      publishedGtmResources({
+        ...ga4,
+        workspaceId: "workspace-1",
+        live: { variables: [], triggers: [], tags: [] }
+      })
+    ).toEqual({ variables: [], triggers: [], tags: [] });
+  });
+
+  it("rejects inherited managed Clarity and Mixpanel resources for a GA4-only selection", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: [
+          ...ga4.variables,
+          { name: "[managed] Clarity Project ID" },
+          { name: "[managed] Mixpanel Project Token" }
+        ],
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          { name: "[managed] Clarity Initialization", type: "html" },
+          { name: "[managed] Mixpanel Initialization", type: "html" }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "[managed] Clarity Initialization",
+          provider: "clarity",
+          reason: "unselected-managed-provider"
+        }),
+        expect.objectContaining({
+          name: "[managed] Mixpanel Initialization",
+          provider: "mixpanel",
+          reason: "unselected-managed-provider"
+        })
+      ])
+    );
+  });
+
+  it("rejects a recognized duplicate legacy Google Analytics tag", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: ga4.variables,
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          {
+            name: "Legacy page-load GA",
+            type: "googtag",
+            parameter: [{ key: "tagId", value: "G-LEGACY123" }]
+          }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.conflicts).toContainEqual({
+      kind: "tag",
+      name: "Legacy page-load GA",
+      provider: "ga4",
+      reason: "legacy-analytics-tag"
+    });
+  });
+
+  it("allows paused legacy analytics while keeping paused managed conflicts strict", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: ga4.variables,
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          {
+            name: "Paused legacy Google Analytics",
+            type: "googtag",
+            paused: true,
+            parameter: [{ key: "tagId", value: "G-LEGACY123" }]
+          },
+          { name: "[managed] Clarity Initialization", type: "html", paused: true }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.untouched).toContainEqual({
+      kind: "tag",
+      name: "Paused legacy Google Analytics"
+    });
+    expect(result.conflicts).toContainEqual({
+      kind: "tag",
+      name: "[managed] Clarity Initialization",
+      provider: "clarity",
+      reason: "unselected-managed-provider"
+    });
+  });
+
+  it("leaves an AW-only Google Ads tag untouched", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: ga4.variables,
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          {
+            name: "Google Tag",
+            type: "googtag",
+            parameter: [{ key: "tagId", value: "AW-123456789" }]
+          }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.untouched).toContainEqual({
+      kind: "tag",
+      name: "Google Tag"
+    });
+  });
+
+  it("recognizes a legacy Google tag that references a GA measurement variable", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: ga4.variables,
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          {
+            name: "Legacy analytics loader",
+            type: "googtag",
+            parameter: [{ key: "tagId", value: "{{Legacy GA Measurement ID}}" }]
+          }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.conflicts).toContainEqual({
+      kind: "tag",
+      name: "Legacy analytics loader",
+      provider: "ga4",
+      reason: "legacy-analytics-tag"
+    });
+  });
+
+  it("recognizes neutral custom HTML analytics loaders", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: ga4.variables,
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          {
+            name: "Legacy loader one",
+            type: "html",
+            parameter: [
+              { key: "html", value: '<script>gtag("config","G-OTHER")</script>' }
+            ]
+          },
+          {
+            name: "Legacy loader two",
+            type: "html",
+            parameter: [
+              { key: "html", value: '<script>clarity("event","x")</script>' }
+            ]
+          }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.conflicts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "Legacy loader one",
+          provider: "ga4",
+          reason: "legacy-analytics-tag"
+        }),
+        expect.objectContaining({
+          name: "Legacy loader two",
+          provider: "clarity",
+          reason: "legacy-analytics-tag"
+        })
+      ])
+    );
+  });
+
+  it("accepts semantically equivalent managed tags from the GTM API", () => {
+    const existing = structuredClone(ga4);
+    existing.triggers = existing.triggers.map((trigger, index) => ({
+      ...trigger,
+      triggerId: String(index + 1)
+    }));
+    existing.tags = existing.tags.map((tag) => {
+      const firing = existing.triggers.find(
+        (trigger) => trigger.name === tag.desiredTrigger
+      );
+      const blocking = existing.triggers.find(
+        (trigger) => trigger.name === tag.desiredBlockingTrigger
+      );
+      const next = {
+        ...structuredClone(tag),
+        firingTriggerId: firing ? [String(firing.triggerId)] : undefined,
+        blockingTriggerId: blocking ? [String(blocking.triggerId)] : undefined
+      };
+      delete (next as Record<string, unknown>).desiredTrigger;
+      delete (next as Record<string, unknown>).desiredBlockingTrigger;
+      return next;
+    });
+    const googleTag = existing.tags.find(
+      (tag) => tag.name === "[managed] Google Tag"
+    ) as unknown as {
+      parameter: Array<{
+        key: string;
+        list?: Array<{ map: Array<Record<string, string>> }>;
+      }>;
+    };
+    const config = googleTag.parameter.find(
+      (parameter) => parameter.key === "configSettingsTable"
+    );
+    if (config?.list?.[0]?.map) {
+      config.list[0].map = config.list[0].map.map((entry) => ({
+        value: entry.value,
+        key: entry.key,
+        type: entry.type
+      }));
+    }
+
+    expect(inspectGtmDesiredDrift(existing, ga4)).toEqual([]);
+  });
+
+  it("detects same-name Google Tag configuration drift", () => {
+    const existing = structuredClone(ga4);
+    existing.triggers = existing.triggers.map((trigger, index) => ({
+      ...trigger,
+      triggerId: String(index + 1)
+    }));
+    existing.tags = existing.tags.map((tag) => {
+      const next = structuredClone(tag) as typeof tag & {
+        firingTriggerId?: string[];
+        blockingTriggerId?: string[];
+      };
+      const firing = existing.triggers.find(
+        (trigger) => trigger.name === tag.desiredTrigger
+      );
+      const blocking = existing.triggers.find(
+        (trigger) => trigger.name === tag.desiredBlockingTrigger
+      );
+      next.firingTriggerId = firing ? [String(firing.triggerId)] : [];
+      next.blockingTriggerId = blocking ? [String(blocking.triggerId)] : [];
+      delete (next as Record<string, unknown>).desiredTrigger;
+      delete (next as Record<string, unknown>).desiredBlockingTrigger;
+      return next;
+    });
+    const googleTag = existing.tags.find(
+      (tag) => tag.name === "[managed] Google Tag"
+    ) as unknown as { parameter: Array<{ key: string; list?: Array<{ map: Array<{ key: string; value: string }> }> }> };
+    const config = googleTag.parameter.find(
+      (parameter) => parameter.key === "configSettingsTable"
+    );
+    const sendPageView = config?.list?.[0].map.find(
+      (parameter) => parameter.key === "parameterValue"
+    );
+    if (sendPageView) sendPageView.value = "true";
+
+    expect(inspectGtmDesiredDrift(existing, ga4)).toContainEqual({
+      kind: "tag",
+      name: "[managed] Google Tag",
+      reason: "managed-resource-drift",
+      differingKeys: ["parameter"]
+    });
+  });
+
+  it("detects an unexpected blocking trigger on a managed tag", () => {
+    const existing = structuredClone(ga4);
+    existing.triggers = existing.triggers.map((trigger, index) => ({
+      ...trigger,
+      triggerId: String(index + 1)
+    }));
+    existing.tags = existing.tags.map((tag) => {
+      const firing = existing.triggers.find(
+        (trigger) => trigger.name === tag.desiredTrigger
+      );
+      const blocking = existing.triggers.find(
+        (trigger) => trigger.name === tag.desiredBlockingTrigger
+      );
+      const next = {
+        ...structuredClone(tag),
+        firingTriggerId: firing ? [String(firing.triggerId)] : [],
+        blockingTriggerId: blocking ? [String(blocking.triggerId)] : []
+      };
+      delete (next as Record<string, unknown>).desiredTrigger;
+      delete (next as Record<string, unknown>).desiredBlockingTrigger;
+      return next;
+    });
+    const googleTag = existing.tags.find(
+      (tag) => tag.name === "[managed] Google Tag"
+    );
+    if (googleTag) googleTag.blockingTriggerId = ["999"];
+
+    expect(inspectGtmDesiredDrift(existing, ga4)).toContainEqual({
+      kind: "tag",
+      name: "[managed] Google Tag",
+      reason: "managed-resource-drift",
+      differingKeys: ["blockingTriggerId"]
+    });
+  });
+
+  it("leaves unrelated unknown tags untouched", () => {
+    const result = inspectGtmProviderReconciliation(
+      {
+        variables: ga4.variables,
+        triggers: ga4.triggers,
+        tags: [
+          ...ga4.tags,
+          { name: "Owner custom conversion", type: "html", parameter: [] }
+        ]
+      },
+      ga4,
+      ["ga4"]
+    );
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.untouched).toContainEqual({
+      kind: "tag",
+      name: "Owner custom conversion"
+    });
   });
 });
 

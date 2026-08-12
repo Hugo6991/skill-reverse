@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveReport } from "./bilingual";
 import {
   analyticsDurationBucket,
+  crossesAnalyticsExclusionBoundary,
   initializeAnalytics,
   routeKindFromPath,
   setAnalyticsContext,
@@ -124,14 +125,20 @@ export default function App() {
   const [privacySettingsOpen, setPrivacySettingsOpen] = useState(false);
   const pollTimer = useRef<number | undefined>(undefined);
   const lastViewedStage = useRef("");
+  const currentPathname = useRef(window.location.pathname);
 
   const navigate = useCallback((path: string, replace = false) => {
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
     const next = new URL(path, window.location.origin);
     next.searchParams.set("lang", locale);
     const localizedPath = `${next.pathname}${next.search}${next.hash}`;
+    if (crossesAnalyticsExclusionBoundary(currentPathname.current, next.pathname)) {
+      window.location.assign(localizedPath);
+      return;
+    }
     if (replace) window.history.replaceState({}, "", localizedPath);
     else window.history.pushState({}, "", localizedPath);
+    currentPathname.current = next.pathname;
     setPageError("");
     setRoute(parseRoute());
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -179,6 +186,16 @@ export default function App() {
     api<PublicConfig>("/api/config").then(setConfig).catch(() => setConfig(fallbackConfig));
     const onPopState = () => {
       if (pollTimer.current) window.clearTimeout(pollTimer.current);
+      if (
+        crossesAnalyticsExclusionBoundary(
+          currentPathname.current,
+          window.location.pathname
+        )
+      ) {
+        window.location.reload();
+        return;
+      }
+      currentPathname.current = window.location.pathname;
       setPageError("");
       setRoute(parseRoute());
     };
