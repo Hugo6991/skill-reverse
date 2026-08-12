@@ -3,17 +3,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-const apply = process.argv.includes("--apply");
-const remote = process.argv.includes("--remote");
-const validate = process.argv.includes("--validate");
-const backupConfirmed = process.argv.includes("--backup-confirmed");
-if (!remote) {
-  throw new Error("Pass --remote explicitly. This backfill is intended for the production D1 database.");
-}
-if (apply && !backupConfirmed) {
-  throw new Error("Refusing remote writes without --backup-confirmed after a production backup.");
-}
+import { pathToFileURL } from "node:url";
+import { createBilingualReportBundle } from "../src/bilingual.ts";
+import { reportTranslationSchema } from "../worker/schema.ts";
 
 async function readVars() {
   const vars = {};
@@ -39,34 +31,15 @@ function wrangler(...args) {
   });
 }
 
-const query = wrangler(
-  "d1",
-  "execute",
-  "DB",
-  "--remote",
-  "--command",
-  "SELECT id, payload_json, created_at FROM reports WHERE content_schema_version < 2 ORDER BY created_at",
-  "--json"
-);
-const pages = JSON.parse(query);
-const rows = pages.flatMap((page) => page.results ?? []);
-if (!apply && !validate) {
-  console.log(`✓ Plan found ${rows.length} legacy report(s); no provider calls or writes were made.`);
-  console.log("  Validate translations with --validate, or apply through the backup-wrapped package script.");
-  process.exit(0);
-}
-
-const vars = await readVars();
-const apiKey = process.env.OPENROUTER_API_KEY || vars.OPENROUTER_API_KEY;
-const model =
-  process.env.OPENROUTER_SYNTHESIS_MODEL ||
-  vars.OPENROUTER_SYNTHESIS_MODEL ||
-  "openai/gpt-5.6-terra";
-if (!apiKey) throw new Error("OPENROUTER_API_KEY is required to translate legacy reports.");
-
-function assertLengths(source, translated) {
+export function assertBackfillTranslationLengths(source, translated) {
   const pairs = [
     ["framework.steps", source.framework.steps, translated.framework.steps],
+    [
+      "gameIdentity.titleRationale",
+      source.gameProfile.identity.titleRationale,
+      translated.gameIdentity.titleRationale
+    ],
+    ["gameIdentity.beats", source.gameProfile.identity.beats, translated.gameIdentity.beats],
     ["occupation.aliases", source.occupation.aliases, translated.occupation.aliases],
     ["occupation.competencies", source.occupation.competencies, translated.occupation.competencyLabels],
     ["observations", source.observations, translated.observations],
@@ -83,8 +56,14 @@ function assertLengths(source, translated) {
   }
 }
 
-function applyTranslation(source, translated) {
-  assertLengths(source, translated);
+export function validateBackfillTranslation(source, value) {
+  const translated = reportTranslationSchema.parse(value);
+  assertBackfillTranslationLengths(source, translated);
+  return translated;
+}
+
+export function applyBackfillTranslation(source, value) {
+  const translated = validateBackfillTranslation(source, value);
   const competencyLabels = translated.occupation.competencyLabels;
   return {
     ...source,
@@ -153,7 +132,7 @@ function applyTranslation(source, translated) {
   };
 }
 
-async function translate(source) {
+async function translate(source, { apiKey, model }) {
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -190,70 +169,109 @@ ${JSON.stringify(source)}`
   if (!content || payload.choices?.[0]?.finish_reason !== "stop") {
     throw new Error("Translation response was empty or truncated");
   }
-  return JSON.parse(content.replace(/^```json\s*/i, "").replace(/\s*```$/, ""));
+  return validateBackfillTranslation(
+    source,
+    JSON.parse(content.replace(/^```json\s*/i, "").replace(/\s*```$/, ""))
+  );
 }
 
 function quote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-const temporaryDirectory = await mkdtemp(join(tmpdir(), "skill-reverse-bilingual-"));
-try {
-  const plannedUpdates = [];
-  for (const row of rows) {
-    const source = JSON.parse(row.payload_json);
-    if (source?.schemaVersion === 2) continue;
-    const translated = await translate(source);
-    const english = applyTranslation(source, translated);
-    const bundle = {
-      schemaVersion: 2,
-      availableLocales: ["zh-TW", "en"],
-      core: {
-        id: source.id,
-        targetUrl: source.targetUrl,
-        generatedAt: source.generatedAt,
-        sourceIds: source.sources.map((item) => item.id),
-        frameworkStepIds: source.framework.steps.map((_, index) => `step-${index + 1}`),
-        competencyIds: source.occupation.competencies.map(
-          (item, index) => `${item.kind}-${index + 1}`
-        ),
-        professionalDeltaIds: source.professionalDelta.map((_, index) => `delta-${index + 1}`),
-        observationIds: source.observations.map((item) => item.id),
-        claimIds: source.claims.map((item) => item.id),
-        evidenceEdgeIds: source.edges.map((item) => item.id),
-        adoptionIds: source.adoption.map((_, index) => `adoption-${index + 1}`),
-        caveatIds: source.caveats.map((_, index) => `caveat-${index + 1}`),
-        degradedIds: source.degraded.map((_, index) => `degraded-${index + 1}`)
-      },
-      locales: { "zh-TW": source, en: english },
-      generation: {
-        sourceLocale: "zh-TW",
-        synthesizedAt: new Date().toISOString(),
-        synthesisModel: "legacy-report",
-        translationModel: model,
-        sourceContentHash: createHash("sha256").update(JSON.stringify(source)).digest("hex")
-      }
-    };
-    console.log(`${apply ? "Prepared" : "Validated"} ${row.id}`);
-    plannedUpdates.push({ id: row.id, bundle });
+export function createValidatedBilingualBundle(
+  sourceValue,
+  translationValue,
+  { model, synthesizedAt = new Date().toISOString() }
+) {
+  const source = sourceValue;
+  const english = applyBackfillTranslation(source, translationValue);
+  const bundle = createBilingualReportBundle(source, english, {
+    sourceLocale: "zh-TW",
+    synthesizedAt,
+    synthesisModel: "legacy-report",
+    translationModel: model,
+    sourceContentHash: createHash("sha256").update(JSON.stringify(source)).digest("hex")
+  });
+  if (
+    bundle.schemaVersion !== 2 ||
+    bundle.availableLocales.join(",") !== "zh-TW,en" ||
+    !bundle.locales["zh-TW"] ||
+    !bundle.locales.en ||
+    bundle.core.id !== source.id ||
+    bundle.generation.sourceContentHash.length !== 64
+  ) {
+    throw new Error("Final bilingual report bundle failed validation");
   }
-  if (apply) {
-    console.log(`→ Applying ${plannedUpdates.length} fully validated translation(s)`);
-  }
-  for (const update of apply ? plannedUpdates : []) {
-    const sqlPath = join(temporaryDirectory, `${update.id}.sql`);
-    await writeFile(
-      sqlPath,
-      `UPDATE reports SET payload_json = ${quote(JSON.stringify(update.bundle))}, content_schema_version = 2 WHERE id = ${quote(update.id)} AND content_schema_version < 2;\n`
-    );
-    wrangler("d1", "execute", "DB", "--remote", "--file", sqlPath);
-  }
-} finally {
-  await rm(temporaryDirectory, { recursive: true, force: true });
+  return bundle;
 }
 
-console.log(
-  apply
-    ? `✓ Backfilled ${rows.length} legacy report(s)`
-    : `✓ Validated ${rows.length} translation(s) without remote writes.`
-);
+export async function runReportLocalizationBackfill({ args = process.argv.slice(2) } = {}) {
+  const apply = args.includes("--apply");
+  const remote = args.includes("--remote");
+  const validate = args.includes("--validate");
+  const backupConfirmed = args.includes("--backup-confirmed");
+  if (!remote) {
+    throw new Error("Pass --remote explicitly. This backfill is intended for the production D1 database.");
+  }
+  if (apply && !backupConfirmed) {
+    throw new Error("Refusing remote writes without --backup-confirmed after a production backup.");
+  }
+  const query = wrangler(
+    "d1",
+    "execute",
+    "DB",
+    "--remote",
+    "--command",
+    "SELECT id, payload_json, created_at FROM reports WHERE content_schema_version < 2 ORDER BY created_at",
+    "--json"
+  );
+  const pages = JSON.parse(query);
+  const rows = pages.flatMap((page) => page.results ?? []);
+  if (!apply && !validate) {
+    console.log(`✓ Plan found ${rows.length} legacy report(s); no provider calls or writes were made.`);
+    console.log("  Validate translations with --validate, or apply through the backup-wrapped package script.");
+    return;
+  }
+  const vars = await readVars();
+  const apiKey = process.env.OPENROUTER_API_KEY || vars.OPENROUTER_API_KEY;
+  const model =
+    process.env.OPENROUTER_SYNTHESIS_MODEL ||
+    vars.OPENROUTER_SYNTHESIS_MODEL ||
+    "openai/gpt-5.6-terra";
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY is required to translate legacy reports.");
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "skill-reverse-bilingual-"));
+  try {
+    const plannedUpdates = [];
+    for (const row of rows) {
+      const source = JSON.parse(row.payload_json);
+      if (source?.schemaVersion === 2) continue;
+      const translated = await translate(source, { apiKey, model });
+      const bundle = createValidatedBilingualBundle(source, translated, { model });
+      console.log(`${apply ? "Prepared" : "Validated"} ${row.id}`);
+      plannedUpdates.push({ id: row.id, bundle });
+    }
+    if (apply) {
+      console.log(`→ Applying ${plannedUpdates.length} fully validated translation(s)`);
+    }
+    for (const update of apply ? plannedUpdates : []) {
+      const sqlPath = join(temporaryDirectory, `${update.id}.sql`);
+      await writeFile(
+        sqlPath,
+        `UPDATE reports SET payload_json = ${quote(JSON.stringify(update.bundle))}, content_schema_version = 2 WHERE id = ${quote(update.id)} AND content_schema_version < 2;\n`
+      );
+      wrangler("d1", "execute", "DB", "--remote", "--file", sqlPath);
+    }
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+  console.log(
+    apply
+      ? `✓ Backfilled ${rows.length} legacy report(s)`
+      : `✓ Validated ${rows.length} translation(s) without remote writes.`
+  );
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runReportLocalizationBackfill();
+}
