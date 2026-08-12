@@ -26,7 +26,18 @@
     "gaPropertyId": "547852784",
     "gaWebStreamId": "15353970824",
     "gaMeasurementId": "G-ZQZ4565SWV",
-    "searchConsoleSiteUrl": "sc-domain:vibeencode.dev"
+    "searchConsoleSiteUrl": "sc-domain:vibeencode.dev",
+    "sendPageView": false,
+    "enhancedMeasurement": {
+      "streamEnabled": true,
+      "scrollsEnabled": true,
+      "outboundClicksEnabled": false,
+      "fileDownloadsEnabled": false,
+      "pageChangesEnabled": false,
+      "siteSearchEnabled": false,
+      "formInteractionsEnabled": false,
+      "videoEngagementEnabled": false
+    }
   },
   "clarity": {
     "projectId": "",

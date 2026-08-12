@@ -231,6 +231,7 @@ export function buildDesiredState(config, plan, ids, providers = ANALYTICS_PROVI
   const hasClarity = selected.has("clarity");
   const hasMixpanel = selected.has("mixpanel");
   const hasGtm = hasGa4 || hasClarity || hasMixpanel;
+  const configuredEnhancedMeasurement = config.google?.enhancedMeasurement ?? {};
   const managed = (name) => `[managed] ${name}`;
   const common = Object.keys(plan.properties);
   const dlv = [
@@ -346,7 +347,25 @@ export function buildDesiredState(config, plan, ids, providers = ANALYTICS_PROVI
           {
             name: managed("Google Tag"),
             type: "googtag",
-            parameter: [templateParameter("tagId", `{{${managed("GA Measurement ID")}}}`)],
+            parameter: [
+              templateParameter("tagId", `{{${managed("GA Measurement ID")}}}`),
+              {
+                type: "LIST",
+                key: "configSettingsTable",
+                list: [
+                  {
+                    type: "MAP",
+                    map: [
+                      templateParameter("parameter", "send_page_view"),
+                      templateParameter(
+                        "parameterValue",
+                        config.google?.sendPageView === true ? "true" : "false"
+                      )
+                    ]
+                  }
+                ]
+              }
+            ],
             desiredTrigger: initTrigger.name
           },
           {
@@ -480,14 +499,18 @@ export function buildDesiredState(config, plan, ids, providers = ANALYTICS_PROVI
       customDimensions,
       keyEvents,
       enhancedMeasurement: {
-        streamEnabled: true,
-        scrollsEnabled: true,
-        outboundClicksEnabled: true,
-        fileDownloadsEnabled: true,
-        pageChangesEnabled: false,
-        siteSearchEnabled: false,
-        formInteractionsEnabled: false,
-        videoEngagementEnabled: false
+        streamEnabled: configuredEnhancedMeasurement.streamEnabled !== false,
+        scrollsEnabled: configuredEnhancedMeasurement.scrollsEnabled !== false,
+        outboundClicksEnabled:
+          configuredEnhancedMeasurement.outboundClicksEnabled === true,
+        fileDownloadsEnabled:
+          configuredEnhancedMeasurement.fileDownloadsEnabled === true,
+        pageChangesEnabled: configuredEnhancedMeasurement.pageChangesEnabled === true,
+        siteSearchEnabled: configuredEnhancedMeasurement.siteSearchEnabled === true,
+        formInteractionsEnabled:
+          configuredEnhancedMeasurement.formInteractionsEnabled === true,
+        videoEngagementEnabled:
+          configuredEnhancedMeasurement.videoEngagementEnabled === true
       },
       retention: {
         eventDataRetention: "FOURTEEN_MONTHS",
