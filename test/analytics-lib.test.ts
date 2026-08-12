@@ -16,6 +16,19 @@ const stack = {
     hostnames: ["example.com"],
     excludedPaths: ["/admin", "/api"]
   },
+  google: {
+    sendPageView: false,
+    enhancedMeasurement: {
+      streamEnabled: true,
+      scrollsEnabled: true,
+      outboundClicksEnabled: false,
+      fileDownloadsEnabled: false,
+      pageChangesEnabled: false,
+      siteSearchEnabled: false,
+      formInteractionsEnabled: false,
+      videoEngagementEnabled: false
+    }
+  },
   clarity: {
     projectId: "clarity-project",
     maskingMode: "balanced",
@@ -95,6 +108,51 @@ describe("analytics provider selection", () => {
       "[managed] GA4 Product Event",
       "[managed] GA4 Page View"
     ]);
+  });
+
+  it("uses only the explicit SPA page-view event and disables URL-bearing enhanced events", () => {
+    const desired = buildDesiredState(stack, plan, ids, ["ga4"]);
+    const googleTag = desired.gtm.tags.find(
+      (item) => item.name === "[managed] Google Tag"
+    ) as unknown as {
+      parameter: Array<{
+        key: string;
+        list?: Array<{ map: Array<{ key: string; value: string }> }>;
+      }>;
+    };
+    const configSettings = googleTag.parameter.find(
+      (parameter) => parameter.key === "configSettingsTable"
+    );
+
+    expect(configSettings?.list?.[0].map).toEqual([
+      { type: "TEMPLATE", key: "parameter", value: "send_page_view" },
+      { type: "TEMPLATE", key: "parameterValue", value: "false" }
+    ]);
+    expect(
+      desired.gtm.tags.filter((item) => item.name === "[managed] GA4 Page View")
+    ).toHaveLength(1);
+    expect(desired.ga.enhancedMeasurement).toMatchObject({
+      outboundClicksEnabled: false,
+      fileDownloadsEnabled: false,
+      pageChangesEnabled: false
+    });
+  });
+
+  it("defaults URL-bearing automatic measurements and automatic page views to off", () => {
+    const desired = buildDesiredState(
+      { ...stack, google: undefined },
+      plan,
+      ids,
+      ["ga4"]
+    );
+    const serializedGoogleTag = JSON.stringify(
+      desired.gtm.tags.find((item) => item.name === "[managed] Google Tag")
+    );
+
+    expect(serializedGoogleTag).toContain('"key":"parameter","value":"send_page_view"');
+    expect(serializedGoogleTag).toContain('"key":"parameterValue","value":"false"');
+    expect(desired.ga.enhancedMeasurement.outboundClicksEnabled).toBe(false);
+    expect(desired.ga.enhancedMeasurement.fileDownloadsEnabled).toBe(false);
   });
 
   it("generates only the selected Clarity or Mixpanel GTM resources", () => {

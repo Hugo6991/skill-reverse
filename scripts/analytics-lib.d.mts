@@ -88,6 +88,17 @@ export interface AnalyticsNamedResource {
   [key: string]: unknown;
 }
 
+export interface AnalyticsEnhancedMeasurementSettings {
+  streamEnabled: boolean;
+  scrollsEnabled: boolean;
+  outboundClicksEnabled: boolean;
+  fileDownloadsEnabled: boolean;
+  pageChangesEnabled: boolean;
+  siteSearchEnabled: boolean;
+  formInteractionsEnabled: boolean;
+  videoEngagementEnabled: boolean;
+}
+
 export interface AnalyticsDesiredState {
   gtm: {
     folderName: string;
@@ -99,7 +110,7 @@ export interface AnalyticsDesiredState {
   ga: {
     customDimensions: Array<Record<string, unknown>>;
     keyEvents: Array<Record<string, unknown>>;
-    enhancedMeasurement: Record<string, boolean>;
+    enhancedMeasurement: AnalyticsEnhancedMeasurementSettings;
     retention: Record<string, boolean | string>;
     emailRedactionEnabled: boolean;
   };
