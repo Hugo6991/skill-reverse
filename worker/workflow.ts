@@ -96,6 +96,31 @@ async function updateJob(
     .run();
 }
 
+async function settleResearchGates(
+  actor: { release(jobId: string): Promise<void> },
+  budget: { settle(jobId: string, actualCents: number): Promise<void> },
+  scheduler: { complete(jobId: string): Promise<void> },
+  jobId: string,
+  actualCents: number
+): Promise<void> {
+  const gateResults = await Promise.allSettled([
+    actor.release(jobId),
+    budget.settle(jobId, actualCents)
+  ]);
+  const failures = gateResults.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failures.length) {
+    throw new Error(
+      `Research gate settlement failed (${failures.length}/2)`,
+      { cause: failures[0].reason }
+    );
+  }
+  // Removing the Scheduler lease is intentionally last. If either gate is
+  // unavailable, the active entry and alarm remain available for reconciliation.
+  await scheduler.complete(jobId);
+}
+
 export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflowParams> {
   async run(event: WorkflowEvent<ResearchWorkflowParams>, step: WorkflowStep): Promise<unknown> {
     if (event.payload.kind === "health") {
@@ -123,6 +148,8 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
       Math.floor(Number(this.env.AUTO_RETRY_LIMIT || 1))
     );
     let degraded: string[] = [];
+    let publishedReportId: string | undefined;
+    let finalActualCents = 0;
     try {
       await step.do("mark job running", async () => {
         const startedAt = new Date().toISOString();
@@ -473,54 +500,66 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         })
       );
 
-      await step.do("persist report", async () => {
-        const now = new Date();
-        const publishedAt = now.toISOString();
-        const lifecycle = await this.env.DB.prepare(
-          "SELECT started_at FROM jobs WHERE id = ?1"
-        )
-          .bind(jobId)
-          .first<{ started_at: string | null }>();
-        const permanentExpiry = "9999-12-31T23:59:59.999Z";
-        const cardExpires = new Date(now.getTime() + 365 * 86_400_000).toISOString();
-        const presentation = historyPresentation(targetUrl, JSON.stringify(report));
-        const targetKey = normalizedTargetKey(targetUrl);
-        const statements = captured.map((artifact) =>
-          this.env.DB.prepare(
-            `INSERT OR REPLACE INTO source_artifacts
+      finalActualCents = await step.do(
+        "calculate final cost",
+        { retries: { limit: 2, delay: "5 seconds", backoff: "linear" } },
+        async () => getJobCost(this.env.DB, jobId)
+      );
+
+      await step.do(
+        "persist report",
+        { retries: { limit: 2, delay: "5 seconds", backoff: "linear" } },
+        async () => {
+          const now = new Date();
+          const publishedAt = now.toISOString();
+          const permanentExpiry = "9999-12-31T23:59:59.999Z";
+          const cardExpires = new Date(now.getTime() + 365 * 86_400_000).toISOString();
+          const presentation = historyPresentation(targetUrl, JSON.stringify(report));
+          const targetKey = normalizedTargetKey(targetUrl);
+          const statements = captured.map((artifact) =>
+            this.env.DB.prepare(
+              `INSERT OR REPLACE INTO source_artifacts
              (id, job_id, url, kind, status, title, retrieved_at, r2_key, excerpt, metadata_json)
              VALUES (?1, ?2, ?3, ?4, 'verified_at_retrieval', ?5, ?6, ?7, ?8, ?9)`
-          ).bind(
-            `${jobId}-${artifact.id}`,
-            jobId,
-            artifact.url,
-            artifact.url.includes("github.com") ? "github" : "website",
-            artifact.title,
-            publishedAt,
-            artifact.r2Key,
-            artifact.excerpt,
-            JSON.stringify({
-              screenshotKey: artifact.screenshotKey ?? null,
-              repositoryMetrics: artifact.repositoryMetrics ?? null
-            })
-          )
-        );
-        const reportInsert = this.env.DB.prepare(
-          `INSERT INTO reports
+            ).bind(
+              `${jobId}-${artifact.id}`,
+              jobId,
+              artifact.url,
+              artifact.url.includes("github.com") ? "github" : "website",
+              artifact.title,
+              publishedAt,
+              artifact.r2Key,
+              artifact.excerpt,
+              JSON.stringify({
+                screenshotKey: artifact.screenshotKey ?? null,
+                repositoryMetrics: artifact.repositoryMetrics ?? null
+              })
+            )
+          );
+          const reportInsert = this.env.DB.prepare(
+            `INSERT INTO reports
            (id, job_id, capability_hash, title, payload_json, created_at, expires_at,
             content_schema_version)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 2)`
-        ).bind(
-          report.id,
-          jobId,
-          capabilityHash,
-          report.title,
-          JSON.stringify(reportBundle),
-          publishedAt,
-          permanentExpiry
-        );
-        const skillCardUpsert = this.env.DB.prepare(
-          `INSERT INTO skill_cards
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 2)
+           ON CONFLICT(id) DO UPDATE SET
+             job_id = excluded.job_id,
+             capability_hash = excluded.capability_hash,
+             title = excluded.title,
+             payload_json = excluded.payload_json,
+             created_at = excluded.created_at,
+             expires_at = excluded.expires_at,
+             content_schema_version = excluded.content_schema_version`
+          ).bind(
+            report.id,
+            jobId,
+            capabilityHash,
+            report.title,
+            JSON.stringify(reportBundle),
+            publishedAt,
+            permanentExpiry
+          );
+          const skillCardUpsert = this.env.DB.prepare(
+            `INSERT INTO skill_cards
            (id, actor_hash, job_id, report_id, target_key, target_url, display_name,
             occupation_code, occupation_title, game_profile_json, created_at, updated_at, expires_at)
            VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?11)
@@ -534,38 +573,50 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
              game_profile_json = excluded.game_profile_json,
              updated_at = excluded.updated_at,
              expires_at = excluded.expires_at`
-        ).bind(
-          report.id,
-          actorHash,
-          jobId,
-          targetKey,
-          targetUrl,
-          presentation.displayName,
-          occupation.code,
-          occupation.title,
-          JSON.stringify(
-            createBilingualGameProfileBundle(
-              report.gameProfile,
-              translated.report.gameProfile
-            )
-          ),
-          publishedAt,
-          cardExpires
-        );
-        const publishJob = this.env.DB.prepare(
-          `UPDATE jobs
+          ).bind(
+            report.id,
+            actorHash,
+            jobId,
+            targetKey,
+            targetUrl,
+            presentation.displayName,
+            occupation.code,
+            occupation.title,
+            JSON.stringify(
+              createBilingualGameProfileBundle(
+                report.gameProfile,
+                translated.report.gameProfile
+              )
+            ),
+            publishedAt,
+            cardExpires
+          );
+          const publishJob = this.env.DB.prepare(
+            `UPDATE jobs
            SET stage = 'report', status = 'completed', progress = 100, report_id = ?1,
                degraded_json = ?2, finished_at = ?3, publication_status = 'published',
-               published_at = ?3, hidden_at = NULL, moderation_note = NULL, updated_at = ?3
-           WHERE id = ?4`
-        ).bind(report.id, JSON.stringify(degraded), publishedAt, jobId);
-        await this.env.DB.batch([
-          ...statements,
-          reportInsert,
-          skillCardUpsert,
-          publishJob
-        ]);
-        await Promise.all([
+               published_at = ?3, hidden_at = NULL, moderation_note = NULL,
+               expires_at = ?4, updated_at = ?3
+           WHERE id = ?5`
+          ).bind(report.id, JSON.stringify(degraded), publishedAt, permanentExpiry, jobId);
+          await this.env.DB.batch([
+            ...statements,
+            reportInsert,
+            skillCardUpsert,
+            publishJob
+          ]);
+          return { publishedAt };
+        }
+      );
+      publishedReportId = report.id;
+
+      await step.do("track report publication", async () => {
+        const lifecycle = await this.env.DB.prepare(
+          "SELECT started_at, published_at FROM jobs WHERE id = ?1"
+        )
+          .bind(jobId)
+          .first<{ started_at: string | null; published_at: string | null }>();
+        const tracked = await Promise.allSettled([
           trackWorkerEvent(this.env, "research_completed", {
             jobId,
             eventId: `${jobId}:research_completed`,
@@ -574,7 +625,10 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             researchStage: "report",
             reportType: "published",
             sourceCount: captured.length,
-            durationBucket: durationBucket(lifecycle?.started_at, publishedAt),
+            durationBucket: durationBucket(
+              lifecycle?.started_at ?? undefined,
+              lifecycle?.published_at ?? undefined
+            ),
             degradedCount: degraded.length
           }),
           trackWorkerEvent(this.env, "report_published", {
@@ -588,19 +642,76 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
             degradedCount: degraded.length
           })
         ]);
+        for (const result of tracked) {
+          if (result.status === "rejected") {
+            console.warn(
+              JSON.stringify({
+                event: "publication_analytics_deferred",
+                jobId,
+                message:
+                  result.reason instanceof Error ? result.reason.message : "analytics unavailable"
+              })
+            );
+          }
+        }
+        return { tracked: tracked.filter((result) => result.status === "fulfilled").length };
       });
 
-      await step.do("settle gates", async () => {
-        const actualCents = await getJobCost(this.env.DB, jobId);
-        await Promise.all([
-          actor.release(jobId),
-          budget.settle(jobId, actualCents),
-          this.env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
-        ]);
-      });
-      const actualCents = await getJobCost(this.env.DB, jobId);
-      return { reportId: report.id, actualCents, degraded };
+      let settlementPending = false;
+      try {
+        await step.do(
+          "settle gates",
+          { retries: { limit: 3, delay: "10 seconds", backoff: "exponential" } },
+          async () =>
+            settleResearchGates(
+              actor,
+              budget,
+              this.env.RESEARCH_SCHEDULER.getByName("global"),
+              jobId,
+              finalActualCents
+            )
+        );
+      } catch (error) {
+        settlementPending = true;
+        console.warn(
+          JSON.stringify({
+            event: "research_settlement_deferred",
+            jobId,
+            reportId: report.id,
+            message: error instanceof Error ? error.message : "settlement unavailable"
+          })
+        );
+      }
+      return {
+        reportId: report.id,
+        actualCents: finalActualCents,
+        degraded,
+        settlementPending
+      };
     } catch (error) {
+      if (publishedReportId) {
+        console.error(
+          JSON.stringify({
+            event: "post_publish_workflow_error",
+            jobId,
+            reportId: publishedReportId,
+            message: error instanceof Error ? error.message : "post-publish failure"
+          })
+        );
+        await settleResearchGates(
+          actor,
+          budget,
+          this.env.RESEARCH_SCHEDULER.getByName("global"),
+          jobId,
+          finalActualCents
+        ).catch(() => undefined);
+        return {
+          reportId: publishedReportId,
+          actualCents: finalActualCents,
+          degraded,
+          settlementPending: true
+        };
+      }
       const details = providerErrorDetails(error);
       await updateJob(this.env.DB, jobId, {
         status: "failed",
@@ -609,19 +720,23 @@ export class ResearchWorkflow extends WorkflowEntrypoint<AppEnv, ResearchWorkflo
         errorMessage: details.internalMessage.slice(0, 500),
         finishedAt: new Date().toISOString()
       });
-      await trackWorkerEvent(this.env, "research_failed", {
-        jobId,
-        eventId: `${jobId}:research_failed:${details.code}`,
-        occupationCode,
-        errorCode: details.code,
-        degradedCount: degraded.length
-      });
-      const actualCents = await getJobCost(this.env.DB, jobId);
       await Promise.allSettled([
-        actor.release(jobId),
-        budget.settle(jobId, actualCents),
-        this.env.RESEARCH_SCHEDULER.getByName("global").complete(jobId)
+        trackWorkerEvent(this.env, "research_failed", {
+          jobId,
+          eventId: `${jobId}:research_failed:${details.code}`,
+          occupationCode,
+          errorCode: details.code,
+          degradedCount: degraded.length
+        })
       ]);
+      const actualCents = await getJobCost(this.env.DB, jobId).catch(() => 0);
+      await settleResearchGates(
+        actor,
+        budget,
+        this.env.RESEARCH_SCHEDULER.getByName("global"),
+        jobId,
+        actualCents
+      ).catch(() => undefined);
       throw error;
     }
   }

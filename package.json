@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,8 @@
     "fontcheck": "node scripts/check-ui-fonts.mjs",
     "tokencheck": "node scripts/check-ui-tokens.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.node.config.ts",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "test:watch": "vitest",
     "check": "pnpm copycheck && pnpm fontcheck && pnpm tokencheck && pnpm typecheck && pnpm test && pnpm build && wrangler deploy --dry-run",
     "cf-typegen": "wrangler types",
@@ -25,6 +26,7 @@
     "setup:prod": "node scripts/setup-prod.mjs",
     "doctor": "node scripts/doctor.mjs",
     "backup:prod": "node scripts/backup-prod.mjs",
+    "backup:r2-artifacts": "node scripts/backup-r2-artifacts.mjs",
     "db:backfill-targets:remote": "node scripts/backfill-target-keys.mjs",
     "db:backfill-game-profiles:remote": "node scripts/backfill-game-profiles.mjs",
     "db:backfill-game-profiles:apply": "pnpm run backup:prod && node scripts/backfill-game-profiles.mjs --apply --backup-confirmed",
@@ -32,7 +34,9 @@
     "db:repair-game-identities:apply": "pnpm run backup:prod && node scripts/repair-game-identities.mjs --remote --apply --backup-confirmed",
     "db:repair-method-personas:remote": "node scripts/repair-game-identities.mjs --remote",
     "db:repair-method-personas:apply": "pnpm run backup:prod && node scripts/repair-game-identities.mjs --remote --apply --backup-confirmed",
-    "db:backfill-reports:remote": "node scripts/backfill-report-localizations.mjs --remote --apply",
+    "db:backfill-reports:remote": "node scripts/backfill-report-localizations.mjs --remote",
+    "db:backfill-reports:validate": "node scripts/backfill-report-localizations.mjs --remote --validate",
+    "db:backfill-reports:apply": "pnpm run backup:prod && node scripts/backfill-report-localizations.mjs --remote --apply --backup-confirmed",
     "analytics:plan": "node scripts/analytics.mjs plan",
     "analytics:apply": "node scripts/analytics.mjs apply",
     "analytics:publish": "node scripts/analytics.mjs publish",

@@ -35,7 +35,7 @@ export interface IdentityRepairChange {
   actorHash: string;
   beforeTitle: string | null;
   afterTitle: string;
-  reason: "missing" | "invalid" | "version" | "unchanged";
+  reason: "missing" | "invalid" | "version" | "duplicate" | "unchanged";
   reportPayloadJson: string;
   cardId?: string;
   cardGameProfileJson?: string;
@@ -87,14 +87,70 @@ function titleOfReportPayload(payload: unknown): string | null {
     : null;
 }
 
-function repairReason(identity: unknown): IdentityRepairChange["reason"] {
+function repairReason(
+  identity: unknown,
+  context: IdentitySelectionContext
+): IdentityRepairChange["reason"] {
   if (!isRecord(identity) || typeof identity.title !== "string") return "missing";
-  if (hasCurrentIdentity(identity)) return "unchanged";
+  if (hasCurrentIdentity(identity)) {
+    const title = identity.title.trim();
+    return context.usedTitles?.some((used) => used.trim() === title)
+      ? "duplicate"
+      : "unchanged";
+  }
   return isFourBeatTitle(identity.title) ? "version" : "invalid";
 }
 
+function existingEnglishCopy(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
 function stampEnglishIdentity(identity: GameIdentity, source: GameIdentity): GameIdentity {
-  return localizedEnglishIdentity(source, identity.title);
+  const fallback = localizedEnglishIdentity(source, identity.title);
+  return {
+    ...source,
+    title: existingEnglishCopy(identity.title, fallback.title),
+    signatureMove: existingEnglishCopy(
+      identity.signatureMove,
+      fallback.signatureMove
+    ),
+    strength: existingEnglishCopy(identity.strength, fallback.strength),
+    shadow: existingEnglishCopy(identity.shadow, fallback.shadow),
+    titleRationale: [
+      {
+        ...source.titleRationale[0],
+        explanation: existingEnglishCopy(
+          identity.titleRationale?.[0]?.explanation,
+          fallback.titleRationale[0].explanation
+        )
+      },
+      {
+        ...source.titleRationale[1],
+        explanation: existingEnglishCopy(
+          identity.titleRationale?.[1]?.explanation,
+          fallback.titleRationale[1].explanation
+        )
+      }
+    ],
+    beats: [
+      {
+        ...source.beats[0],
+        text: existingEnglishCopy(identity.beats?.[0]?.text, fallback.beats[0].text)
+      },
+      {
+        ...source.beats[1],
+        text: existingEnglishCopy(identity.beats?.[1]?.text, fallback.beats[1].text)
+      },
+      {
+        ...source.beats[2],
+        text: existingEnglishCopy(identity.beats?.[2]?.text, fallback.beats[2].text)
+      }
+    ]
+  };
+}
+
+function sameIdentity(left: GameIdentity, right: GameIdentity): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function repairChineseReport(
@@ -102,9 +158,11 @@ function repairChineseReport(
   context: IdentitySelectionContext
 ): ReverseReport {
   const upgraded = upgradeStoredReport(value, "zh-TW", context);
-  const identity = hasCurrentIdentity(upgraded.gameProfile.identity)
-    ? upgraded.gameProfile.identity
-    : repairGameIdentity(upgraded, upgraded.gameProfile.identity, context);
+  const identity = repairGameIdentity(
+    upgraded,
+    upgraded.gameProfile.identity,
+    context
+  );
   return {
     ...upgraded,
     gameProfile: {
@@ -127,6 +185,10 @@ function repairReportPayload(
       context
     );
     const english = payload.locales.en;
+    const sourceIdentityChanged = !sameIdentity(
+      source.gameProfile.identity,
+      repairedSource.gameProfile.identity
+    );
     return {
       payload: {
         ...payload,
@@ -139,10 +201,12 @@ function repairReportPayload(
                   ...english,
                   gameProfile: {
                     ...english.gameProfile,
-                    identity: stampEnglishIdentity(
-                      english.gameProfile.identity,
-                      repairedSource.gameProfile.identity
-                    )
+                    identity: sourceIdentityChanged
+                      ? stampEnglishIdentity(
+                          english.gameProfile.identity,
+                          repairedSource.gameProfile.identity
+                        )
+                      : english.gameProfile.identity
                   }
                 }
               }
@@ -174,12 +238,21 @@ function localizedCardProfile(
 function repairCardPayload(value: unknown, source: GameProfile): GameProfile | BilingualGameProfileBundle {
   if (isBilingualGameProfileBundle(value)) {
     const english = value.locales.en;
+    const storedSource = value.locales["zh-TW"];
+    const sourceIdentityChanged =
+      !storedSource || !sameIdentity(storedSource.identity, source.identity);
     return {
       ...value,
       locales: {
         ...value.locales,
         "zh-TW": source,
-        ...(english ? { en: localizedCardProfile(english, source) } : {})
+        ...(english
+          ? {
+              en: sourceIdentityChanged
+                ? localizedCardProfile(english, source)
+                : english
+            }
+          : {})
       }
     };
   }
@@ -237,7 +310,7 @@ export function planIdentityRepair(rows: IdentityRepairRow[]): IdentityRepairPla
           : cardProfile?.identity;
       if (!hasCurrentIdentity(existingIdentity)) invalidBefore += 1;
       if (beforeTitle) beforeKeys.push(beforeTitle);
-      const reason = repairReason(existingIdentity);
+      const reason = repairReason(existingIdentity, globalContext);
       const repaired = repairReportPayload(
         originalPayload,
         globalContext,

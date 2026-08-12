@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { demoReport } from "../worker/demo";
+import backfillScript from "../scripts/backfill-game-profiles.mjs?raw";
+import { createBilingualGameProfileBundle } from "../src/bilingual";
+import { demoReport, demoReportBundle, demoReportEn } from "../worker/demo";
 import { computeGameProfile } from "../worker/game-profile";
 import { historyPresentation } from "../worker/history";
 import { targetKey } from "../worker/publication";
@@ -33,6 +35,12 @@ const dependencies = {
 };
 
 describe("game profile backfill", () => {
+  it("loads TypeScript dependencies through Vite instead of native Node ESM", () => {
+    expect(backfillScript).toContain('moduleServer.ssrLoadModule("/worker/game-profile.ts")');
+    expect(backfillScript).toContain('moduleServer.ssrLoadModule("/worker/backfill-plan.ts")');
+    expect(backfillScript).not.toContain('import("../worker/game-profile.ts")');
+  });
+
   it("plans one payload update and one private card for a legacy report", () => {
     const { gameProfile: _gameProfile, ...legacyReport } = demoReport;
     const plan = planGameProfileBackfill([row(legacyReport)], dependencies);
@@ -62,6 +70,61 @@ describe("game profile backfill", () => {
       reportUpdates: [],
       cardUpserts: [],
       failures: []
+    });
+  });
+
+  it("preserves a current bilingual report and its localized card profile", () => {
+    const cardProfile = createBilingualGameProfileBundle(
+      demoReport.gameProfile,
+      demoReportEn.gameProfile
+    );
+    const plan = planGameProfileBackfill(
+      [
+        row(demoReportBundle, {
+          card_report_id: "report-1",
+          card_game_profile_json: JSON.stringify(cardProfile)
+        })
+      ],
+      dependencies
+    );
+
+    expect(plan).toMatchObject({
+      reportUpdates: [],
+      cardUpserts: [],
+      failures: []
+    });
+  });
+
+  it("backfills a missing source profile without replacing English or locale metadata", () => {
+    const source = demoReportBundle.locales["zh-TW"]!;
+    const { gameProfile: _gameProfile, ...sourceWithoutProfile } = source;
+    const legacyBundle = {
+      ...demoReportBundle,
+      locales: {
+        ...demoReportBundle.locales,
+        "zh-TW": sourceWithoutProfile
+      }
+    } as unknown as typeof demoReportBundle;
+    const storedBundle = JSON.parse(JSON.stringify(legacyBundle)) as typeof demoReportBundle;
+    const plan = planGameProfileBackfill([row(storedBundle)], dependencies);
+    const update = plan.reportUpdates[0];
+
+    expect(plan.failures).toEqual([]);
+    expect(plan.reportUpdates).toHaveLength(1);
+    expect(update.report).toMatchObject({
+      schemaVersion: storedBundle.schemaVersion,
+      availableLocales: storedBundle.availableLocales,
+      core: storedBundle.core,
+      generation: storedBundle.generation,
+      locales: {
+        en: storedBundle.locales.en
+      }
+    });
+    expect(update.cardProfile).toMatchObject({
+      schemaVersion: 1,
+      locales: {
+        en: storedBundle.locales.en!.gameProfile
+      }
     });
   });
 
