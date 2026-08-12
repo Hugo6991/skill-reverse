@@ -68,6 +68,51 @@ export { ActorGate, DailyBudget, ResearchScheduler, ResearchWorkflow };
 const app = new Hono<HonoEnv>();
 const SEO_SHELL_FALLBACK =
   '<!doctype html><html lang="zh-Hant"><head><meta name="robots" content="index,follow" /><meta name="description" content="Skill Reverse" /><title>Skill Reverse</title><!--seo:head--></head><body><div id="root"></div></body></html>';
+const LOCAL_VITE_ORIGIN = "http://localhost:5173";
+
+export function contentSecurityPolicy(
+  nonce: string,
+  { viteDevelopment = false }: { viteDevelopment?: boolean } = {}
+): string {
+  const scriptSources = [
+    "'self'",
+    viteDevelopment ? "'unsafe-inline'" : `'nonce-${nonce}'`,
+    "https://www.googletagmanager.com",
+    "https://*.clarity.ms",
+    "https://cdn.mxpnl.com",
+    "https://challenges.cloudflare.com"
+  ];
+  const connectSources = [
+    "'self'",
+    "https://www.google-analytics.com",
+    "https://region1.google-analytics.com",
+    "https://www.googletagmanager.com",
+    "https://*.clarity.ms",
+    "wss://*.clarity.ms",
+    "https://c.bing.com",
+    "https://api.mixpanel.com",
+    "https://api-eu.mixpanel.com",
+    "https://api-in.mixpanel.com",
+    "https://challenges.cloudflare.com"
+  ];
+  if (viteDevelopment) connectSources.push("ws://localhost:5173");
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSources.join(" ")}`,
+    "frame-src https://challenges.cloudflare.com https://www.googletagmanager.com",
+    `connect-src ${connectSources.join(" ")}`,
+    "img-src 'self' data: https:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'self'"
+  ].join("; ");
+}
+
+function isLocalViteDevelopment(request: Request, env: AppEnv): boolean {
+  return env.APP_MODE === "demo" && new URL(request.url).origin === LOCAL_VITE_ORIGIN;
+}
 
 function requestedLocale(value: string | undefined): Locale | null {
   if (value === undefined || value === "") return "zh-TW";
@@ -287,17 +332,9 @@ app.use("*", async (c, next) => {
   await next();
   c.header(
     "content-security-policy",
-    [
-      "default-src 'self'",
-      `script-src 'self' 'nonce-${nonce}' https://www.googletagmanager.com https://*.clarity.ms https://cdn.mxpnl.com https://challenges.cloudflare.com`,
-      "frame-src https://challenges.cloudflare.com https://www.googletagmanager.com",
-      "connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com https://www.googletagmanager.com https://*.clarity.ms wss://*.clarity.ms https://c.bing.com https://api.mixpanel.com https://api-eu.mixpanel.com https://api-in.mixpanel.com https://challenges.cloudflare.com",
-      "img-src 'self' data: https:",
-      "style-src 'self' 'unsafe-inline'",
-      "font-src 'self' data:",
-      "object-src 'none'",
-      "base-uri 'self'"
-    ].join("; ")
+    contentSecurityPolicy(nonce, {
+      viteDevelopment: isLocalViteDevelopment(c.req.raw, c.env)
+    })
   );
 });
 
