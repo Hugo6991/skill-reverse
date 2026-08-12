@@ -17,7 +17,11 @@ import type {
 import { authorizeAdmin } from "./access";
 import { ActorGate, DailyBudget, ResearchScheduler } from "./durable";
 import { demoReportBundle } from "./demo";
-import { historyOccupationTitle, historyPresentation } from "./history";
+import {
+  historyAnalysisPreview,
+  historyOccupationTitle,
+  historyPresentation
+} from "./history";
 import { normalizeSourceUrl, replaceJobSources } from "./job-sources";
 import {
   getOccupation,
@@ -1184,7 +1188,8 @@ app.get("/api/history", async (c) => {
         reportId: item.report_id,
         createdAt: item.created_at,
         updatedAt: item.updated_at,
-        publishedAt: item.published_at
+        publishedAt: item.published_at,
+        analysisPreview: historyAnalysisPreview(item.report_payload_json, locale)
       };
     }),
     nextCursor:

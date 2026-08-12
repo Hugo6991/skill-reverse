@@ -52,6 +52,7 @@ describe("SEO rendering", () => {
     expect(html).toContain('nonce="nonce123"');
     expect(html).toContain("<h1>");
     expect(html).toContain("AI Skill 作者、方法、證據與風險拆解");
+    expect(html).toContain("先別收藏 Skill，先取走它的思考");
     expect(html).toContain("/reports/featured-report?lang=zh-TW");
     expect(html).toContain("有來源支持的研究摘要");
     expect(html).not.toContain("noindex");

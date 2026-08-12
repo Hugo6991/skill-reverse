@@ -15,7 +15,11 @@ import { HistoryPage } from "./components/HistoryPage";
 import { JobProgress } from "./components/JobProgress";
 import { PublicCardPage } from "./components/PublicCardPage";
 import { ReportView } from "./components/ReportView";
-import { ResearchForm, type ResearchInput } from "./components/ResearchForm";
+import {
+  FeaturedResearch,
+  ResearchForm,
+  type ResearchInput
+} from "./components/ResearchForm";
 import { type AppRoute, TopNav } from "./components/TopNav";
 import type { JobStatus, PublicConfig, ReportPayload, ReverseReport } from "./types";
 
@@ -338,6 +342,7 @@ export default function App() {
               onOpenReport={(reportId) => navigate(`/reports/${encodeURIComponent(reportId)}`)}
             />
             <OutputModel />
+            <FeaturedResearch />
           </div>
         </main>
       );

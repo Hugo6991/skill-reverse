@@ -19,7 +19,7 @@ import {
 import { providerErrorDetails } from "../worker/provider-ledger";
 import type { AppEnv } from "../worker/types";
 import { cleanDisplayTitle, withoutTerminalFullStop } from "../src/text";
-import { historyPresentation } from "../worker/history";
+import { historyAnalysisPreview, historyPresentation } from "../worker/history";
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -515,6 +515,52 @@ describe("history presentation", () => {
       displayName: "My Cool Site",
       skillLabels: []
     });
+  });
+
+  it("extracts a compact six-axis analysis preview without evidence payloads", () => {
+    const preview = historyAnalysisPreview(JSON.stringify(demoReport));
+
+    expect(preview).toMatchObject({
+      highlightAxisId: demoReport.gameProfile.highlightAxisId,
+      riskAxisId: demoReport.gameProfile.riskAxisId
+    });
+    expect(preview?.axes).toHaveLength(6);
+    expect(preview?.badges.length).toBeLessThanOrEqual(2);
+    expect(preview?.axes[0]).toEqual(
+      expect.not.objectContaining({ evidenceIds: expect.anything(), signalIds: expect.anything() })
+    );
+  });
+
+  it("keeps partial profiles renderable by marking missing axes as unknown", () => {
+    const preview = historyAnalysisPreview(
+      JSON.stringify({
+        gameProfile: {
+          rubricVersion: "game-profile-v2",
+          axes: [{ id: "potency", value: 82, coverage: 75 }],
+          highlightAxisId: "potency",
+          accentAxisId: "potency",
+          riskAxisId: "activation",
+          badges: ["evidence_rich", "portable", "well_maintained"]
+        }
+      })
+    );
+
+    expect(preview?.axes).toHaveLength(6);
+    expect(preview?.axes.find((axis) => axis.id === "potency")).toMatchObject({
+      value: 82,
+      coverage: 75
+    });
+    expect(preview?.axes.find((axis) => axis.id === "activation")).toEqual({
+      id: "activation",
+      coverage: 0
+    });
+    expect(preview?.secondaryAxisId).not.toBe(preview?.highlightAxisId);
+    expect(preview?.badges).toEqual(["evidence_rich", "portable"]);
+  });
+
+  it("omits the analysis preview for legacy or malformed reports", () => {
+    expect(historyAnalysisPreview(JSON.stringify({ title: "Legacy report" }))).toBeUndefined();
+    expect(historyAnalysisPreview("{")).toBeUndefined();
   });
 });
 

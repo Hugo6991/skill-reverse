@@ -18,10 +18,13 @@ export const en = {
     languageLabel: "Display language", chinese: "中", english: "EN"
   },
   home: {
-    eyebrow: "Verify the method and evidence before adoption",
-    title: "Understand where an AI Skill comes from, how it works, and whether to trust it",
-    description: "Analyze public Claude Code, Codex, and GitHub Skills through creator context, transferable methods, source evidence, limitations, and adoption guidance.",
+    eyebrow: "Read the thinking before installing",
+    title: "Take the thinking before installing the skill",
+    description: "Paste a public skill, repository, or method. See which problem its creator solved and which rules transfer, try them in any chat AI, and package them only when the need repeats.",
     featuredTitle: "Recent public research",
+    featuredPrimary: "Primary strength",
+    featuredSecondary: "Secondary strength",
+    featuredRisk: "Adoption difficulty",
     urlLabel: "Skill or framework URL",
     urlPlaceholder: "https://github.com/owner/repo/tree/main/skills/example",
     continue: "Continue", changeUrl: "Change URL",
